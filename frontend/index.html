@@ -36,7 +36,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,300;1,400;1,600&family=Montserrat:wght@200;300;400;500&display=swap" rel="stylesheet">
 <style>
-*, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+*, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; cursor: none; }
 
 :root {
   --gold: #D4B96A;
@@ -74,7 +74,6 @@ body {
   z-index: 9999;
   transform: translate(-50%,-50%);
   transition: width .25s, height .25s;
-
 }
 .cursor-trail {
   position: fixed;
@@ -999,14 +998,14 @@ footer {
 
     <hr style="border:none;border-top:1px solid rgba(200,184,122,0.08);margin:36px 0;">
     <h2 style="font-family:'Cormorant Garamond',serif;font-size:22px;font-weight:400;color:#E0D098;letter-spacing:0.06em;margin-bottom:14px;">Contact</h2>
-    <p style="font-size:12px;line-height:2.1;color:rgba(245,239,224,0.52);letter-spacing:0.04em;">For questions, email: info@rsvpsociety.com</p>
+    <p style="font-size:12px;line-height:2.1;color:rgba(245,239,224,0.52);letter-spacing:0.04em;">For questions, email: <a href="/cdn-cgi/l/email-protection" class="__cf_email__" data-cfemail="650c0b030a2517161315160a060c00111c4b060a08">[email&#160;protected]</a></p>
 
     <hr style="border:none;border-top:1px solid rgba(200,184,122,0.08);margin:36px 0;">
     <a href="#" onclick="return showPage('home')" style="font-size:9px;letter-spacing:0.32em;text-transform:uppercase;color:#C8B870;opacity:0.45;text-decoration:none;">← Back to Site</a>
   </div>
 </div>
 
-<script>
+<script data-cfasync="false" src="/cdn-cgi/scripts/5c5dd728/cloudflare-static/email-decode.min.js"></script><script>
   // Page routing
   function showPage(id) {
     document.getElementById('home').style.display = id === 'home' ? 'block' : 'none';
@@ -1061,7 +1060,4 @@ footer {
       });
       if (!res.ok) throw new Error();
     } catch(err) { /* graceful fallback */ }
-    document.getElementById('phoneInput').disabled = true;
-    document.getElementById('nameInput').disabled = true;
-    label.textContent = 'Request Received.';
-    setTimeout(() => { label.textContent = "We'll be in touch if the vibe match
+    docume
