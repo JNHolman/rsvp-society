@@ -1,141 +1,118 @@
 import json
 import boto3
-import anthropic
 import urllib.request
-import urllib.parse
 
-# ── Secrets ──────────────────────────────────────────────
 def get_secret(name):
     client = boto3.client("secretsmanager", region_name="us-east-1")
     return client.get_secret_value(SecretId=name)["SecretString"]
 
-# ── Jade's Personality ────────────────────────────────────
-JADE_SYSTEM_PROMPT = """
-You are Jade — the voice of RSVP Society.
-
-RSVP Society is an exclusive, invitation-only monthly R&B experience. 
-The brand tagline is: "Your presence is requested. Your vibe must be verified."
-The positioning is: "The list you didn't know existed."
+def get_jade_response(user_message, conversation_history=[]):
+    api_key = get_secret("rsvp/claude-api-key")
+    
+    system_prompt = """You are Jade, the AI concierge for RSVP Society — an exclusive invitation-only R&B events experience. 
 
 Your personality:
-- Warm but selective. You make people feel seen, not dismissed.
-- You speak in short, precise sentences. Never paragraphs.
-- You never over-explain. Mystery is part of the brand.
-- You never sound like a bot. Ever.
-- Dry humor, used sparingly.
-- You are the velvet rope. Soft but firm.
+- Warm but selective. You represent a velvet rope.
+- Short, precise sentences. Never over-explain.
+- Dry humor. Confident. A little mysterious.
+- You don't beg or chase. The experience speaks for itself.
+- You screen people with grace, not arrogance.
 
-What you know:
-- RSVP Society is a monthly invite-only R&B event
-- Access is earned, not purchased
-- Events are intimate by design — capacity is curated
-- Location and details are only shared with confirmed guests
-- To be considered, someone needs their number in the system
+Your role:
+- Answer questions about RSVP Society
+- Collect vibe info (what they're about, how they heard of us)
+- Keep the exclusive energy alive in every message
+- Never reveal the exact guest list or venue until approved
+- If someone seems like a fit, let them know they'll hear from us
 
-What you never do:
-- Give out venue details before someone is approved
-- Tell anyone exactly how to get approved
-- Confirm or deny specific guest status publicly
-- Use exclamation points
-- Say "absolutely", "certainly", "of course", "sure thing"
-- Sound corporate or robotic
-- Send long messages
+RSVP Society facts:
+- Monthly invitation-only R&B experiences
+- Intimate venues, curated guest lists
+- Based in Louisville, KY
+- Not open to the public — vibe must be verified
 
-How you handle common situations:
+Tagline: Your presence is requested. Your vibe must be verified."""
 
-Someone asks how to get in:
-→ "You already took the first step. We'll be in touch."
+    messages = conversation_history + [{"role": "user", "content": user_message}]
 
-Someone asks when the next event is:
-→ "Soon. Make sure your number's with us."
+    payload = json.dumps({
+        "model": "claude-haiku-4-5-20251001",
+        "max_tokens": 300,
+        "system": system_prompt,
+        "messages": messages
+    }).encode("utf-8")
 
-Someone gets impatient or pushy:
-→ "Patience is part of the vibe."
-
-Someone asks what kind of event it is:
-→ "Curated R&B. Intimate. Invitation only. The kind of night you remember."
-
-Someone asks if they're on the list:
-→ "We'll reach out when the time is right."
-
-Someone asks about ticket prices:
-→ "Access isn't purchased here. It's earned."
-
-Someone says they heard about it from a friend:
-→ "Good people know good people. We'll be in touch."
-
-Someone is rude or aggressive:
-→ Simply: "This isn't the right fit." Then stop responding.
-
-Keep responses under 2 sentences whenever possible.
-Never start a message with "I".
-Sign off naturally — never with "Best" or "Regards" or any formal closing.
-"""
-
-# ── Send via Superphone GraphQL ───────────────────────────
-def send_sms(mobile, body, api_key):
-    mutation = {
-        "query": """
-        mutation sendMessage($mobile: String!, $body: String!) {
-          sendMessage(input: { mobile: $mobile, platform: TWILIO, body: $body }) {
-            message { id }
-            sendMessageUserErrors { field message }
-          }
-        }
-        """,
-        "variables": {"mobile": mobile, "body": body}
-    }
-    data = json.dumps(mutation).encode("utf-8")
     req = urllib.request.Request(
-        "https://api.superphone.io/graphql",
-        data=data,
+        "https://api.anthropic.com/v1/messages",
+        data=payload,
         headers={
             "Content-Type": "application/json",
-            "Accept": "application/json",
-            "Authorization": f"Bearer {api_key}"
+            "x-api-key": api_key,
+            "anthropic-version": "2023-06-01"
         },
         method="POST"
     )
+
+    with urllib.request.urlopen(req) as response:
+        result = json.loads(response.read())
+        return result["content"][0]["text"]
+
+def send_sms(to, message, phone_number_id, api_key):
+    payload = json.dumps({
+        "to": [to],
+        "from": phone_number_id,
+        "content": message
+    }).encode("utf-8")
+
+    req = urllib.request.Request(
+        "https://api.openphone.com/v1/messages",
+        data=payload,
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": api_key
+        },
+        method="POST"
+    )
+
     with urllib.request.urlopen(req) as response:
         return json.loads(response.read())
 
-# ── Lambda Handler ────────────────────────────────────────
 def handler(event, context):
+    print(f"Event: {json.dumps(event)}")
+
     try:
         body = json.loads(event.get("body", "{}"))
+        print(f"Webhook payload: {body}")
 
-        # Superphone webhook payload
-        mobile = body.get("mobile") or body.get("from") or body.get("phone")
-        incoming_message = body.get("body") or body.get("message") or body.get("text", "")
+        # Quo webhook structure
+        data = body.get("data", {}).get("object", {})
+        direction = data.get("direction", "")
+        
+        # Only respond to inbound messages
+        if direction != "incoming":
+            return {"statusCode": 200, "body": "ok"}
 
-        if not mobile or not incoming_message:
-            return {"statusCode": 400, "body": "Missing mobile or message"}
+        from_number = data.get("from", "")
+        message_text = data.get("content", "")
+        phone_number_id = data.get("phoneNumberId", "")
 
-        # Get secrets
-        superphone_key = get_secret("rsvp/superphone-api-key")
-        claude_key = get_secret("rsvp/claude-api-key")
+        print(f"From: {from_number}, Message: {message_text}")
 
-        # Ask Jade
-        client = anthropic.Anthropic(api_key=claude_key)
-        response = client.messages.create(
-            model="claude-haiku-4-5-20251001",
-            max_tokens=200,
-            system=JADE_SYSTEM_PROMPT,
-            messages=[
-                {"role": "user", "content": incoming_message}
-            ]
-        )
+        if not message_text or not from_number:
+            return {"statusCode": 200, "body": "ok"}
 
-        jade_reply = response.content[0].text.strip()
+        # Get Jade's response from Claude
+        jade_reply = get_jade_response(message_text)
+        print(f"Jade reply: {jade_reply}")
 
-        # Send Jade's response back
-        send_sms(mobile, jade_reply, superphone_key)
+        # Send response via Quo
+        quo_api_key = get_secret("rsvp/quo-api-key")
+        send_sms(from_number, jade_reply, phone_number_id, quo_api_key)
 
-        return {
-            "statusCode": 200,
-            "body": json.dumps({"status": "sent", "reply": jade_reply})
-        }
+        return {"statusCode": 200, "body": "ok"}
 
     except Exception as e:
-        print(f"Error: {str(e)}")
-        return {"statusCode": 500, "body": json.dumps({"error": str(e)})}
+        print(f"EXCEPTION: {str(e)}")
+        import traceback
+        print(traceback.format_exc())
+        return {"statusCode": 200, "body": "ok"}  # Always 200 to Quo

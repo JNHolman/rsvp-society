@@ -1,15 +1,12 @@
 import json
 import boto3
 import urllib.request
-import urllib.parse
 import re
 
-# ── Secrets ──────────────────────────────────────────────
 def get_secret(name):
     client = boto3.client("secretsmanager", region_name="us-east-1")
     return client.get_secret_value(SecretId=name)["SecretString"]
 
-# ── Normalize phone to E.164 ──────────────────────────────
 def normalize_phone(phone):
     digits = re.sub(r"\D", "", phone)
     if len(digits) == 10:
@@ -18,89 +15,86 @@ def normalize_phone(phone):
         return f"+{digits}"
     return f"+{digits}"
 
-# ── Superphone GraphQL ────────────────────────────────────
-def superphone_request(query, variables, api_key):
-    payload = json.dumps({"query": query, "variables": variables}).encode("utf-8")
+def quo_request(endpoint, payload, api_key):
+    data = json.dumps(payload).encode("utf-8")
     req = urllib.request.Request(
-        "https://api.superphone.io/graphql",
-        data=payload,
+        f"https://api.openphone.com/v1/{endpoint}",
+        data=data,
         headers={
             "Content-Type": "application/json",
-            "Accept": "application/json",
-            "Authorization": f"Bearer {api_key}"
+            "Authorization": api_key
         },
         method="POST"
     )
     with urllib.request.urlopen(req) as response:
-        return json.loads(response.read())
+        result = json.loads(response.read())
+        print(f"Quo response: {result}")
+        return result
+
+def get_phone_number_id(api_key):
+    req = urllib.request.Request(
+        "https://api.openphone.com/v1/phone-numbers",
+        headers={"Authorization": api_key},
+        method="GET"
+    )
+    with urllib.request.urlopen(req) as response:
+        result = json.loads(response.read())
+        print(f"Phone numbers: {result}")
+        return result["data"][0]["id"]
 
 def add_contact(mobile, first_name, api_key):
-    mutation = """
-    mutation createContact($mobile: String!, $firstName: String!) {
-      createContact(input: { mobile: $mobile, firstName: $firstName }) {
-        contact { id mobile }
-        userErrors { field message }
-      }
-    }
-    """
-    return superphone_request(mutation, {"mobile": mobile, "firstName": first_name}, api_key)
+    return quo_request("contacts", {
+        "defaultFields": {
+            "firstName": first_name,
+            "phoneNumbers": [{"value": mobile}]
+        }
+    }, api_key)
 
-def send_welcome(mobile, first_name, api_key):
-    welcome = f"Hey {first_name} — your request is in. We'll be in touch if the vibe matches. — Jade"
-    mutation = """
-    mutation sendMessage($mobile: String!, $body: String!) {
-      sendMessage(input: { mobile: $mobile, platform: TWILIO, body: $body }) {
-        message { id }
-        sendMessageUserErrors { field message }
-      }
-    }
-    """
-    return superphone_request(mutation, {"mobile": mobile, "body": welcome}, api_key)
+def send_welcome(mobile, first_name, api_key, phone_number_id):
+    message = f"Josh — RSVP Society has your number. We'll reach out when the time is right. — Jade"
+    # personalize with actual name
+    message = f"{first_name} — RSVP Society has your number. We'll reach out when the time is right. — Jade"
+    return quo_request("messages", {
+        "to": [mobile],
+        "from": phone_number_id,
+        "content": message
+    }, api_key)
 
-# ── Lambda Handler ────────────────────────────────────────
 def handler(event, context):
-    # CORS headers
+    print(f"Event: {json.dumps(event)}")
+
     headers = {
         "Access-Control-Allow-Origin": "https://rsvpsociety.com",
         "Access-Control-Allow-Headers": "Content-Type",
         "Access-Control-Allow-Methods": "POST,OPTIONS"
     }
 
-    # Handle preflight
-    if event.get("httpMethod") == "OPTIONS":
+    if event.get("httpMethod") == "OPTIONS" or event.get("requestContext", {}).get("http", {}).get("method") == "OPTIONS":
         return {"statusCode": 200, "headers": headers, "body": ""}
 
     try:
         body = json.loads(event.get("body", "{}"))
+        print(f"Body: {body}")
+
         raw_phone = body.get("phone", "").strip()
-        first_name = body.get("name", "").strip() or "Guest"
+        first_name = body.get("name", "").strip() or "Friend"
 
         if not raw_phone:
-            return {
-                "statusCode": 400,
-                "headers": headers,
-                "body": json.dumps({"error": "Phone number required"})
-            }
+            return {"statusCode": 400, "headers": headers, "body": json.dumps({"error": "Phone required"})}
 
         mobile = normalize_phone(raw_phone)
-        api_key = get_secret("rsvp/superphone-api-key")
+        print(f"Mobile: {mobile}, Name: {first_name}")
 
-        # Add to Superphone
+        api_key = get_secret("rsvp/quo-api-key")
+        phone_number_id = get_phone_number_id(api_key)
+
         add_contact(mobile, first_name, api_key)
+        send_welcome(mobile, first_name, api_key, phone_number_id)
 
-        # Send Jade's welcome SMS
-        send_welcome(mobile, first_name, api_key)
-
-        return {
-            "statusCode": 200,
-            "headers": headers,
-            "body": json.dumps({"status": "success"})
-        }
+        return {"statusCode": 200, "headers": headers, "body": json.dumps({"status": "success"})}
 
     except Exception as e:
-        print(f"Error: {str(e)}")
-        return {
-            "statusCode": 500,
-            "headers": headers,
-            "body": json.dumps({"error": str(e)})
-        }
+        print(f"EXCEPTION: {str(e)}")
+        import traceback
+        print(traceback.format_exc())
+        return {"statusCode": 500, "headers": headers, "body": json.dumps({"error": str(e)})}
