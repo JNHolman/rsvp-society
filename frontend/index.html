@@ -74,7 +74,7 @@ body {
   z-index: 9999;
   transform: translate(-50%,-50%);
   transition: width .25s, height .25s;
-  mix-blend-mode: difference;
+
 }
 .cursor-trail {
   position: fixed;
@@ -819,7 +819,7 @@ footer {
   <ul class="nav-links">
     <li><a href="#experience">Experience</a></li>
     <li><a href="#access">Request Access</a></li>
-    <li><a href="#" onclick="return showPage('terms')">SMS Terms</a></li>
+    <li><a href="/terms">SMS Terms</a></li>
   </ul>
 </nav>
 
@@ -937,7 +937,7 @@ footer {
     <button type="submit" class="btn-primary phone-submit"><span id="submitLabel">Submit for Consideration</span></button>
     <p class="form-disclaimer">
       By submitting, you agree to receive text messages from RSVP Society including event invitations and updates. Msg &amp; data rates may apply. Message frequency varies. Text HELP for help or STOP to opt out. SMS data will not be shared with any third party.<br>
-      <a href="#" onclick="return showPage('terms')" class="disclaimer-link">SMS Terms &amp; Privacy Policy</a>
+      <a href="/terms" class="disclaimer-link">SMS Terms &amp; Privacy Policy</a>
     </p>
   </form>
 </section>
@@ -970,8 +970,8 @@ footer {
   <span class="footer-brand">[RSVP] Society</span>
   <span class="footer-copy">© 2026 RSVP Society. All rights reserved.</span>
   <ul class="footer-nav">
-    <li><a href="#" onclick="return showPage('terms')">SMS Terms</a></li>
-    <li><a href="#">Privacy</a></li>
+    <li><a href="/terms">SMS Terms</a></li>
+    <li><a href="/terms">Privacy</a></li>
   </ul>
 </footer>
 
@@ -1006,7 +1006,7 @@ footer {
   </div>
 </div>
 
-<script data-cfasync="false" src="/cdn-cgi/scripts/5c5dd728/cloudflare-static/email-decode.min.js"></script><script>
+<script>
   // Page routing
   function showPage(id) {
     document.getElementById('home').style.display = id === 'home' ? 'block' : 'none';
@@ -1064,12 +1064,4 @@ footer {
     document.getElementById('phoneInput').disabled = true;
     document.getElementById('nameInput').disabled = true;
     label.textContent = 'Request Received.';
-    setTimeout(() => { label.textContent = "We'll be in touch if the vibe matches."; }, 1500);
-  }
-
-  document.getElementById('accessForm').addEventListener('submit', handleSubmit);
-
-  // Smooth scroll
-  document.querySelectorAll('a[href^="#"]').forEach(a => {
-    if (a.getAttribute('onclick')) return;
-    a.
+    setTimeout(() => { label.textContent = "We'll be in touch if the vibe match
