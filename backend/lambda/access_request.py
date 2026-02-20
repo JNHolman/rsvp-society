@@ -34,19 +34,19 @@ def superphone_request(query, variables, api_key):
     with urllib.request.urlopen(req) as response:
         return json.loads(response.read())
 
-def add_contact(mobile, api_key):
+def add_contact(mobile, first_name, api_key):
     mutation = """
-    mutation createContact($mobile: String!) {
-      createContact(input: { mobile: $mobile }) {
+    mutation createContact($mobile: String!, $firstName: String!) {
+      createContact(input: { mobile: $mobile, firstName: $firstName }) {
         contact { id mobile }
         userErrors { field message }
       }
     }
     """
-    return superphone_request(mutation, {"mobile": mobile}, api_key)
+    return superphone_request(mutation, {"mobile": mobile, "firstName": first_name}, api_key)
 
-def send_welcome(mobile, api_key):
-    welcome = "Your request is in. We'll be in touch if the vibe matches. — Jade"
+def send_welcome(mobile, first_name, api_key):
+    welcome = f"Hey {first_name} — your request is in. We'll be in touch if the vibe matches. — Jade"
     mutation = """
     mutation sendMessage($mobile: String!, $body: String!) {
       sendMessage(input: { mobile: $mobile, platform: TWILIO, body: $body }) {
@@ -73,6 +73,7 @@ def handler(event, context):
     try:
         body = json.loads(event.get("body", "{}"))
         raw_phone = body.get("phone", "").strip()
+        first_name = body.get("name", "").strip() or "Guest"
 
         if not raw_phone:
             return {
@@ -85,10 +86,10 @@ def handler(event, context):
         api_key = get_secret("rsvp/superphone-api-key")
 
         # Add to Superphone
-        add_contact(mobile, api_key)
+        add_contact(mobile, first_name, api_key)
 
         # Send Jade's welcome SMS
-        send_welcome(mobile, api_key)
+        send_welcome(mobile, first_name, api_key)
 
         return {
             "statusCode": 200,
