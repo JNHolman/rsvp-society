@@ -1060,4 +1060,22 @@ footer {
       });
       if (!res.ok) throw new Error();
     } catch(err) { /* graceful fallback */ }
-    docume
+    document.getElementById('phoneInput').disabled = true;
+    document.getElementById('nameInput').disabled = true;
+    label.textContent = 'Request Received.';
+    setTimeout(() => { label.textContent = "We'll be in touch if the vibe matches."; }, 1500);
+  }
+
+  document.getElementById('accessForm').addEventListener('submit', handleSubmit);
+
+  // Smooth scroll
+  document.querySelectorAll('a[href^="#"]').forEach(a => {
+    if (a.getAttribute('onclick')) return;
+    a.addEventListener('click', e => {
+      const target = document.querySelector(a.getAttribute('href'));
+      if (target) { e.preventDefault(); target.scrollIntoView({ behavior: 'smooth' }); }
+    });
+  });
+</script>
+</body>
+</html>
