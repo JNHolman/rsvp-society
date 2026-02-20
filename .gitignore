@@ -1,0 +1,2 @@
+backend/terraform/.terraform/
+backend/terraform/*.zip
