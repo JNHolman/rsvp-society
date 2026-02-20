@@ -1,2 +1,5 @@
 backend/terraform/.terraform/
 backend/terraform/*.zip
+backend/terraform/*.zip
+backend/terraform/terraform.tfstate
+backend/terraform/terraform.tfstate.backup
