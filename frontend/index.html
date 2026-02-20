@@ -1,0 +1,493 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Summer's Calling Festival 2026 | Playa del Carmen</title>
+  <meta name="description" content="10 music and lifestyle events over 4 days — June 11–14, 2026 in Playa del Carmen, Mexico.">
+  <meta name="keywords" content="Summer's Calling Festival, Playa del Carmen, music festival, 2026, Mexico, DJ, Golightly Promotions">
+  <meta property="og:title" content="Summer's Calling Festival 2026 | Playa del Carmen">
+  <meta property="og:description" content="10 Events. 4 Days. One Epic Escape. June 11–14, 2026 in Playa del Carmen, Mexico.">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://summerscallingfestival.com">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@300;400;600;700;800;900&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --orange: #F47B20;
+      --deep-orange: #C85A0A;
+      --gold: #F5C842;
+      --dark: #1A0A00;
+      --white: #FFFFFF;
+      --card: rgba(255,255,255,0.88);
+    }
+
+    html { scroll-behavior: smooth; }
+
+    /* ── FULL PAGE BACKGROUND ── */
+    body {
+      font-family: 'Montserrat', sans-serif;
+      background-color: var(--orange);
+      background-image: url('images/background.jpeg');
+      background-size: cover;
+      background-position: center top;
+      background-repeat: no-repeat;
+      background-attachment: fixed;
+      color: var(--dark);
+      overflow-x: hidden;
+    }
+
+    /* ── NAV ── */
+    nav {
+      position: fixed;
+      top: 0; left: 0; right: 0;
+      z-index: 1000;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 40px;
+      background: rgba(26,10,0,0.4);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+    }
+    .nav-logo img { height: 72px; width: auto; }
+    .nav-links { display: flex; align-items: center; gap: 28px; list-style: none; }
+    .nav-links a {
+      color: var(--white);
+      text-decoration: none;
+      font-size: 0.68rem;
+      font-weight: 700;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      transition: color 0.2s;
+    }
+    .nav-links a:hover { color: var(--gold); }
+    .nav-right { display: flex; align-items: center; gap: 16px; }
+    .nav-social { display: flex; gap: 14px; align-items: center; }
+    .nav-social a { color: var(--white); transition: color 0.2s; display: flex; }
+    .nav-social a:hover { color: var(--gold); }
+    .btn-tickets {
+      background: var(--orange);
+      color: var(--white);
+      text-decoration: none;
+      font-size: 0.68rem;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      padding: 10px 22px;
+      border-radius: 50px;
+      transition: background 0.2s;
+      white-space: nowrap;
+    }
+    .btn-tickets:hover { background: var(--deep-orange); }
+    .hamburger { display: none; flex-direction: column; gap: 5px; cursor: pointer; background: none; border: none; padding: 4px; }
+    .hamburger span { display: block; width: 26px; height: 2px; background: var(--white); border-radius: 2px; }
+
+    /* ── MOBILE MENU ── */
+    .mobile-menu {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(26,10,0,0.97);
+      z-index: 999;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 24px;
+    }
+    .mobile-menu.open { display: flex; }
+    .mobile-menu a {
+      color: var(--white);
+      text-decoration: none;
+      font-size: 0.95rem;
+      font-weight: 700;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+      transition: color 0.2s;
+    }
+    .mobile-menu a:hover { color: var(--gold); }
+    .mobile-close { position: absolute; top: 20px; right: 26px; font-size: 1.5rem; cursor: pointer; color: var(--white); background: none; border: none; }
+
+    /* ── HERO ── */
+    .hero {
+      padding-top: 120px;
+      padding-bottom: 60px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      text-align: center;
+      gap: 12px;
+      padding-left: 24px;
+      padding-right: 24px;
+    }
+    .hero-logo {
+      width: 160px;
+      height: auto;
+      filter: drop-shadow(0 4px 20px rgba(0,0,0,0.4));
+      margin-bottom: 4px;
+    }
+    .hero h1 {
+      font-size: clamp(2.4rem, 7vw, 5.5rem);
+      font-weight: 900;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: var(--white);
+      line-height: 1;
+      text-shadow: 0 3px 20px rgba(0,0,0,0.4);
+    }
+    .hero-date {
+      display: inline-block;
+      background: rgba(255,255,255,0.15);
+      backdrop-filter: blur(6px);
+      border: 1px solid rgba(255,255,255,0.4);
+      color: var(--white);
+      font-size: 0.72rem;
+      font-weight: 700;
+      letter-spacing: 0.25em;
+      text-transform: uppercase;
+      padding: 8px 24px;
+      border-radius: 50px;
+    }
+    .hero-cta {
+      display: inline-block;
+      background: var(--white);
+      color: var(--deep-orange);
+      text-decoration: none;
+      font-size: 0.75rem;
+      font-weight: 800;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      padding: 14px 44px;
+      border-radius: 50px;
+      margin-top: 8px;
+      transition: background 0.2s, transform 0.2s;
+      box-shadow: 0 8px 30px rgba(0,0,0,0.25);
+    }
+    .hero-cta:hover { background: #FFF8EE; transform: scale(1.04); }
+
+    /* ── CARD WRAPPER - white overlay used everywhere ── */
+    .card {
+      background: var(--card);
+      backdrop-filter: blur(4px);
+      -webkit-backdrop-filter: blur(4px);
+      border-radius: 20px;
+      padding: 48px 40px;
+    }
+
+    /* ── SECTION SPACING ── */
+    .section {
+      padding: 48px 24px;
+      max-width: 860px;
+      margin: 0 auto;
+    }
+    .section-full {
+      padding: 48px 24px;
+    }
+
+    /* ── EYEBROW / HEADINGS ── */
+    .eyebrow {
+      font-size: 0.65rem;
+      font-weight: 700;
+      letter-spacing: 0.3em;
+      text-transform: uppercase;
+      color: var(--orange);
+      margin-bottom: 10px;
+    }
+    .eyebrow-white {
+      font-size: 0.65rem;
+      font-weight: 700;
+      letter-spacing: 0.3em;
+      text-transform: uppercase;
+      color: rgba(255,255,255,0.75);
+      margin-bottom: 10px;
+    }
+    h2 {
+      font-size: clamp(1.8rem, 4vw, 3rem);
+      font-weight: 900;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+      line-height: 1.05;
+      margin-bottom: 20px;
+    }
+    .body-text {
+      font-size: 0.95rem;
+      font-weight: 300;
+      line-height: 1.8;
+      color: #3A2010;
+      margin-bottom: 14px;
+    }
+
+    /* ── VIDEO ── */
+    .video-section {
+      padding: 0 24px 40px;
+      display: flex;
+      justify-content: center;
+    }
+    .video-wrapper {
+      width: 100%;
+      max-width: 400px;
+      position: relative;
+      padding-bottom: 177.78%;
+      height: 0;
+      overflow: hidden;
+      border-radius: 16px;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.45);
+    }
+    .video-wrapper iframe {
+      position: absolute;
+      top: 0; left: 0;
+      width: 100%;
+      height: 100%;
+      border: none;
+    }
+
+    /* ── CAROUSEL ── */
+    .carousel-section {
+      padding: 0 24px 48px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+    .carousel-container {
+      position: relative;
+      width: 100%;
+      max-width: 480px;
+      overflow: hidden;
+      border-radius: 16px;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.45);
+    }
+    .carousel-track { display: flex; transition: transform 0.5s ease; }
+    .carousel-track img { min-width: 100%; width: 100%; height: auto; display: block; object-fit: contain; }
+    .carousel-btn {
+      position: absolute;
+      top: 50%; transform: translateY(-50%);
+      background: rgba(244,123,32,0.9);
+      color: var(--white);
+      border: none;
+      width: 40px; height: 40px;
+      border-radius: 50%;
+      font-size: 1.3rem;
+      cursor: pointer;
+      z-index: 10;
+      display: flex; align-items: center; justify-content: center;
+      transition: background 0.2s;
+    }
+    .carousel-btn:hover { background: var(--deep-orange); }
+    .carousel-btn.prev { left: 10px; }
+    .carousel-btn.next { right: 10px; }
+    .carousel-dots { display: flex; justify-content: center; gap: 8px; margin-top: 16px; }
+    .carousel-dots span { width: 8px; height: 8px; border-radius: 50%; background: rgba(255,255,255,0.4); cursor: pointer; transition: background 0.2s; }
+    .carousel-dots span.active { background: var(--white); }
+
+    /* ── ABOUT ── */
+    .about-section { padding: 0 24px 48px; }
+    .about-section .card { max-width: 860px; margin: 0 auto; text-align: center; }
+    .stats-row { display: flex; justify-content: center; gap: 40px; margin-top: 40px; flex-wrap: wrap; }
+    .stat-number { font-size: 3rem; font-weight: 900; color: var(--orange); line-height: 1; }
+    .stat-label { font-size: 0.6rem; font-weight: 700; letter-spacing: 0.2em; text-transform: uppercase; color: #8A5030; margin-top: 3px; }
+
+
+
+    /* ── FOOTER ── */
+    footer {
+      background: rgba(10,3,0,0.7);
+      backdrop-filter: blur(8px);
+      padding: 16px 24px;
+      text-align: center;
+      border-top: 1px solid rgba(255,255,255,0.1);
+    }
+    footer img { height: 60px; margin-bottom: 16px; }
+    .footer-links { display: flex; justify-content: center; gap: 20px; flex-wrap: wrap; margin-bottom: 16px; list-style: none; }
+    .footer-links a { color: rgba(255,255,255,0.5); text-decoration: none; font-size: 0.62rem; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; transition: color 0.2s; }
+    .footer-links a:hover { color: var(--gold); }
+    .footer-social { display: flex; justify-content: center; gap: 18px; margin-bottom: 16px; }
+    .footer-social a { color: rgba(255,255,255,0.5); transition: color 0.2s; display: flex; }
+    .footer-social a:hover { color: var(--gold); }
+    footer p { color: rgba(255,255,255,0.25); font-size: 0.6rem; letter-spacing: 0.1em; }
+
+    /* ── POPUP ── */
+    .popup-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.8); z-index: 2000; align-items: center; justify-content: center; padding: 20px; }
+    .popup-overlay.show { display: flex; }
+    .popup-box {
+      background: var(--dark);
+      border: 1px solid var(--orange);
+      border-radius: 20px;
+      padding: 40px 32px;
+      max-width: 440px;
+      width: 100%;
+      text-align: center;
+      position: relative;
+      animation: fadeUp 0.35s ease;
+    }
+    @keyframes fadeUp { from { opacity:0; transform:translateY(18px); } to { opacity:1; transform:translateY(0); } }
+    .popup-close { position: absolute; top: 12px; right: 16px; font-size: 1.2rem; cursor: pointer; color: rgba(255,255,255,0.4); background: none; border: none; transition: color 0.2s; }
+    .popup-close:hover { color: var(--white); }
+    .popup-box h3 { font-size: 1.4rem; font-weight: 900; letter-spacing: 0.04em; text-transform: uppercase; color: var(--gold); margin-bottom: 4px; }
+    .popup-box .popup-sub { font-size: 0.8rem; font-weight: 700; color: var(--orange); letter-spacing: 0.08em; text-transform: uppercase; margin-bottom: 14px; }
+    .popup-box p { color: rgba(255,255,255,0.6); font-size: 0.85rem; margin-bottom: 22px; line-height: 1.6; font-weight: 300; }
+    .popup-form { display: flex; flex-direction: column; gap: 10px; }
+    .popup-form input { background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.15); border-radius: 10px; padding: 12px 16px; color: var(--white); font-size: 0.88rem; font-family: 'Montserrat', sans-serif; outline: none; transition: border 0.2s; }
+    .popup-form input:focus { border-color: var(--orange); }
+    .popup-form input::placeholder { color: rgba(255,255,255,0.3); }
+    .popup-form button { background: var(--orange); color: var(--white); border: none; border-radius: 10px; padding: 13px; font-size: 0.7rem; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; cursor: pointer; transition: background 0.2s; font-family: 'Montserrat', sans-serif; }
+    .popup-form button:hover { background: var(--deep-orange); }
+
+    /* ── RESPONSIVE ── */
+    @media (max-width: 768px) {
+      nav { padding: 8px 16px; }
+      .nav-links { display: none; }
+      .hamburger { display: flex; }
+      .hero h1 { font-size: clamp(2rem, 10vw, 3.5rem); }
+      .card { padding: 32px 20px; }
+      .stats-row { gap: 24px; }
+      footer { padding: 28px 16px 20px; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- NAV -->
+<nav>
+  <div class="nav-logo"><img src="images/logo.png" alt="Summer's Calling Festival"></div>
+  <ul class="nav-links">
+    <li><a href="index.html">Home</a></li>
+    <li><a href="hotel.html">Hotel</a></li>
+    <li><a href="itinerary.html">Itinerary</a></li>
+    <li><a href="info.html">Info</a></li>
+    <li><a href="bio.html">Bio</a></li>
+    <li><a href="contact.html">Contact</a></li>
+  </ul>
+  <div class="nav-right">
+    <div class="nav-social">
+      <a href="https://www.facebook.com/people/Summers-Calling-Festival/61563997092626/" target="_blank" aria-label="Facebook">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M18 2h-3a5 5 0 00-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 011-1h3z"/></svg>
+      </a>
+      <a href="https://www.instagram.com/summerscallingfestival" target="_blank" aria-label="Instagram">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="20" rx="5"/><circle cx="12" cy="12" r="4"/><circle cx="17.5" cy="6.5" r="1" fill="currentColor" stroke="none"/></svg>
+      </a>
+    </div>
+    <a href="https://www.tickettailor.com/checkout/view-event/id/6141130/chk/cc70/?modal_widget=true&widget=true" class="btn-tickets" target="_blank">Buy Tickets</a>
+    <button class="hamburger" id="hamburger" aria-label="Open menu"><span></span><span></span><span></span></button>
+  </div>
+</nav>
+
+<!-- MOBILE MENU -->
+<div class="mobile-menu" id="mobileMenu">
+  <button class="mobile-close" id="mobileClose">✕</button>
+  <a href="index.html">Home</a>
+  <a href="hotel.html">Hotel</a>
+  <a href="itinerary.html">Itinerary</a>
+  <a href="info.html">Info</a>
+  <a href="bio.html">Bio</a>
+  <a href="contact.html">Contact</a>
+  <a href="https://www.tickettailor.com/checkout/view-event/id/6141130/chk/cc70/?modal_widget=true&widget=true" target="_blank" style="color:var(--gold);">Buy Tickets</a>
+</div>
+
+<!-- HERO -->
+<section class="hero">
+  <img src="images/logo.png" alt="Summer's Calling Festival" class="hero-logo">
+  <h1>Summer's Calling<br>Festival</h1>
+  <div class="hero-date">June 11–14, 2026 &nbsp;·&nbsp; Playa del Carmen, Mexico</div>
+  <a href="https://www.tickettailor.com/checkout/view-event/id/6141130/chk/cc70/?modal_widget=true&widget=true" class="hero-cta" target="_blank">Get Your Tickets</a>
+</section>
+
+<!-- VIDEO -->
+<div class="video-section">
+  <div class="video-wrapper">
+    <iframe src="https://www.youtube-nocookie.com/embed/AXSysoa7n_I?rel=0&modestbranding=1&playsinline=1" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen title="Summer's Calling Festival"></iframe>
+  </div>
+</div>
+
+<!-- FLYER CAROUSEL -->
+<div class="carousel-section">
+  <p class="eyebrow-white" style="margin-bottom:20px;">The Lineup &amp; Events</p>
+  <div class="carousel-container">
+    <div class="carousel-track" id="carouselTrack">
+      <img src="images/flyer-1.jpg" alt="Flyer 1">
+      <img src="images/flyer-2.jpg" alt="Flyer 2">
+      <img src="images/flyer-3.jpg" alt="Flyer 3">
+      <img src="images/flyer-4.jpg" alt="Flyer 4">
+    </div>
+    <button class="carousel-btn prev" id="prevBtn">&#8249;</button>
+    <button class="carousel-btn next" id="nextBtn">&#8250;</button>
+  </div>
+  <div class="carousel-dots" id="carouselDots">
+    <span class="active"></span><span></span><span></span><span></span>
+  </div>
+</div>
+
+<!-- ABOUT -->
+<div class="about-section">
+  <div class="card">
+    <p class="eyebrow">Welcome to the Festival</p>
+    <h2>One Epic Escape</h2>
+    <p class="body-text">Welcome to Summer's Calling Festival — the ultimate beachside music and lifestyle festival in the heart of Playa del Carmen, Mexico. Over four unforgettable days, we bring the rhythm of summer to life with 10 unique events celebrating sun, sound, and connection.</p>
+    <p class="body-text">From sunrise beach parties and rooftop DJ sets to vibrant late-night shows, Summer's Calling blends tropical luxury with world-class entertainment in one of the most stunning coastal destinations on Earth.</p>
+
+  </div>
+</div>
+
+
+
+<!-- FOOTER -->
+<footer>
+  <p>©2026 Golightly Promotions. All Rights Reserved. &nbsp;|&nbsp; summerscallingfestival.com</p>
+</footer>
+
+<!-- EMAIL POPUP -->
+<div class="popup-overlay" id="popupOverlay">
+  <div class="popup-box">
+    <button class="popup-close" id="popupClose">✕</button>
+    <h3>Mexico. Music. Magic.</h3>
+    <p class="popup-sub">You In?</p>
+    <p>Subscribe for exclusive updates, giveaways &amp; early ticket access.</p>
+    <form class="popup-form" action="https://formspree.io/f/YOUR_FORM_ID" method="POST">
+      <input type="text" name="name" placeholder="Your Name" required>
+      <input type="email" name="email" placeholder="Your Email" required>
+      <button type="submit">I'm In — Sign Me Up</button>
+    </form>
+  </div>
+</div>
+
+<script>
+  // Hamburger
+  const hamburger = document.getElementById('hamburger');
+  const mobileMenu = document.getElementById('mobileMenu');
+  const mobileClose = document.getElementById('mobileClose');
+  hamburger.addEventListener('click', () => mobileMenu.classList.add('open'));
+  mobileClose.addEventListener('click', () => mobileMenu.classList.remove('open'));
+  mobileMenu.querySelectorAll('a').forEach(a => a.addEventListener('click', () => mobileMenu.classList.remove('open')));
+
+  // Carousel
+  const track = document.getElementById('carouselTrack');
+  const dots = document.querySelectorAll('#carouselDots span');
+  let current = 0;
+  const total = 4;
+  function goTo(i) {
+    current = (i + total) % total;
+    track.style.transform = 'translateX(-' + (current * 100) + '%)';
+    dots.forEach((d, j) => d.classList.toggle('active', j === current));
+  }
+  document.getElementById('prevBtn').addEventListener('click', () => goTo(current - 1));
+  document.getElementById('nextBtn').addEventListener('click', () => goTo(current + 1));
+  dots.forEach((d, i) => d.addEventListener('click', () => goTo(i)));
+  setInterval(() => goTo(current + 1), 5000);
+
+  // Popup after 2 clicks
+  let clicks = 0;
+  const popup = document.getElementById('popupOverlay');
+  const popupClose = document.getElementById('popupClose');
+  document.addEventListener('click', (e) => {
+    if (e.target.closest('#popupOverlay') || e.target.closest('#hamburger') || e.target.closest('#mobileMenu')) return;
+    if (popup.classList.contains('show')) return;
+    clicks++;
+    if (clicks >= 2) popup.classList.add('show');
+  });
+  popupClose.addEventListener('click', () => popup.classList.remove('show'));
+  popup.addEventListener('click', (e) => { if (e.target === popup) popup.classList.remove('show'); });
+</script>
+</body>
+</html>
