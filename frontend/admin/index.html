@@ -19,7 +19,7 @@
   --black-2: #0C0C10;
   --black-3: #111116;
   --white: #F8F4EC;
-  --white-dim: rgba(248,244,236,0.55);
+  --white-dim: rgba(248,244,236,0.82);
   --white-faint: rgba(248,244,236,0.12);
   --green: #4CAF7D;
   --red: #C0474A;
@@ -70,7 +70,7 @@ body {
   font-size: 9px;
   letter-spacing: 0.4em;
   text-transform: uppercase;
-  color: var(--gold-dim);
+  color: rgba(212,185,106,0.8);
   display: block;
   margin-bottom: 12px;
 }
@@ -155,7 +155,7 @@ nav {
   font-size: 9px;
   letter-spacing: 0.35em;
   text-transform: uppercase;
-  color: var(--white-dim);
+  color: rgba(248,244,236,0.85);
 }
 
 .nav-right {
@@ -194,7 +194,7 @@ nav {
   cursor: none;
   transition: all .2s;
 }
-.logout-btn:hover { border-color: var(--gold-dim); color: var(--gold); }
+.logout-btn:hover { border-color: rgba(212,185,106,0.8); color: var(--gold); }
 
 /* Main content */
 main {
@@ -223,7 +223,7 @@ main {
   font-family: 'Cormorant Garamond', serif;
   font-size: 48px;
   font-weight: 300;
-  color: var(--white);
+  color: rgba(248,244,236,0.95);
   line-height: 1;
   margin-bottom: 8px;
 }
@@ -235,8 +235,8 @@ main {
   font-size: 8px;
   letter-spacing: 0.4em;
   text-transform: uppercase;
-  color: var(--white-dim);
-  opacity: 0.5;
+  color: rgba(248,244,236,0.7);
+  opacity: 1;
 }
 
 /* Section header */
@@ -257,7 +257,7 @@ main {
 .section-count {
   font-size: 9px;
   letter-spacing: 0.3em;
-  color: var(--gold-dim);
+  color: rgba(212,185,106,0.8);
 }
 
 /* Filter bar */
@@ -279,7 +279,7 @@ main {
   cursor: none;
   transition: all .2s;
 }
-.filter-btn:hover { border-color: var(--gold-dim); color: var(--gold); }
+.filter-btn:hover { border-color: rgba(212,185,106,0.8); color: var(--gold); }
 .filter-btn.active { background: var(--gold-faint); border-color: var(--gold); color: var(--gold); }
 
 /* Member table */
@@ -292,7 +292,7 @@ main {
   font-size: 7px;
   letter-spacing: 0.4em;
   text-transform: uppercase;
-  color: rgba(248,244,236,0.25);
+  color: rgba(248,244,236,0.55);
   text-align: left;
   padding: 12px 16px;
   border-bottom: 1px solid rgba(212,185,106,0.07);
@@ -304,7 +304,7 @@ main {
   border-bottom: 1px solid rgba(212,185,106,0.04);
   font-size: 11px;
   letter-spacing: 0.06em;
-  color: var(--white-dim);
+  color: rgba(248,244,236,0.85);
   vertical-align: middle;
 }
 
@@ -321,20 +321,20 @@ main {
 .member-phone {
   font-family: 'Cormorant Garamond', serif;
   font-size: 13px;
-  color: var(--white-dim);
+  color: rgba(248,244,236,0.88);
   letter-spacing: 0.05em;
 }
 
 .member-date {
   font-size: 10px;
-  color: rgba(248,244,236,0.3);
+  color: rgba(248,244,236,0.6);
 }
 
 .member-source {
   font-size: 8px;
   letter-spacing: 0.3em;
   text-transform: uppercase;
-  color: rgba(212,185,106,0.4);
+  color: rgba(212,185,106,0.75);
 }
 
 /* Status badge */
@@ -371,7 +371,7 @@ main {
 .action-btn.approve:hover { background: rgba(76,175,125,0.1); border-color: var(--green); }
 .action-btn.deny { border-color: rgba(192,71,74,0.2); color: rgba(192,71,74,0.6); }
 .action-btn.deny:hover { background: rgba(192,71,74,0.08); border-color: #C0474A; color: #C0474A; }
-.action-btn.pending { border-color: rgba(212,185,106,0.2); color: var(--gold-dim); }
+.action-btn.pending { border-color: rgba(212,185,106,0.2); color: rgba(212,185,106,0.8); }
 .action-btn.pending:hover { background: var(--gold-faint); border-color: var(--gold); color: var(--gold); }
 .action-btn:disabled { opacity: 0.3; cursor: not-allowed; }
 
@@ -379,7 +379,7 @@ main {
 .empty-state {
   text-align: center;
   padding: 80px 0;
-  color: rgba(248,244,236,0.2);
+  color: rgba(248,244,236,0.45);
   font-family: 'Cormorant Garamond', serif;
   font-style: italic;
   font-size: 18px;
@@ -391,7 +391,7 @@ main {
   font-size: 9px;
   letter-spacing: 0.4em;
   text-transform: uppercase;
-  color: rgba(212,185,106,0.3);
+  color: rgba(212,185,106,0.6);
 }
 
 /* Toast */
@@ -462,7 +462,7 @@ main {
   font-size: 8px;
   letter-spacing: 0.4em;
   text-transform: uppercase;
-  color: var(--gold-dim);
+  color: rgba(212,185,106,0.8);
   display: block;
   margin-bottom: 10px;
 }
@@ -522,7 +522,7 @@ main {
 .settings-hint {
   font-size: 9px;
   letter-spacing: 0.08em;
-  color: rgba(248,244,236,0.2);
+  color: rgba(248,244,236,0.45);
   line-height: 1.8;
   margin-top: -16px;
   margin-bottom: 24px;
@@ -539,7 +539,272 @@ main {
   cursor: none;
   transition: all .2s;
 }
-.settings-btn:hover { border-color: var(--gold-dim); color: var(--gold); }
+.settings-btn:hover { border-color: rgba(212,185,106,0.8); color: var(--gold); }
+
+/* Invite section */
+#invite-section { display: none; }
+.invite-form {
+  background: var(--black-2);
+  border: 1px solid rgba(212,185,106,0.08);
+  padding: 36px;
+  margin-bottom: 32px;
+}
+.invite-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 24px;
+  margin-bottom: 28px;
+}
+.invite-field label {
+  font-size: 8px;
+  letter-spacing: 0.4em;
+  text-transform: uppercase;
+  color: rgba(212,185,106,0.8);
+  display: block;
+  margin-bottom: 10px;
+}
+.invite-field input {
+  width: 100%;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid rgba(212,185,106,0.2);
+  color: var(--white);
+  font-family: 'Montserrat', sans-serif;
+  font-weight: 300;
+  font-size: 13px;
+  padding: 8px 0;
+  outline: none;
+  transition: border-color .2s;
+}
+.invite-field input:focus { border-color: var(--gold); }
+.invite-actions { display: flex; gap: 12px; }
+.invite-btn-preview {
+  background: transparent;
+  border: 1px solid rgba(212,185,106,0.3);
+  color: var(--gold);
+  font-family: 'Montserrat', sans-serif;
+  font-size: 9px;
+  letter-spacing: 0.4em;
+  text-transform: uppercase;
+  padding: 14px 28px;
+  cursor: none;
+  transition: background .2s;
+}
+.invite-btn-preview:hover { background: var(--gold-faint); }
+.invite-btn-send {
+  background: rgba(76,175,125,0.1);
+  border: 1px solid rgba(76,175,125,0.3);
+  color: var(--green);
+  font-family: 'Montserrat', sans-serif;
+  font-size: 9px;
+  letter-spacing: 0.4em;
+  text-transform: uppercase;
+  padding: 14px 28px;
+  cursor: none;
+  transition: background .2s;
+  opacity: 0.4;
+}
+.invite-btn-send.ready { opacity: 1; }
+.invite-btn-send.ready:hover { background: rgba(76,175,125,0.2); }
+.preview-box {
+  border: 1px solid rgba(212,185,106,0.08);
+  background: var(--black-2);
+  padding: 28px 32px;
+  margin-bottom: 24px;
+  display: none;
+}
+.preview-box.visible { display: block; }
+.preview-stats {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 1px;
+  background: rgba(212,185,106,0.07);
+  margin-bottom: 24px;
+}
+.preview-stat {
+  background: var(--black-3);
+  padding: 20px;
+  text-align: center;
+}
+.preview-stat-num {
+  font-family: 'Cormorant Garamond', serif;
+  font-size: 32px;
+  font-weight: 300;
+  color: var(--gold);
+  line-height: 1;
+  margin-bottom: 6px;
+}
+.preview-stat-label {
+  font-size: 7px;
+  letter-spacing: 0.35em;
+  text-transform: uppercase;
+  color: rgba(248,244,236,0.6);
+}
+/* Gender/tier inline controls on member rows */
+.inline-select {
+  background: transparent;
+  border: 1px solid rgba(212,185,106,0.15);
+  color: var(--white-dim);
+  font-family: 'Montserrat', sans-serif;
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  padding: 5px 8px;
+  cursor: none;
+  outline: none;
+  transition: border-color .2s;
+}
+.inline-select:hover, .inline-select:focus { border-color: rgba(212,185,106,0.8); color: var(--gold); }
+
+
+/* Event section */
+#event-section, #attendance-section { display: none; }
+.event-form {
+  background: var(--black-2);
+  border: 1px solid rgba(212,185,106,0.08);
+  padding: 36px;
+  max-width: 640px;
+}
+.event-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+  margin-bottom: 28px;
+}
+.event-field { display: flex; flex-direction: column; gap: 10px; }
+.event-field label {
+  font-size: 8px;
+  letter-spacing: 0.4em;
+  text-transform: uppercase;
+  color: rgba(212,185,106,0.85);
+}
+.event-field input, .event-field textarea {
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid rgba(212,185,106,0.2);
+  color: rgba(248,244,236,0.9);
+  font-family: 'Montserrat', sans-serif;
+  font-weight: 300;
+  font-size: 13px;
+  padding: 8px 0;
+  outline: none;
+  transition: border-color .2s;
+  resize: none;
+}
+.event-field input:focus, .event-field textarea:focus { border-color: var(--gold); }
+.event-field.full { grid-column: 1 / -1; }
+.event-save {
+  background: transparent;
+  border: 1px solid rgba(212,185,106,0.3);
+  color: var(--gold);
+  font-family: 'Montserrat', sans-serif;
+  font-size: 9px;
+  letter-spacing: 0.4em;
+  text-transform: uppercase;
+  padding: 14px 28px;
+  cursor: none;
+  transition: background .2s;
+}
+.event-save:hover { background: var(--gold-faint); }
+.event-current {
+  margin-bottom: 32px;
+  padding: 20px 24px;
+  border: 1px solid rgba(212,185,106,0.08);
+  background: var(--black-3);
+  font-size: 11px;
+  color: rgba(248,244,236,0.7);
+  letter-spacing: 0.05em;
+  line-height: 2;
+}
+.event-current strong { color: var(--gold); font-weight: 400; }
+
+/* Attendance section */
+.attendance-filter { display: flex; gap: 12px; margin-bottom: 24px; align-items: center; }
+.attendance-filter input {
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid rgba(212,185,106,0.2);
+  color: rgba(248,244,236,0.9);
+  font-family: 'Montserrat', sans-serif;
+  font-size: 11px;
+  padding: 8px 0;
+  outline: none;
+  min-width: 260px;
+}
+.attendance-filter input::placeholder { color: rgba(248,244,236,0.3); }
+.att-btn-yes {
+  background: rgba(76,175,125,0.1);
+  border: 1px solid rgba(76,175,125,0.3);
+  color: var(--green);
+  font-family: 'Montserrat', sans-serif;
+  font-size: 8px;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  padding: 8px 16px;
+  cursor: none;
+  transition: background .2s;
+}
+.att-btn-yes:hover { background: rgba(76,175,125,0.2); }
+.att-btn-no {
+  background: rgba(192,71,74,0.08);
+  border: 1px solid rgba(192,71,74,0.2);
+  color: #C0474A;
+  font-family: 'Montserrat', sans-serif;
+  font-size: 8px;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  padding: 8px 16px;
+  cursor: none;
+  transition: background .2s;
+}
+.att-btn-no:hover { background: rgba(192,71,74,0.15); }
+
+
+/* Event editor */
+#event-section, #attendance-section { display: none; }
+.event-form { background: var(--black-2); border: 1px solid rgba(212,185,106,0.08); padding: 36px; margin-bottom: 32px; }
+.event-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; margin-bottom: 28px; }
+.event-grid-full { grid-column: 1 / -1; }
+.event-field label { font-size: 8px; letter-spacing: 0.4em; text-transform: uppercase; color: var(--gold-dim); display: block; margin-bottom: 10px; }
+.event-field input, .event-field textarea {
+  width: 100%; background: transparent; border: none;
+  border-bottom: 1px solid rgba(212,185,106,0.2); color: var(--white);
+  font-family: 'Montserrat', sans-serif; font-weight: 300; font-size: 13px;
+  padding: 8px 0; outline: none; transition: border-color .2s; resize: none;
+}
+.event-field input:focus, .event-field textarea:focus { border-color: var(--gold); }
+.event-save-btn {
+  background: transparent; border: 1px solid rgba(212,185,106,0.3); color: var(--gold);
+  font-family: 'Montserrat', sans-serif; font-size: 9px; letter-spacing: 0.4em;
+  text-transform: uppercase; padding: 14px 36px; cursor: none; transition: background .2s;
+}
+.event-save-btn:hover { background: var(--gold-faint); }
+.event-current {
+  background: var(--black-2); border: 1px solid rgba(212,185,106,0.08);
+  padding: 28px 32px; margin-bottom: 32px; display: none;
+}
+.event-current.visible { display: block; }
+.event-current-label { font-size: 7px; letter-spacing: 0.4em; text-transform: uppercase; color: var(--gold-dim); margin-bottom: 16px; }
+.event-current-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
+.event-current-item label { font-size: 7px; letter-spacing: 0.3em; text-transform: uppercase; color: rgba(248,244,236,0.3); display: block; margin-bottom: 6px; }
+.event-current-item span { font-family: 'Cormorant Garamond', serif; font-size: 16px; color: var(--white); }
+/* Attendance */
+.att-filter-row { display: flex; gap: 8px; align-items: center; margin-bottom: 24px; flex-wrap: wrap; }
+.att-event-input {
+  background: transparent; border: none; border-bottom: 1px solid rgba(212,185,106,0.2);
+  color: var(--white); font-family: 'Montserrat', sans-serif; font-size: 11px;
+  letter-spacing: 0.1em; padding: 8px 0; outline: none; width: 220px;
+}
+.att-load-btn {
+  background: none; border: 1px solid rgba(212,185,106,0.2); color: var(--gold-dim);
+  font-family: 'Montserrat', sans-serif; font-size: 8px; letter-spacing: 0.3em;
+  text-transform: uppercase; padding: 9px 18px; cursor: none; transition: all .2s;
+}
+.att-load-btn:hover { border-color: var(--gold); color: var(--gold); }
+.att-btn-yes { border-color: rgba(76,175,125,0.3); color: var(--green); }
+.att-btn-yes:hover { background: rgba(76,175,125,0.1); }
+.att-btn-no { border-color: rgba(192,71,74,0.2); color: rgba(192,71,74,0.6); }
+.att-btn-no:hover { background: rgba(192,71,74,0.08); color: #C0474A; }
+
 </style>
 </head>
 <body>
@@ -567,7 +832,12 @@ main {
       <span class="nav-title">Member Console</span>
     </div>
     <div class="nav-right">
-      <button class="tab-btn active" id="tab-members" onclick="setTab('members')">Members</button>
+      <button class="tab-btn active" id="tab-members" onclick="setTab('members'); showSection('members')">Members</button>
+      <button class="tab-btn" id="tab-invite" onclick="setTab('invite'); showSection('invite')">Invite</button>
+      <button class="tab-btn" id="tab-event" onclick="setTab('event'); showSection('event'); loadCurrentEvent()">Event</button>
+      <button class="tab-btn" id="tab-attendance" onclick="setTab('attendance'); showSection('attendance')">Attendance</button>
+      <button class="tab-btn" id="tab-event" onclick="setTab('event'); showSection('event'); loadCurrentEvent()">Event</button>
+      <button class="tab-btn" id="tab-attendance" onclick="setTab('attendance'); showSection('attendance')">Attendance</button>
       <div class="nav-divider"></div>
       <button class="settings-btn" onclick="openSettings()">Settings</button>
       <button class="logout-btn" onclick="doLogout()">Sign Out</button>
@@ -575,6 +845,7 @@ main {
   </nav>
 
   <main>
+  <div id="members-section">
     <!-- Stats -->
     <div class="stats-row" id="stats-row">
       <div class="stat-card">
@@ -607,6 +878,151 @@ main {
       <div class="loading-state">Loading members...</div>
     </div>
   </main>
+
+  </div><!-- /members-section -->
+
+  <!-- Invite Section -->
+  <div id="invite-section">
+    <div class="section-header">
+      <div class="section-title">Invite Blast</div>
+    </div>
+
+    <div class="invite-form">
+      <div class="invite-grid">
+        <div class="invite-field">
+          <label for="inv-event-id">Event ID</label>
+          <input type="text" id="inv-event-id" placeholder="2026-03-march" />
+        </div>
+        <div class="invite-field">
+          <label for="inv-capacity">Capacity</label>
+          <input type="number" id="inv-capacity" placeholder="200" min="1" />
+        </div>
+        <div class="invite-field">
+          <label for="inv-female-pct">Female % (0–100)</label>
+          <input type="number" id="inv-female-pct" placeholder="60" min="0" max="100" value="60" />
+        </div>
+        <div class="invite-field">
+          <label for="inv-buffer">Tier 2 Ghost Buffer %</label>
+          <input type="number" id="inv-buffer" placeholder="30" min="0" max="100" value="30" />
+        </div>
+      </div>
+      <div class="invite-actions">
+        <button class="invite-btn-preview" onclick="runPreview()">Preview Invite List</button>
+        <button class="invite-btn-send" id="send-btn" onclick="sendInvites()" disabled>Send Invites</button>
+      </div>
+    </div>
+
+    <!-- Preview results -->
+    <div class="preview-box" id="preview-box">
+      <div class="preview-stats" id="preview-stats"></div>
+      <div id="preview-table-container"></div>
+    </div>
+  </div>
+
+  <!-- Event Section -->
+  <div id="event-section">
+    <div class="section-header">
+      <div class="section-title">Current Event</div>
+    </div>
+
+    <div class="event-current" id="current-event-display">Loading current event...</div>
+
+    <div class="event-form">
+      <div class="event-grid">
+        <div class="event-field">
+          <label for="ev-date">Date</label>
+          <input type="text" id="ev-date" placeholder="March 15, 2026" />
+        </div>
+        <div class="event-field">
+          <label for="ev-city">City</label>
+          <input type="text" id="ev-city" placeholder="Louisville, KY" />
+        </div>
+        <div class="event-field">
+          <label for="ev-time">Time</label>
+          <input type="text" id="ev-time" placeholder="10:00 PM" />
+        </div>
+        <div class="event-field">
+          <label for="ev-dresscode">Dress Code</label>
+          <input type="text" id="ev-dresscode" placeholder="All Black" />
+        </div>
+        <div class="event-field full">
+          <label for="ev-notes">Notes (visible on event page)</label>
+          <textarea id="ev-notes" rows="3" placeholder="Any additional details..."></textarea>
+        </div>
+      </div>
+      <button class="event-save" onclick="saveEvent()">Save Event Details</button>
+    </div>
+  </div>
+
+  <!-- Attendance Section -->
+  <div id="attendance-section">
+    <div class="section-header">
+      <div class="section-title">Mark Attendance</div>
+    </div>
+    <p style="font-size:10px;letter-spacing:0.1em;color:rgba(248,244,236,0.5);margin-bottom:28px;">Search an invited member and mark whether they showed up.</p>
+
+    <div class="attendance-filter">
+      <input type="text" id="att-search" placeholder="Search by name or phone..." oninput="searchAttendance(this.value)" />
+    </div>
+
+    <div id="attendance-results"></div>
+  </div>
+
+  <!-- Event Section -->
+  <div id="event-section">
+    <div class="section-header">
+      <div class="section-title">Current Event</div>
+    </div>
+
+    <!-- Current event display -->
+    <div class="event-current" id="event-current-display">
+      <div class="event-current-label">Live Event Details</div>
+      <div class="event-current-grid" id="event-current-grid"></div>
+    </div>
+
+    <!-- Event editor -->
+    <div class="event-form">
+      <div class="event-grid">
+        <div class="event-field">
+          <label>Date</label>
+          <input type="text" id="ev-date" placeholder="Saturday, March 15, 2026" />
+        </div>
+        <div class="event-field">
+          <label>City</label>
+          <input type="text" id="ev-city" placeholder="Louisville, KY" />
+        </div>
+        <div class="event-field">
+          <label>Capacity</label>
+          <input type="number" id="ev-capacity" placeholder="150" />
+        </div>
+        <div class="event-field">
+          <label>Venue (revealed to approved only)</label>
+          <input type="text" id="ev-venue" placeholder="Venue name" />
+        </div>
+        <div class="event-field">
+          <label>Dress Code</label>
+          <input type="text" id="ev-dresscode" placeholder="All Black Preferred" />
+        </div>
+        <div class="event-field event-grid-full">
+          <label>Notes (Jade will reference this)</label>
+          <textarea id="ev-notes" rows="3" placeholder="Any additional details Jade should know about this event..."></textarea>
+        </div>
+      </div>
+      <button class="event-save-btn" onclick="saveEvent()">Save Event</button>
+    </div>
+  </div>
+
+  <!-- Attendance Section -->
+  <div id="attendance-section">
+    <div class="section-header">
+      <div class="section-title">Mark Attendance</div>
+    </div>
+    <div class="att-filter-row">
+      <input type="text" class="att-event-input" id="att-event-id" placeholder="Event ID (e.g. 2026-03-march)" />
+      <button class="att-load-btn" onclick="loadAttendance()">Load Invitees</button>
+    </div>
+    <div id="attendance-container"></div>
+  </div>
 
   <!-- Settings overlay -->
   <div class="settings-overlay" id="settings-overlay" onclick="closeSettings()"></div>
@@ -768,6 +1184,23 @@ function renderMembers(members) {
     const optIn = m.smsOptIn ? '<span class="optin-dot" title="SMS opted in"></span>' : '<span class="optin-dot no" title="No SMS opt-in"></span>';
     const source = m.source || 'web';
 
+    const genderVal = m.gender || '';
+    const tierVal   = m.tierOverride || '';
+    const genderSelect = `
+      <select class="inline-select" onchange="updateGender('${m.phone}', this.value)">
+        <option value="" ${!genderVal ? 'selected' : ''}>—</option>
+        <option value="F" ${genderVal==='F' ? 'selected' : ''}>F</option>
+        <option value="M" ${genderVal==='M' ? 'selected' : ''}>M</option>
+        <option value="O" ${genderVal==='O' ? 'selected' : ''}>O</option>
+      </select>`;
+    const tierSelect = `
+      <select class="inline-select" onchange="updateTier('${m.phone}', this.value)">
+        <option value="0" ${!tierVal ? 'selected' : ''}>Auto</option>
+        <option value="1" ${tierVal==1 ? 'selected' : ''}>T1</option>
+        <option value="2" ${tierVal==2 ? 'selected' : ''}>T2</option>
+        <option value="3" ${tierVal==3 ? 'selected' : ''}>T3</option>
+      </select>`;
+
     let actions = '';
     if (currentStatus === 'PENDING') {
       actions = `
@@ -785,7 +1218,8 @@ function renderMembers(members) {
         <td><span class="member-name">${escHtml(m.name || '—')}</span></td>
         <td><span class="member-phone">${m.phone}</span></td>
         <td>${optIn}</td>
-        <td><span class="member-source">${source}</span></td>
+        <td>${genderSelect}</td>
+        <td>${tierSelect}</td>
         <td><span class="member-date">${date}</span></td>
         <td><span class="status-badge ${m.status}">${m.status}</span></td>
         <td><div class="action-btns">${actions}</div></td>
@@ -800,7 +1234,8 @@ function renderMembers(members) {
           <th>Name</th>
           <th>Phone</th>
           <th>SMS</th>
-          <th>Source</th>
+          <th>Gender</th>
+              <th>Tier</th>
           <th>Requested</th>
           <th>Status</th>
           <th>Actions</th>
@@ -856,6 +1291,400 @@ async function setStatus(phone, newStatus) {
 // ── Utils ──
 function escHtml(str) {
   return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+
+// ── Section switching ──
+function showSection(section) {
+  document.getElementById('members-section').style.display   = section === 'members'    ? 'block' : 'none';
+  document.getElementById('invite-section').style.display    = section === 'invite'     ? 'block' : 'none';
+  document.getElementById('event-section').style.display     = section === 'event'      ? 'block' : 'none';
+  document.getElementById('attendance-section').style.display = section === 'attendance' ? 'block' : 'none';
+  if (section === 'event') loadCurrentEvent();
+  if (section === 'attendance') loadAttendanceMembers();
+}
+
+// ── Invite preview ──
+let lastPreview = null;
+
+async function runPreview() {
+  const eventId    = document.getElementById('inv-event-id').value.trim();
+  const capacity   = parseInt(document.getElementById('inv-capacity').value) || 0;
+  const femalePct  = parseInt(document.getElementById('inv-female-pct').value) || 60;
+  const buffer     = parseInt(document.getElementById('inv-buffer').value) || 30;
+
+  if (!eventId || !capacity) { showToast('Event ID and capacity required', 'error'); return; }
+
+  showToast('Calculating...');
+  try {
+    const res = await fetch(`${API}/admin/invite/preview`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-admin-token': adminToken },
+      body: JSON.stringify({ eventId, capacity, femalePercent: femalePct, tier2BufferPct: buffer })
+    });
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.error);
+
+    lastPreview = { eventId, capacity, femalePercent: femalePct, tier2BufferPct: buffer };
+    renderPreview(data);
+
+    const sendBtn = document.getElementById('send-btn');
+    sendBtn.disabled = false;
+    sendBtn.classList.add('ready');
+    showToast('Preview ready — review before sending', '');
+  } catch (err) {
+    showToast('Preview failed: ' + err.message, 'error');
+  }
+}
+
+function renderPreview(data) {
+  const s = data.summary;
+  const box = document.getElementById('preview-box');
+  box.classList.add('visible');
+
+  document.getElementById('preview-stats').innerHTML = `
+    <div class="preview-stat"><div class="preview-stat-num">${s.totalInvites}</div><div class="preview-stat-label">Total Invites</div></div>
+    <div class="preview-stat"><div class="preview-stat-num gold">${s.breakdown.femTier1 + s.breakdown.femTier2}</div><div class="preview-stat-label">Female (${s.femalePercent}%)</div></div>
+    <div class="preview-stat"><div class="preview-stat-num">${s.breakdown.maleTier1 + s.breakdown.maleTier2}</div><div class="preview-stat-label">Male (${s.malePercent}%)</div></div>
+    <div class="preview-stat"><div class="preview-stat-num red">${s.breakdown.tier3Skipped}</div><div class="preview-stat-label">Tier 3 Skipped</div></div>
+  `;
+
+  const rows = data.members.map(m => `
+    <tr>
+      <td><span class="member-name">${escHtml(m.name || '—')}</span></td>
+      <td><span class="member-phone">${m.phone}</span></td>
+      <td><span class="member-source">${m.gender || '?'}</span></td>
+      <td><span class="status-badge PENDING">Tier ${m.tier}</span></td>
+      <td><span class="member-date">${m.attendedCount}/${m.invitedCount} attended</span></td>
+    </tr>
+  `).join('');
+
+  document.getElementById('preview-table-container').innerHTML = `
+    <table class="member-table">
+      <thead><tr>
+        <th>Name</th><th>Phone</th><th>Gender</th><th>Tier</th><th>Attendance</th>
+      </tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+  `;
+}
+
+async function sendInvites() {
+  if (!lastPreview) return;
+  if (!confirm('Send invites to all members in the preview list?')) return;
+
+  const sendBtn = document.getElementById('send-btn');
+  sendBtn.disabled = true;
+  sendBtn.textContent = 'Sending...';
+
+  try {
+    const res = await fetch(`${API}/admin/invite/send`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-admin-token': adminToken },
+      body: JSON.stringify({ ...lastPreview, confirmSend: true })
+    });
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.error);
+
+    showToast(`Done — ${data.invitesWritten} invites written, ${data.smsSent} SMS sent`, 'success');
+    lastPreview = null;
+    document.getElementById('preview-box').classList.remove('visible');
+    sendBtn.classList.remove('ready');
+  } catch (err) {
+    showToast('Send failed: ' + err.message, 'error');
+    sendBtn.disabled = false;
+  }
+}
+
+// ── Gender / Tier inline updates ──
+async function updateGender(phone, gender) {
+  try {
+    await fetch(`${API}/admin/members/gender`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-admin-token': adminToken },
+      body: JSON.stringify({ phone, gender })
+    });
+    showToast('Gender updated', 'success');
+  } catch (err) {
+    showToast('Update failed', 'error');
+  }
+}
+
+async function updateTier(phone, tier) {
+  try {
+    await fetch(`${API}/admin/members/tier`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-admin-token': adminToken },
+      body: JSON.stringify({ phone, tier: parseInt(tier) })
+    });
+    showToast('Tier updated', 'success');
+  } catch (err) {
+    showToast('Update failed', 'error');
+  }
+}
+
+
+// ── Event management ──
+async function loadCurrentEvent() {
+  try {
+    const res = await fetch(`${API}/admin/event`, {
+      headers: { 'x-admin-token': adminToken }
+    });
+    const data = await res.json();
+    const ev = data.event || {};
+    const display = document.getElementById('current-event-display');
+
+    if (!ev.date && !ev.city) {
+      display.innerHTML = '<em style="color:rgba(248,244,236,0.3)">No event set yet.</em>';
+      return;
+    }
+
+    display.innerHTML = [
+      ev.date      ? `<strong>Date:</strong> ${ev.date}` : '',
+      ev.city      ? `<strong>City:</strong> ${ev.city}` : '',
+      ev.time      ? `<strong>Time:</strong> ${ev.time}` : '',
+      ev.dresscode ? `<strong>Dress Code:</strong> ${ev.dresscode}` : '',
+      ev.notes     ? `<strong>Notes:</strong> ${ev.notes}` : '',
+      ev.updatedAt ? `<span style="font-size:9px;color:rgba(248,244,236,0.35)">Last updated: ${ev.updatedAt}</span>` : '',
+    ].filter(Boolean).join('<br>');
+
+    // Pre-fill the form
+    if (ev.date)      document.getElementById('ev-date').value = ev.date;
+    if (ev.city)      document.getElementById('ev-city').value = ev.city;
+    if (ev.time)      document.getElementById('ev-time').value = ev.time;
+    if (ev.dresscode) document.getElementById('ev-dresscode').value = ev.dresscode;
+    if (ev.notes)     document.getElementById('ev-notes').value = ev.notes;
+  } catch(e) {
+    document.getElementById('current-event-display').textContent = 'Failed to load.';
+  }
+}
+
+async function saveEvent() {
+  const body = {
+    date:      document.getElementById('ev-date').value.trim(),
+    city:      document.getElementById('ev-city').value.trim(),
+    time:      document.getElementById('ev-time').value.trim(),
+    dresscode: document.getElementById('ev-dresscode').value.trim(),
+    notes:     document.getElementById('ev-notes').value.trim(),
+  };
+
+  try {
+    const res = await fetch(`${API}/admin/event`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-admin-token': adminToken },
+      body: JSON.stringify(body)
+    });
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.error);
+    showToast('Event saved', 'success');
+    loadCurrentEvent();
+  } catch(e) {
+    showToast('Save failed: ' + e.message, 'error');
+  }
+}
+
+// ── Attendance ──
+let attMembers = [];
+
+async function loadAttendanceMembers() {
+  try {
+    const res = await fetch(`${API}/admin/members?status=APPROVED`, {
+      headers: { 'x-admin-token': adminToken }
+    });
+    const data = await res.json();
+    attMembers = data.members || [];
+  } catch(e) {}
+}
+
+function searchAttendance(query) {
+  const q = query.toLowerCase();
+  const results = q.length < 2 ? [] : attMembers.filter(m =>
+    (m.name || '').toLowerCase().includes(q) ||
+    (m.phone || '').includes(q)
+  ).slice(0, 20);
+
+  const container = document.getElementById('attendance-results');
+  if (!results.length) {
+    container.innerHTML = q.length >= 2 ? '<div class="empty-state" style="padding:40px 0">No members found.</div>' : '';
+    return;
+  }
+
+  container.innerHTML = `
+    <table class="member-table">
+      <thead><tr>
+        <th>Name</th><th>Phone</th><th>Attended</th><th>Invited</th><th>Mark</th>
+      </tr></thead>
+      <tbody>
+        ${results.map(m => `
+          <tr id="att-row-${m.phone.replace(/[^0-9]/g,'')}">
+            <td><span class="member-name">${escHtml(m.name || '—')}</span></td>
+            <td><span class="member-phone">${m.phone}</span></td>
+            <td><span class="member-date">${m.attendedCount || 0}</span></td>
+            <td><span class="member-date">${m.invitedCount || 0}</span></td>
+            <td>
+              <div class="action-btns">
+                <button class="att-btn-yes" onclick="markAttendance('${m.phone}', true)">Attended</button>
+                <button class="att-btn-no" onclick="markAttendance('${m.phone}', false)">No Show</button>
+              </div>
+            </td>
+          </tr>
+        `).join('')}
+      </tbody>
+    </table>
+  `;
+}
+
+async function markAttendance(phone, attended) {
+  const rowId = 'att-row-' + phone.replace(/[^0-9]/g, '');
+  const row = document.getElementById(rowId);
+  if (row) row.style.opacity = '0.4';
+
+  try {
+    const res = await fetch(`${API}/admin/members/attendance`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-admin-token': adminToken },
+      body: JSON.stringify({ phone, attended })
+    });
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.error);
+    showToast(attended ? 'Marked as attended' : 'Marked as no show', attended ? 'success' : '');
+    if (row) row.remove();
+  } catch(e) {
+    if (row) row.style.opacity = '1';
+    showToast('Failed: ' + e.message, 'error');
+  }
+}
+
+
+// ── Event management ──
+async function loadCurrentEvent() {
+  try {
+    const res = await fetch(`${API}/admin/event`, {
+      headers: { 'x-admin-token': adminToken }
+    });
+    const data = await res.json();
+    if (data.ok && data.event && data.event.date) {
+      const ev = data.event;
+      // Populate form
+      document.getElementById('ev-date').value      = ev.date      || '';
+      document.getElementById('ev-city').value      = ev.city      || '';
+      document.getElementById('ev-capacity').value  = ev.capacity  || '';
+      document.getElementById('ev-venue').value     = ev.venue     || '';
+      document.getElementById('ev-dresscode').value = ev.dresscode || '';
+      document.getElementById('ev-notes').value     = ev.notes     || '';
+
+      // Show current event display
+      const fields = [
+        { label: 'Date',      val: ev.date },
+        { label: 'City',      val: ev.city },
+        { label: 'Venue',     val: ev.venue },
+        { label: 'Dresscode', val: ev.dresscode },
+        { label: 'Capacity',  val: ev.capacity },
+        { label: 'Updated',   val: (ev.updatedAt || '').replace('T', ' ').slice(0, 16) },
+      ];
+      document.getElementById('event-current-grid').innerHTML = fields.map(f => `
+        <div class="event-current-item">
+          <label>${f.label}</label>
+          <span>${f.val || '—'}</span>
+        </div>
+      `).join('');
+      document.getElementById('event-current-display').classList.add('visible');
+    }
+  } catch (err) {
+    console.error('loadCurrentEvent:', err);
+  }
+}
+
+async function saveEvent() {
+  const body = {
+    date:      document.getElementById('ev-date').value.trim(),
+    city:      document.getElementById('ev-city').value.trim(),
+    capacity:  parseInt(document.getElementById('ev-capacity').value) || 0,
+    venue:     document.getElementById('ev-venue').value.trim(),
+    dresscode: document.getElementById('ev-dresscode').value.trim(),
+    notes:     document.getElementById('ev-notes').value.trim(),
+  };
+
+  if (!body.date) { showToast('Date is required', 'error'); return; }
+
+  try {
+    const res = await fetch(`${API}/admin/event`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-admin-token': adminToken },
+      body: JSON.stringify(body)
+    });
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.error);
+    showToast('Event saved — Jade is updated', 'success');
+    loadCurrentEvent();
+  } catch (err) {
+    showToast('Save failed: ' + err.message, 'error');
+  }
+}
+
+// ── Attendance ──
+async function loadAttendance() {
+  const eventId = document.getElementById('att-event-id').value.trim();
+  if (!eventId) { showToast('Enter an event ID', 'error'); return; }
+
+  document.getElementById('attendance-container').innerHTML = '<div class="loading-state">Loading invitees...</div>';
+
+  try {
+    const res = await fetch(`${API}/admin/members?status=APPROVED`, {
+      headers: { 'x-admin-token': adminToken }
+    });
+    const data = await res.json();
+    const members = data.members || [];
+
+    if (!members.length) {
+      document.getElementById('attendance-container').innerHTML = '<div class="empty-state">No approved members found.</div>';
+      return;
+    }
+
+    const rows = members.map(m => `
+      <tr id="att-row-${m.phone.replace(/\+/g,'').replace(/\s/g,'')}">
+        <td><span class="member-name">${escHtml(m.name || '—')}</span></td>
+        <td><span class="member-phone">${m.phone}</span></td>
+        <td><span class="member-date">Attended: ${m.attendedCount || 0} / Invited: ${m.invitedCount || 0}</span></td>
+        <td>
+          <div class="action-btns">
+            <button class="action-btn approve att-btn-yes" onclick="markAttendance('${m.phone}', true, '${eventId}')">Attended</button>
+            <button class="action-btn deny att-btn-no" onclick="markAttendance('${m.phone}', false, '${eventId}')">No Show</button>
+          </div>
+        </td>
+      </tr>
+    `).join('');
+
+    document.getElementById('attendance-container').innerHTML = `
+      <table class="member-table">
+        <thead><tr>
+          <th>Name</th><th>Phone</th><th>History</th><th>Mark</th>
+        </tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    `;
+  } catch (err) {
+    document.getElementById('attendance-container').innerHTML = '<div class="empty-state">Failed to load members.</div>';
+  }
+}
+
+async function markAttendance(phone, attended, eventId) {
+  const rowId = 'att-row-' + phone.replace(/\+/g,'').replace(/\s/g,'');
+  const row = document.getElementById(rowId);
+  if (row) row.style.opacity = '0.4';
+
+  try {
+    await fetch(`${API}/admin/members/attendance`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-admin-token': adminToken },
+      body: JSON.stringify({ phone, attended, eventId })
+    });
+    showToast(`Marked ${attended ? 'attended' : 'no show'}`, attended ? 'success' : '');
+    if (row) row.remove();
+  } catch (err) {
+    if (row) row.style.opacity = '1';
+    showToast('Failed to mark attendance', 'error');
+  }
 }
 
 // ── Settings panel ──
