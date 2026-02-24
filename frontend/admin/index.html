@@ -1,0 +1,885 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RSVP Society — Admin</title>
+<meta name="robots" content="noindex, nofollow">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;1,300;1,400&family=Montserrat:wght@200;300;400;500&display=swap" rel="stylesheet">
+<style>
+*, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+:root {
+  --gold: #D4B96A;
+  --gold-dim: rgba(212,185,106,0.5);
+  --gold-faint: rgba(212,185,106,0.08);
+  --black: #060608;
+  --black-2: #0C0C10;
+  --black-3: #111116;
+  --white: #F8F4EC;
+  --white-dim: rgba(248,244,236,0.55);
+  --white-faint: rgba(248,244,236,0.12);
+  --green: #4CAF7D;
+  --red: #C0474A;
+  --pending: rgba(212,185,106,0.15);
+}
+
+body {
+  background: var(--black);
+  color: var(--white);
+  font-family: 'Montserrat', sans-serif;
+  font-weight: 300;
+  min-height: 100vh;
+  cursor: none;
+}
+
+/* Custom cursor */
+.cursor { position: fixed; width: 5px; height: 5px; background: var(--gold); border-radius: 50%; pointer-events: none; z-index: 9999; transform: translate(-50%,-50%); mix-blend-mode: difference; transition: transform .1s; }
+.cursor-ring { position: fixed; width: 24px; height: 24px; border: 1px solid rgba(212,185,106,0.3); border-radius: 50%; pointer-events: none; z-index: 9998; transform: translate(-50%,-50%); transition: width .3s, height .3s, border-color .3s; }
+
+/* Login Screen */
+#login-screen {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 0;
+}
+
+.login-wordmark {
+  font-family: 'Cormorant Garamond', serif;
+  font-size: 11px;
+  letter-spacing: 0.5em;
+  color: var(--gold);
+  text-transform: uppercase;
+  margin-bottom: 48px;
+  opacity: 0.7;
+}
+
+.login-box {
+  width: 340px;
+  border: 1px solid rgba(212,185,106,0.12);
+  background: var(--black-2);
+  padding: 40px 36px;
+}
+
+.login-label {
+  font-size: 9px;
+  letter-spacing: 0.4em;
+  text-transform: uppercase;
+  color: var(--gold-dim);
+  display: block;
+  margin-bottom: 12px;
+}
+
+.login-input {
+  width: 100%;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid rgba(212,185,106,0.2);
+  color: var(--white);
+  font-family: 'Montserrat', sans-serif;
+  font-weight: 300;
+  font-size: 13px;
+  letter-spacing: 0.15em;
+  padding: 10px 0;
+  outline: none;
+  transition: border-color .2s;
+  margin-bottom: 32px;
+}
+.login-input:focus { border-color: var(--gold); }
+
+.login-btn {
+  width: 100%;
+  background: transparent;
+  border: 1px solid rgba(212,185,106,0.3);
+  color: var(--gold);
+  font-family: 'Montserrat', sans-serif;
+  font-size: 9px;
+  letter-spacing: 0.4em;
+  text-transform: uppercase;
+  padding: 14px;
+  cursor: none;
+  transition: background .2s, border-color .2s;
+}
+.login-btn:hover { background: var(--gold-faint); border-color: var(--gold); }
+
+.login-error {
+  font-size: 10px;
+  color: #C0474A;
+  letter-spacing: 0.1em;
+  text-align: center;
+  margin-top: 16px;
+  min-height: 16px;
+}
+
+/* Main App */
+#app { display: none; min-height: 100vh; }
+
+/* Nav */
+nav {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  background: rgba(6,6,8,0.97);
+  border-bottom: 1px solid rgba(212,185,106,0.07);
+  padding: 20px 48px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.nav-left {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+}
+
+.nav-wordmark {
+  font-family: 'Cormorant Garamond', serif;
+  font-size: 13px;
+  letter-spacing: 0.38em;
+  color: var(--gold);
+}
+
+.nav-divider {
+  width: 1px;
+  height: 16px;
+  background: rgba(212,185,106,0.15);
+}
+
+.nav-title {
+  font-size: 9px;
+  letter-spacing: 0.35em;
+  text-transform: uppercase;
+  color: var(--white-dim);
+}
+
+.nav-right {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+
+.tab-btn {
+  background: none;
+  border: none;
+  font-family: 'Montserrat', sans-serif;
+  font-size: 9px;
+  letter-spacing: 0.35em;
+  text-transform: uppercase;
+  color: var(--white-faint);
+  cursor: none;
+  padding: 6px 0;
+  border-bottom: 1px solid transparent;
+  transition: color .2s, border-color .2s;
+}
+.tab-btn:hover, .tab-btn.active {
+  color: var(--gold);
+  border-bottom-color: var(--gold);
+}
+
+.logout-btn {
+  background: none;
+  border: 1px solid rgba(212,185,106,0.15);
+  color: var(--white-dim);
+  font-family: 'Montserrat', sans-serif;
+  font-size: 9px;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  padding: 8px 16px;
+  cursor: none;
+  transition: all .2s;
+}
+.logout-btn:hover { border-color: var(--gold-dim); color: var(--gold); }
+
+/* Main content */
+main {
+  padding: 48px;
+  max-width: 1100px;
+  margin: 0 auto;
+}
+
+/* Stats row */
+.stats-row {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1px;
+  background: rgba(212,185,106,0.07);
+  border: 1px solid rgba(212,185,106,0.07);
+  margin-bottom: 48px;
+}
+
+.stat-card {
+  background: var(--black-2);
+  padding: 28px 32px;
+  text-align: center;
+}
+
+.stat-number {
+  font-family: 'Cormorant Garamond', serif;
+  font-size: 48px;
+  font-weight: 300;
+  color: var(--white);
+  line-height: 1;
+  margin-bottom: 8px;
+}
+.stat-number.gold { color: var(--gold); }
+.stat-number.green { color: var(--green); }
+.stat-number.red { color: #C0474A; opacity: 0.7; }
+
+.stat-label {
+  font-size: 8px;
+  letter-spacing: 0.4em;
+  text-transform: uppercase;
+  color: var(--white-dim);
+  opacity: 0.5;
+}
+
+/* Section header */
+.section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 24px;
+}
+
+.section-title {
+  font-family: 'Cormorant Garamond', serif;
+  font-size: 22px;
+  font-weight: 300;
+  color: var(--white);
+}
+
+.section-count {
+  font-size: 9px;
+  letter-spacing: 0.3em;
+  color: var(--gold-dim);
+}
+
+/* Filter bar */
+.filter-bar {
+  display: flex;
+  gap: 2px;
+  margin-bottom: 24px;
+}
+
+.filter-btn {
+  background: none;
+  border: 1px solid rgba(212,185,106,0.1);
+  color: var(--white-dim);
+  font-family: 'Montserrat', sans-serif;
+  font-size: 8px;
+  letter-spacing: 0.35em;
+  text-transform: uppercase;
+  padding: 9px 18px;
+  cursor: none;
+  transition: all .2s;
+}
+.filter-btn:hover { border-color: var(--gold-dim); color: var(--gold); }
+.filter-btn.active { background: var(--gold-faint); border-color: var(--gold); color: var(--gold); }
+
+/* Member table */
+.member-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.member-table th {
+  font-size: 7px;
+  letter-spacing: 0.4em;
+  text-transform: uppercase;
+  color: rgba(248,244,236,0.25);
+  text-align: left;
+  padding: 12px 16px;
+  border-bottom: 1px solid rgba(212,185,106,0.07);
+  font-weight: 400;
+}
+
+.member-table td {
+  padding: 16px 16px;
+  border-bottom: 1px solid rgba(212,185,106,0.04);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  color: var(--white-dim);
+  vertical-align: middle;
+}
+
+.member-table tr:hover td {
+  background: rgba(212,185,106,0.02);
+}
+
+.member-name {
+  color: var(--white);
+  font-weight: 400;
+  font-size: 12px;
+}
+
+.member-phone {
+  font-family: 'Cormorant Garamond', serif;
+  font-size: 13px;
+  color: var(--white-dim);
+  letter-spacing: 0.05em;
+}
+
+.member-date {
+  font-size: 10px;
+  color: rgba(248,244,236,0.3);
+}
+
+.member-source {
+  font-size: 8px;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  color: rgba(212,185,106,0.4);
+}
+
+/* Status badge */
+.status-badge {
+  display: inline-block;
+  font-size: 7px;
+  letter-spacing: 0.35em;
+  text-transform: uppercase;
+  padding: 4px 10px;
+  border-radius: 2px;
+}
+.status-badge.PENDING { background: rgba(212,185,106,0.1); color: var(--gold); border: 1px solid rgba(212,185,106,0.2); }
+.status-badge.APPROVED { background: rgba(76,175,125,0.1); color: var(--green); border: 1px solid rgba(76,175,125,0.2); }
+.status-badge.DENIED { background: rgba(192,71,74,0.1); color: #C0474A; border: 1px solid rgba(192,71,74,0.2); }
+
+/* Action buttons */
+.action-btns {
+  display: flex;
+  gap: 6px;
+}
+
+.action-btn {
+  background: none;
+  border: 1px solid;
+  font-family: 'Montserrat', sans-serif;
+  font-size: 7px;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  padding: 6px 12px;
+  cursor: none;
+  transition: all .18s;
+}
+.action-btn.approve { border-color: rgba(76,175,125,0.3); color: var(--green); }
+.action-btn.approve:hover { background: rgba(76,175,125,0.1); border-color: var(--green); }
+.action-btn.deny { border-color: rgba(192,71,74,0.2); color: rgba(192,71,74,0.6); }
+.action-btn.deny:hover { background: rgba(192,71,74,0.08); border-color: #C0474A; color: #C0474A; }
+.action-btn.pending { border-color: rgba(212,185,106,0.2); color: var(--gold-dim); }
+.action-btn.pending:hover { background: var(--gold-faint); border-color: var(--gold); color: var(--gold); }
+.action-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+
+/* Empty / loading states */
+.empty-state {
+  text-align: center;
+  padding: 80px 0;
+  color: rgba(248,244,236,0.2);
+  font-family: 'Cormorant Garamond', serif;
+  font-style: italic;
+  font-size: 18px;
+}
+
+.loading-state {
+  text-align: center;
+  padding: 60px 0;
+  font-size: 9px;
+  letter-spacing: 0.4em;
+  text-transform: uppercase;
+  color: rgba(212,185,106,0.3);
+}
+
+/* Toast */
+.toast {
+  position: fixed;
+  bottom: 40px;
+  left: 50%;
+  transform: translateX(-50%) translateY(20px);
+  background: var(--black-3);
+  border: 1px solid rgba(212,185,106,0.2);
+  color: var(--white-dim);
+  font-size: 10px;
+  letter-spacing: 0.2em;
+  padding: 12px 24px;
+  opacity: 0;
+  transition: opacity .3s, transform .3s;
+  z-index: 500;
+  pointer-events: none;
+}
+.toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+.toast.success { border-color: rgba(76,175,125,0.4); color: var(--green); }
+.toast.error { border-color: rgba(192,71,74,0.4); color: #C0474A; }
+
+/* Opt-in indicator */
+.optin-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--green);
+  opacity: 0.7;
+}
+.optin-dot.no { background: rgba(248,244,236,0.15); }
+
+/* Responsive */
+@media (max-width: 768px) {
+  nav { padding: 16px 20px; }
+  main { padding: 24px 20px; }
+  .stats-row { grid-template-columns: repeat(3,1fr); gap: 1px; }
+  .member-table th:nth-child(4),
+  .member-table td:nth-child(4),
+  .member-table th:nth-child(5),
+  .member-table td:nth-child(5) { display: none; }
+}
+
+/* Settings panel */
+.settings-panel {
+  display: none;
+  position: fixed;
+  top: 0; right: 0; bottom: 0;
+  width: 380px;
+  background: var(--black-2);
+  border-left: 1px solid rgba(212,185,106,0.12);
+  z-index: 300;
+  padding: 48px 36px;
+  flex-direction: column;
+  gap: 0;
+}
+.settings-panel.open { display: flex; }
+.settings-title {
+  font-family: 'Cormorant Garamond', serif;
+  font-size: 22px;
+  font-weight: 300;
+  color: var(--white);
+  margin-bottom: 32px;
+}
+.settings-label {
+  font-size: 8px;
+  letter-spacing: 0.4em;
+  text-transform: uppercase;
+  color: var(--gold-dim);
+  display: block;
+  margin-bottom: 10px;
+}
+.settings-input {
+  width: 100%;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid rgba(212,185,106,0.2);
+  color: var(--white);
+  font-family: 'Montserrat', sans-serif;
+  font-weight: 300;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  padding: 10px 0;
+  outline: none;
+  transition: border-color .2s;
+  margin-bottom: 24px;
+}
+.settings-input:focus { border-color: var(--gold); }
+.settings-save {
+  background: transparent;
+  border: 1px solid rgba(212,185,106,0.3);
+  color: var(--gold);
+  font-family: 'Montserrat', sans-serif;
+  font-size: 9px;
+  letter-spacing: 0.4em;
+  text-transform: uppercase;
+  padding: 12px;
+  cursor: none;
+  width: 100%;
+  transition: background .2s, border-color .2s;
+  margin-bottom: 12px;
+}
+.settings-save:hover { background: var(--gold-faint); border-color: var(--gold); }
+.settings-close {
+  background: none;
+  border: none;
+  color: var(--white-dim);
+  font-family: 'Montserrat', sans-serif;
+  font-size: 9px;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  padding: 10px;
+  cursor: none;
+  transition: color .2s;
+  text-align: center;
+}
+.settings-close:hover { color: var(--white); }
+.settings-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(6,6,8,0.6);
+  z-index: 299;
+}
+.settings-overlay.open { display: block; }
+.settings-hint {
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  color: rgba(248,244,236,0.2);
+  line-height: 1.8;
+  margin-top: -16px;
+  margin-bottom: 24px;
+}
+.settings-btn {
+  background: none;
+  border: 1px solid rgba(212,185,106,0.15);
+  color: var(--white-dim);
+  font-family: 'Montserrat', sans-serif;
+  font-size: 9px;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  padding: 8px 16px;
+  cursor: none;
+  transition: all .2s;
+}
+.settings-btn:hover { border-color: var(--gold-dim); color: var(--gold); }
+</style>
+</head>
+<body>
+
+<div class="cursor" id="cursor"></div>
+<div class="cursor-ring" id="ring"></div>
+
+<!-- Login -->
+<div id="login-screen">
+  <div class="login-wordmark">[RSVP] Society</div>
+  <div class="login-box">
+    <label class="login-label" for="token-input">Admin Token</label>
+    <input type="password" id="token-input" class="login-input" placeholder="••••••••••••" autocomplete="off" />
+    <button class="login-btn" id="login-btn" onclick="doLogin()">Enter</button>
+    <div class="login-error" id="login-error"></div>
+  </div>
+</div>
+
+<!-- App -->
+<div id="app">
+  <nav>
+    <div class="nav-left">
+      <span class="nav-wordmark">[RSVP]</span>
+      <div class="nav-divider"></div>
+      <span class="nav-title">Member Console</span>
+    </div>
+    <div class="nav-right">
+      <button class="tab-btn active" id="tab-members" onclick="setTab('members')">Members</button>
+      <div class="nav-divider"></div>
+      <button class="settings-btn" onclick="openSettings()">Settings</button>
+      <button class="logout-btn" onclick="doLogout()">Sign Out</button>
+    </div>
+  </nav>
+
+  <main>
+    <!-- Stats -->
+    <div class="stats-row" id="stats-row">
+      <div class="stat-card">
+        <div class="stat-number gold" id="stat-pending">—</div>
+        <div class="stat-label">Pending</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-number green" id="stat-approved">—</div>
+        <div class="stat-label">Approved</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-number red" id="stat-denied">—</div>
+        <div class="stat-label">Denied</div>
+      </div>
+    </div>
+
+    <!-- Members section -->
+    <div class="section-header">
+      <div class="section-title" id="section-title">Pending Review</div>
+      <div class="section-count" id="section-count"></div>
+    </div>
+
+    <div class="filter-bar">
+      <button class="filter-btn active" onclick="loadMembers('PENDING')" id="filter-PENDING">Pending</button>
+      <button class="filter-btn" onclick="loadMembers('APPROVED')" id="filter-APPROVED">Approved</button>
+      <button class="filter-btn" onclick="loadMembers('DENIED')" id="filter-DENIED">Denied</button>
+    </div>
+
+    <div id="members-container">
+      <div class="loading-state">Loading members...</div>
+    </div>
+  </main>
+
+  <!-- Settings overlay -->
+  <div class="settings-overlay" id="settings-overlay" onclick="closeSettings()"></div>
+
+  <!-- Settings panel -->
+  <div class="settings-panel" id="settings-panel">
+    <div class="settings-title">Settings</div>
+
+    <label class="settings-label" for="api-input">API Base URL</label>
+    <input type="text" id="api-input" class="settings-input" placeholder="https://xxx.execute-api.us-east-1.amazonaws.com/prod" />
+    <p class="settings-hint">From Terraform output: api_base_url. Saved to localStorage — only set this once.</p>
+
+    <button class="settings-save" onclick="saveSettings()">Save</button>
+    <button class="settings-close" onclick="closeSettings()">Cancel</button>
+  </div>
+
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const API_DEFAULT = 'https://ez2z31emm2.execute-api.us-east-1.amazonaws.com/prod';
+let API = (localStorage.getItem('rsvp_api_base') || API_DEFAULT).replace(/\/+$/, '');
+let adminToken = '';
+let currentStatus = 'PENDING';
+let allMembers = [];
+
+// ── Cursor ──
+const cursor = document.getElementById('cursor');
+const ring   = document.getElementById('ring');
+let mx = 0, my = 0, rx = 0, ry = 0;
+document.addEventListener('mousemove', e => {
+  mx = e.clientX; my = e.clientY;
+  cursor.style.left = mx + 'px';
+  cursor.style.top  = my + 'px';
+});
+(function animRing() {
+  rx += (mx - rx) * 0.12;
+  ry += (my - ry) * 0.12;
+  ring.style.left = rx + 'px';
+  ring.style.top  = ry + 'px';
+  requestAnimationFrame(animRing);
+})();
+document.addEventListener('mousedown', () => cursor.style.transform = 'translate(-50%,-50%) scale(2)');
+document.addEventListener('mouseup',   () => cursor.style.transform = 'translate(-50%,-50%) scale(1)');
+
+// ── Toast ──
+function showToast(msg, type = '') {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = 'toast show ' + type;
+  setTimeout(() => { t.className = 'toast'; }, 3000);
+}
+
+// ── Login ──
+document.getElementById('token-input').addEventListener('keydown', e => {
+  if (e.key === 'Enter') doLogin();
+});
+
+async function doLogin() {
+  const val = document.getElementById('token-input').value.trim();
+  if (!val) return;
+
+  // Validate token by hitting the members endpoint
+  const res = await fetch(`${API}/admin/members?status=PENDING`, {
+    headers: { 'x-admin-token': val }
+  });
+
+  if (res.status === 401) {
+    document.getElementById('login-error').textContent = 'Invalid token.';
+    return;
+  }
+
+  adminToken = val;
+  sessionStorage.setItem('rsvp_admin_token', val);
+  document.getElementById('login-screen').style.display = 'none';
+  document.getElementById('app').style.display = 'block';
+
+  const data = await res.json();
+  allMembers = data.members || [];
+  renderMembers(allMembers);
+  loadStats();
+}
+
+function doLogout() {
+  adminToken = '';
+  sessionStorage.removeItem('rsvp_admin_token');
+  document.getElementById('app').style.display = 'none';
+  document.getElementById('login-screen').style.display = 'flex';
+  document.getElementById('token-input').value = '';
+  document.getElementById('login-error').textContent = '';
+}
+
+// Auto-login from session
+window.addEventListener('DOMContentLoaded', () => {
+  const saved = sessionStorage.getItem('rsvp_admin_token');
+  if (saved) {
+    document.getElementById('token-input').value = saved;
+    doLogin();
+  }
+});
+
+// ── Tab management ──
+function setTab(tab) {
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('tab-' + tab).classList.add('active');
+}
+
+// ── Load members by status ──
+async function loadMembers(status) {
+  currentStatus = status;
+
+  // Update filter buttons
+  document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('filter-' + status).classList.add('active');
+
+  // Update section title
+  const titles = { PENDING: 'Pending Review', APPROVED: 'Approved Members', DENIED: 'Denied Requests' };
+  document.getElementById('section-title').textContent = titles[status];
+
+  document.getElementById('members-container').innerHTML = '<div class="loading-state">Loading...</div>';
+
+  try {
+    const res = await fetch(`${API}/admin/members?status=${status}`, {
+      headers: { 'x-admin-token': adminToken }
+    });
+    const data = await res.json();
+    allMembers = data.members || [];
+    renderMembers(allMembers);
+  } catch (err) {
+    document.getElementById('members-container').innerHTML = '<div class="empty-state">Failed to load members.</div>';
+  }
+}
+
+// ── Load stats (all 3 counts) ──
+async function loadStats() {
+  const statuses = ['PENDING', 'APPROVED', 'DENIED'];
+  for (const s of statuses) {
+    fetch(`${API}/admin/members?status=${s}`, { headers: { 'x-admin-token': adminToken } })
+      .then(r => r.json())
+      .then(data => {
+        document.getElementById('stat-' + s.toLowerCase()).textContent = (data.members || []).length;
+      });
+  }
+}
+
+// ── Render members table ──
+function renderMembers(members) {
+  const container = document.getElementById('members-container');
+  document.getElementById('section-count').textContent = members.length ? `${members.length} member${members.length !== 1 ? 's' : ''}` : '';
+
+  if (!members.length) {
+    container.innerHTML = `<div class="empty-state">No ${currentStatus.toLowerCase()} members.</div>`;
+    return;
+  }
+
+  const rows = members.map(m => {
+    const date = m.createdAt ? new Date(m.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: '2-digit' }) : '—';
+    const optIn = m.smsOptIn ? '<span class="optin-dot" title="SMS opted in"></span>' : '<span class="optin-dot no" title="No SMS opt-in"></span>';
+    const source = m.source || 'web';
+
+    let actions = '';
+    if (currentStatus === 'PENDING') {
+      actions = `
+        <button class="action-btn approve" onclick="setStatus('${m.phone}', 'APPROVED')">Approve</button>
+        <button class="action-btn deny" onclick="setStatus('${m.phone}', 'DENIED')">Deny</button>
+      `;
+    } else if (currentStatus === 'APPROVED') {
+      actions = `<button class="action-btn pending" onclick="setStatus('${m.phone}', 'PENDING')">Move to Pending</button>`;
+    } else {
+      actions = `<button class="action-btn pending" onclick="setStatus('${m.phone}', 'PENDING')">Restore</button>`;
+    }
+
+    return `
+      <tr id="row-${m.phone.replace(/\+/g,'').replace(/\s/g,'')}">
+        <td><span class="member-name">${escHtml(m.name || '—')}</span></td>
+        <td><span class="member-phone">${m.phone}</span></td>
+        <td>${optIn}</td>
+        <td><span class="member-source">${source}</span></td>
+        <td><span class="member-date">${date}</span></td>
+        <td><span class="status-badge ${m.status}">${m.status}</span></td>
+        <td><div class="action-btns">${actions}</div></td>
+      </tr>
+    `;
+  }).join('');
+
+  container.innerHTML = `
+    <table class="member-table">
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Phone</th>
+          <th>SMS</th>
+          <th>Source</th>
+          <th>Requested</th>
+          <th>Status</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>
+  `;
+}
+
+// ── Set member status ──
+async function setStatus(phone, newStatus) {
+  const rowId = 'row-' + phone.replace(/\+/g,'').replace(/\s/g,'');
+  const row = document.getElementById(rowId);
+  if (row) row.style.opacity = '0.4';
+
+  try {
+    const res = await fetch(`${API}/admin/members/status`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-admin-token': adminToken
+      },
+      body: JSON.stringify({ phone, status: newStatus })
+    });
+
+    if (!res.ok) throw new Error('Failed');
+
+    showToast(`${newStatus === 'APPROVED' ? 'Approved' : newStatus === 'DENIED' ? 'Denied' : 'Updated'} successfully`, newStatus === 'APPROVED' ? 'success' : '');
+
+    // Remove row from current view and refresh stats
+    if (row) row.remove();
+    allMembers = allMembers.filter(m => m.phone !== phone);
+
+    const countEl = document.getElementById('section-count');
+    const remaining = allMembers.length;
+    countEl.textContent = remaining ? `${remaining} member${remaining !== 1 ? 's' : ''}` : '';
+
+    if (!remaining) {
+      document.getElementById('members-container').querySelector('tbody').innerHTML =
+        `<tr><td colspan="7"><div class="empty-state" style="padding:40px 0">No ${currentStatus.toLowerCase()} members.</div></td></tr>`;
+    }
+
+    // Refresh stats
+    loadStats();
+
+  } catch (err) {
+    if (row) row.style.opacity = '1';
+    showToast('Action failed. Try again.', 'error');
+  }
+}
+
+// ── Utils ──
+function escHtml(str) {
+  return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ── Settings panel ──
+function openSettings() {
+  const saved = localStorage.getItem('rsvp_api_base') || API_DEFAULT;
+  document.getElementById('api-input').value = saved;
+  document.getElementById('settings-panel').classList.add('open');
+  document.getElementById('settings-overlay').classList.add('open');
+}
+
+function closeSettings() {
+  document.getElementById('settings-panel').classList.remove('open');
+  document.getElementById('settings-overlay').classList.remove('open');
+}
+
+function saveSettings() {
+  const val = document.getElementById('api-input').value.trim();
+  if (!val) return;
+  localStorage.setItem('rsvp_api_base', val);
+  API = val.replace(/\/+$/, '');
+  showToast('API URL saved', 'success');
+  closeSettings();
+}
+
+</script>
+</body>
+</html>

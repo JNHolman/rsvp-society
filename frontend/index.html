@@ -789,15 +789,80 @@ footer {
   width: 100%;
   border-top: none !important;
   padding: 17px;
+  margin-top: 18px;
+}
+.phone-submit:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+/* SMS opt-in checkbox */
+.sms-opt-in-label {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin-top: 16px;
+  cursor: pointer;
+  padding: 14px 16px;
+  border: 1px solid rgba(201,168,76,0.15);
+  border-radius: 6px;
+  background: rgba(201,168,76,0.03);
+  transition: border-color .25s, background .25s;
+}
+.sms-opt-in-label:hover {
+  border-color: rgba(201,168,76,0.3);
+  background: rgba(201,168,76,0.06);
+}
+.sms-opt-in-checkbox {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+.sms-opt-in-box {
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  border: 1px solid rgba(201,168,76,0.4);
+  border-radius: 3px;
+  background: transparent;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: border-color .2s, background .2s;
+  margin-top: 1px;
+}
+.sms-opt-in-checkbox:checked ~ .sms-opt-in-box {
+  border-color: #D4B96A;
+  background: rgba(201,168,76,0.12);
+}
+.sms-check-icon {
+  width: 12px;
+  height: 10px;
+  opacity: 0;
+  transition: opacity .15s;
+}
+.sms-opt-in-checkbox:checked ~ .sms-opt-in-box .sms-check-icon {
+  opacity: 1;
+}
+.sms-opt-in-text {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  color: rgba(248,244,236,0.7);
+  line-height: 1.7;
 }
 
 .form-disclaimer {
-  margin-top: 18px;
+  margin-top: 12px;
   font-size: 10px;
-  letter-spacing: 0.12em;
-  color: rgba(248,244,236,0.45);
+  letter-spacing: 0.10em;
+  color: rgba(248,244,236,0.38);
   line-height: 1.9;
-  text-align: center;
+  text-align: left;
+  padding: 0 2px;
+}
+.form-disclaimer strong {
+  color: rgba(248,244,236,0.6);
 }
 
 .disclaimer-link {
@@ -805,7 +870,7 @@ footer {
   text-decoration: none;
   transition: color .3s;
 }
-.disclaimer-link:hover { color: var(--gold); }
+.disclaimer-link:hover { color: #D4B96A; }
 </style>
 </head>
 <body>
@@ -933,11 +998,23 @@ footer {
   <form class="phone-form" id="accessForm">
     <input type="text" id="nameInput" required placeholder="Your First Name" class="phone-input" style="margin-bottom:2px;" />
     <input type="tel" id="phoneInput" required placeholder="Your Phone Number" class="phone-input" />
-    <button type="submit" class="btn-primary phone-submit"><span id="submitLabel">Submit for Consideration</span></button>
+
+    <label class="sms-opt-in-label" id="smsOptInLabel">
+      <input type="checkbox" id="smsOptIn" class="sms-opt-in-checkbox" />
+      <span class="sms-opt-in-box">
+        <svg class="sms-check-icon" viewBox="0 0 12 10" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M1 5L4.5 8.5L11 1" stroke="#D4B96A" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </span>
+      <span class="sms-opt-in-text">Opt in to receive text message updates from RSVP Society</span>
+    </label>
+
     <p class="form-disclaimer">
-      By submitting, you agree to receive text messages from RSVP Society including event invitations and updates. Msg &amp; data rates may apply. Message frequency varies. Text HELP for help or STOP to opt out. SMS data will not be shared with any third party.<br>
+      By checking the box and submitting, you consent to receive recurring automated text messages from RSVP Society (event invitations, access confirmations, and updates) to the phone number provided. Msg &amp; data rates may apply. Message frequency varies. Reply <strong>HELP</strong> for help or <strong>STOP</strong> to opt out at any time. Mobile data will not be shared with third parties for marketing purposes.<br>
       <a href="/terms" class="disclaimer-link">SMS Terms &amp; Privacy Policy</a>
     </p>
+
+    <button type="submit" class="btn-primary phone-submit" id="submitBtn" disabled><span id="submitLabel">Submit for Consideration</span></button>
   </form>
 </section>
 
@@ -1045,29 +1122,62 @@ footer {
   });
 
   // Form
-  async function handleSubmit(e) {
-    e.preventDefault();
-    const phone = document.getElementById('phoneInput').value.trim();
-    const name = document.getElementById('nameInput').value.trim();
-    const label = document.getElementById('submitLabel');
-    if (!phone || !name) return;
-    label.textContent = 'Submitting...';
-    try {
-      const res = await fetch('https://mricelx9ae.execute-api.us-east-1.amazonaws.com/prod/access', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phone, name })
-      });
-      if (!res.ok) throw new Error();
-    } catch(err) { /* graceful fallback */ }
-    document.getElementById('phoneInput').disabled = true;
-    document.getElementById('nameInput').disabled = true;
+  // Form
+// Gate submit button on checkbox
+const smsOptInEl = document.getElementById('smsOptIn');
+const submitBtn  = document.getElementById('submitBtn');
+smsOptInEl.addEventListener('change', () => {
+  submitBtn.disabled = !smsOptInEl.checked;
+});
+
+async function handleSubmit(e) {
+  e.preventDefault();
+
+  const phoneEl = document.getElementById('phoneInput');
+  const nameEl  = document.getElementById('nameInput');
+  const emailEl = document.getElementById('emailInput'); // optional (only if you add it)
+  const label   = document.getElementById('submitLabel');
+
+  const phone = (phoneEl?.value || '').trim();
+  const name  = (nameEl?.value  || '').trim();
+  const email = emailEl ? (emailEl.value || '').trim() : '';
+
+  if (!phone || !name || !smsOptInEl.checked) return;
+
+  label.textContent = 'Submitting...';
+
+  try {
+    const res = await fetch('https://ez2z31emm2.execute-api.us-east-1.amazonaws.com/prod/access', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone, name, email: email || undefined, source: 'web', smsOptIn: true })
+    });
+
+    const text = await res.text();
+    let data;
+    try { data = JSON.parse(text); } catch { data = { raw: text }; }
+
+    if (!res.ok || data.ok !== true) {
+      console.error('Access request failed:', res.status, data);
+      label.textContent = 'Request failed. Try again.';
+      return;
+    }
+
+    // success
+    phoneEl.disabled = true;
+    nameEl.disabled = true;
+    if (emailEl) emailEl.disabled = true;
+
     label.textContent = 'Request Received.';
     setTimeout(() => { label.textContent = "We'll be in touch if the vibe matches."; }, 1500);
+
+  } catch (err) {
+    console.error('Access request error:', err);
+    label.textContent = 'Network error. Try again.';
   }
+}
 
-  document.getElementById('accessForm').addEventListener('submit', handleSubmit);
-
+document.getElementById('accessForm').addEventListener('submit', handleSubmit);
   // Smooth scroll
   document.querySelectorAll('a[href^="#"]').forEach(a => {
     if (a.getAttribute('onclick')) return;
