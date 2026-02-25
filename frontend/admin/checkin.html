@@ -1,0 +1,609 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>RSVP Society — Check In</title>
+<meta name="robots" content="noindex, nofollow">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;1,300&family=Montserrat:wght@200;300;400;500&display=swap" rel="stylesheet">
+<style>
+*, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+:root {
+  --gold: #D4B96A;
+  --gold-dim: rgba(212,185,106,0.5);
+  --gold-faint: rgba(212,185,106,0.08);
+  --black: #060608;
+  --black-2: #0C0C10;
+  --black-3: #111116;
+  --white: #F8F4EC;
+  --white-dim: rgba(248,244,236,0.82);
+  --white-faint: rgba(248,244,236,0.12);
+  --green: #4CAF7D;
+  --red: #C0474A;
+}
+
+body {
+  background: var(--black);
+  color: var(--white);
+  font-family: 'Montserrat', sans-serif;
+  font-weight: 300;
+  min-height: 100vh;
+  min-height: 100dvh;
+}
+
+/* ── Login ── */
+#login-screen {
+  min-height: 100vh;
+  min-height: 100dvh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  padding: 24px;
+}
+
+.login-wordmark {
+  font-family: 'Cormorant Garamond', serif;
+  font-size: 11px;
+  letter-spacing: 0.5em;
+  color: var(--gold);
+  text-transform: uppercase;
+  margin-bottom: 48px;
+  opacity: 0.7;
+}
+
+.login-box {
+  width: 100%;
+  max-width: 340px;
+  border: 1px solid rgba(212,185,106,0.12);
+  background: var(--black-2);
+  padding: 36px 28px;
+}
+
+.login-label {
+  font-size: 9px;
+  letter-spacing: 0.4em;
+  text-transform: uppercase;
+  color: rgba(212,185,106,0.8);
+  display: block;
+  margin-bottom: 12px;
+}
+
+.login-input {
+  width: 100%;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid rgba(212,185,106,0.2);
+  color: var(--white);
+  font-family: 'Montserrat', sans-serif;
+  font-weight: 300;
+  font-size: 16px;
+  letter-spacing: 0.15em;
+  padding: 10px 0;
+  outline: none;
+  transition: border-color .2s;
+  margin-bottom: 28px;
+}
+.login-input:focus { border-color: var(--gold); }
+
+.login-btn {
+  width: 100%;
+  background: transparent;
+  border: 1px solid rgba(212,185,106,0.3);
+  color: var(--gold);
+  font-family: 'Montserrat', sans-serif;
+  font-size: 9px;
+  letter-spacing: 0.4em;
+  text-transform: uppercase;
+  padding: 14px;
+  cursor: pointer;
+  transition: background .2s, border-color .2s;
+}
+.login-btn:hover, .login-btn:active { background: var(--gold-faint); border-color: var(--gold); }
+
+.login-error {
+  font-size: 10px;
+  color: var(--red);
+  letter-spacing: 0.1em;
+  text-align: center;
+  margin-top: 14px;
+  min-height: 16px;
+}
+
+/* ── App ── */
+#app { display: none; }
+
+header {
+  background: rgba(6,6,8,0.97);
+  border-bottom: 1px solid rgba(212,185,106,0.07);
+  padding: 16px 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.header-left { display: flex; flex-direction: column; gap: 2px; }
+
+.wordmark {
+  font-family: 'Cormorant Garamond', serif;
+  font-size: 14px;
+  letter-spacing: 0.35em;
+  color: var(--gold);
+}
+
+.header-sub {
+  font-size: 8px;
+  letter-spacing: 0.35em;
+  text-transform: uppercase;
+  color: rgba(248,244,236,0.4);
+}
+
+.signout-btn {
+  background: none;
+  border: 1px solid rgba(212,185,106,0.15);
+  color: var(--white-dim);
+  font-family: 'Montserrat', sans-serif;
+  font-size: 8px;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  padding: 8px 14px;
+  cursor: pointer;
+  transition: all .2s;
+}
+.signout-btn:hover, .signout-btn:active { border-color: rgba(212,185,106,0.6); color: var(--gold); }
+
+/* ── Search area ── */
+.search-wrap {
+  padding: 24px 20px 16px;
+  background: var(--black-2);
+  border-bottom: 1px solid rgba(212,185,106,0.07);
+}
+
+.search-label {
+  font-size: 8px;
+  letter-spacing: 0.4em;
+  text-transform: uppercase;
+  color: rgba(212,185,106,0.7);
+  display: block;
+  margin-bottom: 12px;
+}
+
+.search-input-wrap {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.search-input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid rgba(212,185,106,0.3);
+  color: var(--white);
+  font-family: 'Montserrat', sans-serif;
+  font-weight: 300;
+  font-size: 18px;
+  padding: 10px 0;
+  outline: none;
+  transition: border-color .2s;
+}
+.search-input:focus { border-color: var(--gold); }
+.search-input::placeholder { color: rgba(248,244,236,0.2); font-size: 14px; }
+
+.clear-btn {
+  background: none;
+  border: none;
+  color: rgba(212,185,106,0.4);
+  font-size: 20px;
+  cursor: pointer;
+  padding: 8px;
+  display: none;
+}
+.clear-btn.visible { display: block; }
+
+.search-hint {
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  color: rgba(248,244,236,0.25);
+  margin-top: 10px;
+}
+
+/* ── Results ── */
+.results-wrap { padding: 0 0 100px; }
+
+.results-count {
+  font-size: 8px;
+  letter-spacing: 0.35em;
+  text-transform: uppercase;
+  color: rgba(212,185,106,0.6);
+  padding: 16px 20px 8px;
+}
+
+.member-card {
+  border-bottom: 1px solid rgba(212,185,106,0.06);
+  padding: 16px 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  transition: background .15s;
+}
+.member-card:active { background: rgba(212,185,106,0.04); }
+
+.member-info { flex: 1; min-width: 0; }
+
+.member-fullname {
+  font-family: 'Cormorant Garamond', serif;
+  font-size: 20px;
+  font-weight: 400;
+  color: var(--white);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-bottom: 4px;
+}
+
+.member-meta {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.member-phone-small {
+  font-size: 10px;
+  color: rgba(248,244,236,0.45);
+  letter-spacing: 0.05em;
+}
+
+.member-tag {
+  font-size: 8px;
+  letter-spacing: 0.25em;
+  text-transform: uppercase;
+  color: rgba(212,185,106,0.6);
+  padding: 2px 6px;
+  border: 1px solid rgba(212,185,106,0.15);
+}
+
+.attended-badge {
+  font-size: 8px;
+  letter-spacing: 0.25em;
+  text-transform: uppercase;
+  color: var(--green);
+  padding: 2px 8px;
+  border: 1px solid rgba(76,175,125,0.3);
+  background: rgba(76,175,125,0.08);
+}
+
+/* Check-in button */
+.checkin-btn {
+  flex-shrink: 0;
+  background: rgba(76,175,125,0.1);
+  border: 1px solid rgba(76,175,125,0.3);
+  color: var(--green);
+  font-family: 'Montserrat', sans-serif;
+  font-size: 8px;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  padding: 12px 16px;
+  cursor: pointer;
+  transition: all .2s;
+  white-space: nowrap;
+}
+.checkin-btn:hover, .checkin-btn:active {
+  background: rgba(76,175,125,0.2);
+  border-color: var(--green);
+}
+.checkin-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+.checkin-btn.done {
+  background: rgba(76,175,125,0.15);
+  border-color: var(--green);
+  color: var(--green);
+  opacity: 0.6;
+}
+
+/* Empty / loading states */
+.state-msg {
+  text-align: center;
+  padding: 60px 20px;
+  font-family: 'Cormorant Garamond', serif;
+  font-style: italic;
+  font-size: 18px;
+  color: rgba(248,244,236,0.3);
+}
+
+/* Toast */
+.toast {
+  position: fixed;
+  bottom: 32px;
+  left: 50%;
+  transform: translateX(-50%) translateY(20px);
+  background: var(--black-3);
+  border: 1px solid rgba(212,185,106,0.2);
+  color: var(--white-dim);
+  font-size: 10px;
+  letter-spacing: 0.2em;
+  padding: 12px 24px;
+  opacity: 0;
+  transition: opacity .3s, transform .3s;
+  z-index: 500;
+  pointer-events: none;
+  white-space: nowrap;
+}
+.toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+.toast.success { border-color: rgba(76,175,125,0.4); color: var(--green); }
+.toast.error { border-color: rgba(192,71,74,0.4); color: var(--red); }
+</style>
+</head>
+<body>
+
+<!-- Login -->
+<div id="login-screen">
+  <div class="login-wordmark">[RSVP] Society</div>
+  <div class="login-box">
+    <label class="login-label" for="token-input">Admin Token</label>
+    <input type="password" id="token-input" class="login-input" placeholder="••••••••••••" autocomplete="off" />
+    <button class="login-btn" id="login-btn" onclick="doLogin()">Enter</button>
+    <div class="login-error" id="login-error"></div>
+  </div>
+</div>
+
+<!-- App -->
+<div id="app">
+  <header>
+    <div class="header-left">
+      <span class="wordmark">[RSVP]</span>
+      <span class="header-sub">Door Check-In</span>
+    </div>
+    <button class="signout-btn" onclick="doLogout()">Sign Out</button>
+  </header>
+
+  <div class="search-wrap">
+    <label class="search-label">Find Guest</label>
+    <div class="search-input-wrap">
+      <input
+        type="text"
+        id="search-input"
+        class="search-input"
+        placeholder="Name or phone..."
+        autocomplete="off"
+        autocorrect="off"
+        autocapitalize="off"
+        spellcheck="false"
+        oninput="onSearchInput(this.value)"
+      />
+      <button class="clear-btn" id="clear-btn" onclick="clearSearch()">✕</button>
+    </div>
+    <div class="search-hint">Type at least 2 characters to search</div>
+  </div>
+
+  <div class="results-wrap" id="results-wrap">
+    <div class="state-msg">Start typing to find a guest</div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const API_DEFAULT = 'https://ez2z31emm2.execute-api.us-east-1.amazonaws.com/prod';
+let API = (localStorage.getItem('rsvp_api_base') || API_DEFAULT).replace(/\/+$/, '');
+let adminToken = '';
+let searchTimer = null;
+let checkedIn = new Set(); // track who was checked in this session
+
+// ── Toast ──
+function showToast(msg, type = '') {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = 'toast show ' + type;
+  setTimeout(() => { t.className = 'toast'; }, 2500);
+}
+
+// ── Login ──
+document.getElementById('token-input').addEventListener('keydown', e => {
+  if (e.key === 'Enter') doLogin();
+});
+
+async function doLogin() {
+  const val = document.getElementById('token-input').value.trim();
+  const errEl = document.getElementById('login-error');
+  if (!val) return;
+
+  const btn = document.getElementById('login-btn');
+  btn.textContent = 'Checking...';
+  errEl.textContent = '';
+
+  try {
+    const res = await fetch(`${API}/admin/members?status=APPROVED`, {
+      headers: { 'x-admin-token': val }
+    });
+
+    if (res.status === 401 || res.status === 403) {
+      errEl.textContent = 'Invalid token.';
+      btn.textContent = 'Enter';
+      return;
+    }
+
+    if (!res.ok) {
+      errEl.textContent = `Error ${res.status}. Check API URL.`;
+      btn.textContent = 'Enter';
+      return;
+    }
+
+    adminToken = val;
+    sessionStorage.setItem('rsvp_admin_token', val);
+    document.getElementById('login-screen').style.display = 'none';
+    document.getElementById('app').style.display = 'block';
+    btn.textContent = 'Enter';
+    document.getElementById('search-input').focus();
+
+  } catch(err) {
+    errEl.textContent = 'Network error — check connection.';
+    btn.textContent = 'Enter';
+  }
+}
+
+function doLogout() {
+  adminToken = '';
+  sessionStorage.removeItem('rsvp_admin_token');
+  document.getElementById('app').style.display = 'none';
+  document.getElementById('login-screen').style.display = 'flex';
+  document.getElementById('token-input').value = '';
+  document.getElementById('login-error').textContent = '';
+  clearSearch();
+}
+
+// Auto-login from session
+window.addEventListener('DOMContentLoaded', () => {
+  const saved = sessionStorage.getItem('rsvp_admin_token');
+  if (saved) {
+    document.getElementById('token-input').value = saved;
+    doLogin();
+  }
+});
+
+// ── Search ──
+function onSearchInput(val) {
+  const clearBtn = document.getElementById('clear-btn');
+  clearBtn.classList.toggle('visible', val.length > 0);
+
+  clearTimeout(searchTimer);
+
+  if (val.length < 2) {
+    document.getElementById('results-wrap').innerHTML = '<div class="state-msg">Type at least 2 characters to search</div>';
+    return;
+  }
+
+  document.getElementById('results-wrap').innerHTML = '<div class="state-msg">Searching...</div>';
+
+  searchTimer = setTimeout(() => {
+    doSearch(val.trim());
+  }, 300);
+}
+
+function clearSearch() {
+  const input = document.getElementById('search-input');
+  input.value = '';
+  document.getElementById('clear-btn').classList.remove('visible');
+  document.getElementById('results-wrap').innerHTML = '<div class="state-msg">Start typing to find a guest</div>';
+  input.focus();
+}
+
+async function doSearch(query) {
+  try {
+    const res = await fetch(`${API}/admin/members/search?q=${encodeURIComponent(query)}`, {
+      headers: { 'x-admin-token': adminToken }
+    });
+    const data = await res.json();
+
+    if (!data.ok) throw new Error(data.error);
+    renderResults(data.members || []);
+  } catch (err) {
+    document.getElementById('results-wrap').innerHTML = `<div class="state-msg">Search failed</div>`;
+  }
+}
+
+function renderResults(members) {
+  const wrap = document.getElementById('results-wrap');
+
+  if (!members.length) {
+    wrap.innerHTML = '<div class="state-msg">No guests found</div>';
+    return;
+  }
+
+  const countHtml = `<div class="results-count">${members.length} result${members.length !== 1 ? 's' : ''}</div>`;
+
+  const cards = members.map(m => {
+    const fullName = [m.name, m.lastName].filter(Boolean).join(' ');
+    const alreadyIn = checkedIn.has(m.phone);
+    const tagHtml = m.tags ? `<span class="member-tag">${escHtml(m.tags)}</span>` : '';
+    const attendedBadge = alreadyIn ? '<span class="attended-badge">✓ Checked In</span>' : '';
+
+    return `
+      <div class="member-card" id="card-${m.phone.replace(/\+/g,'')}">
+        <div class="member-info">
+          <div class="member-fullname">${escHtml(fullName || '—')}</div>
+          <div class="member-meta">
+            <span class="member-phone-small">${m.phone}</span>
+            ${tagHtml}
+            ${attendedBadge}
+          </div>
+        </div>
+        <button
+          class="checkin-btn${alreadyIn ? ' done' : ''}"
+          id="btn-${m.phone.replace(/\+/g,'')}"
+          onclick="checkIn('${m.phone}', '${escHtml(fullName)}')"
+          ${alreadyIn ? 'disabled' : ''}
+        >${alreadyIn ? '✓ In' : 'Check In'}</button>
+      </div>
+    `;
+  }).join('');
+
+  wrap.innerHTML = countHtml + cards;
+}
+
+async function checkIn(phone, name) {
+  const btnId = 'btn-' + phone.replace(/\+/g, '');
+  const btn = document.getElementById(btnId);
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = '...';
+  }
+
+  try {
+    const res = await fetch(`${API}/admin/members/attendance`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-admin-token': adminToken,
+      },
+      body: JSON.stringify({ phone, attended: true }),
+    });
+
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.error);
+
+    checkedIn.add(phone);
+    if (btn) {
+      btn.textContent = '✓ In';
+      btn.classList.add('done');
+    }
+
+    // Update the badge inline
+    const card = document.getElementById('card-' + phone.replace(/\+/g, ''));
+    if (card) {
+      const meta = card.querySelector('.member-meta');
+      if (meta && !meta.querySelector('.attended-badge')) {
+        const badge = document.createElement('span');
+        badge.className = 'attended-badge';
+        badge.textContent = '✓ Checked In';
+        meta.appendChild(badge);
+      }
+    }
+
+    showToast(`${name} checked in`, 'success');
+
+  } catch (err) {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = 'Check In';
+    }
+    showToast('Failed — try again', 'error');
+  }
+}
+
+function escHtml(str) {
+  return (str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+</script>
+</body>
+</html>

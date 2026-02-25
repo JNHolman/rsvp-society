@@ -38,8 +38,7 @@ def _set_opt_out(phone: str) -> None:
         Key={"phone": phone},
         UpdateExpression="SET optOut = :t, optOutAt = :now, smsOptIn = :f, lastSeenAt = :now",
         ExpressionAttributeValues={":t": True, ":f": False, ":now": now},
-        ExpressionAttributeValues={":t": True, ":now": now},
-    )
+        )
 
 
 def _claude(message: str) -> str:

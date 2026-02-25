@@ -32,12 +32,9 @@ body {
   font-family: 'Montserrat', sans-serif;
   font-weight: 300;
   min-height: 100vh;
-  cursor: none;
 }
 
-/* Custom cursor */
-.cursor { position: fixed; width: 5px; height: 5px; background: var(--gold); border-radius: 50%; pointer-events: none; z-index: 9999; transform: translate(-50%,-50%); mix-blend-mode: difference; transition: transform .1s; }
-.cursor-ring { position: fixed; width: 24px; height: 24px; border: 1px solid rgba(212,185,106,0.3); border-radius: 50%; pointer-events: none; z-index: 9998; transform: translate(-50%,-50%); transition: width .3s, height .3s, border-color .3s; }
+
 
 /* Login Screen */
 #login-screen {
@@ -102,7 +99,7 @@ body {
   letter-spacing: 0.4em;
   text-transform: uppercase;
   padding: 14px;
-  cursor: none;
+  cursor: pointer;
   transition: background .2s, border-color .2s;
 }
 .login-btn:hover { background: var(--gold-faint); border-color: var(--gold); }
@@ -172,7 +169,7 @@ nav {
   letter-spacing: 0.35em;
   text-transform: uppercase;
   color: var(--white-faint);
-  cursor: none;
+  cursor: pointer;
   padding: 6px 0;
   border-bottom: 1px solid transparent;
   transition: color .2s, border-color .2s;
@@ -191,7 +188,7 @@ nav {
   letter-spacing: 0.3em;
   text-transform: uppercase;
   padding: 8px 16px;
-  cursor: none;
+  cursor: pointer;
   transition: all .2s;
 }
 .logout-btn:hover { border-color: rgba(212,185,106,0.8); color: var(--gold); }
@@ -276,7 +273,7 @@ main {
   letter-spacing: 0.35em;
   text-transform: uppercase;
   padding: 9px 18px;
-  cursor: none;
+  cursor: pointer;
   transition: all .2s;
 }
 .filter-btn:hover { border-color: rgba(212,185,106,0.8); color: var(--gold); }
@@ -364,7 +361,7 @@ main {
   letter-spacing: 0.3em;
   text-transform: uppercase;
   padding: 6px 12px;
-  cursor: none;
+  cursor: pointer;
   transition: all .18s;
 }
 .action-btn.approve { border-color: rgba(76,175,125,0.3); color: var(--green); }
@@ -491,7 +488,7 @@ main {
   letter-spacing: 0.4em;
   text-transform: uppercase;
   padding: 12px;
-  cursor: none;
+  cursor: pointer;
   width: 100%;
   transition: background .2s, border-color .2s;
   margin-bottom: 12px;
@@ -506,7 +503,7 @@ main {
   letter-spacing: 0.3em;
   text-transform: uppercase;
   padding: 10px;
-  cursor: none;
+  cursor: pointer;
   transition: color .2s;
   text-align: center;
 }
@@ -536,7 +533,7 @@ main {
   letter-spacing: 0.3em;
   text-transform: uppercase;
   padding: 8px 16px;
-  cursor: none;
+  cursor: pointer;
   transition: all .2s;
 }
 .settings-btn:hover { border-color: rgba(212,185,106,0.8); color: var(--gold); }
@@ -587,7 +584,7 @@ main {
   letter-spacing: 0.4em;
   text-transform: uppercase;
   padding: 14px 28px;
-  cursor: none;
+  cursor: pointer;
   transition: background .2s;
 }
 .invite-btn-preview:hover { background: var(--gold-faint); }
@@ -600,7 +597,7 @@ main {
   letter-spacing: 0.4em;
   text-transform: uppercase;
   padding: 14px 28px;
-  cursor: none;
+  cursor: pointer;
   transition: background .2s;
   opacity: 0.4;
 }
@@ -649,7 +646,7 @@ main {
   font-size: 9px;
   letter-spacing: 0.1em;
   padding: 5px 8px;
-  cursor: none;
+  cursor: pointer;
   outline: none;
   transition: border-color .2s;
 }
@@ -701,7 +698,7 @@ main {
   letter-spacing: 0.4em;
   text-transform: uppercase;
   padding: 14px 28px;
-  cursor: none;
+  cursor: pointer;
   transition: background .2s;
 }
 .event-save:hover { background: var(--gold-faint); }
@@ -740,7 +737,7 @@ main {
   letter-spacing: 0.3em;
   text-transform: uppercase;
   padding: 8px 16px;
-  cursor: none;
+  cursor: pointer;
   transition: background .2s;
 }
 .att-btn-yes:hover { background: rgba(76,175,125,0.2); }
@@ -753,7 +750,7 @@ main {
   letter-spacing: 0.3em;
   text-transform: uppercase;
   padding: 8px 16px;
-  cursor: none;
+  cursor: pointer;
   transition: background .2s;
 }
 .att-btn-no:hover { background: rgba(192,71,74,0.15); }
@@ -775,7 +772,7 @@ main {
 .event-save-btn {
   background: transparent; border: 1px solid rgba(212,185,106,0.3); color: var(--gold);
   font-family: 'Montserrat', sans-serif; font-size: 9px; letter-spacing: 0.4em;
-  text-transform: uppercase; padding: 14px 36px; cursor: none; transition: background .2s;
+  text-transform: uppercase; padding: 14px 36px; cursor: pointer; transition: background .2s;
 }
 .event-save-btn:hover { background: var(--gold-faint); }
 .event-current {
@@ -797,7 +794,7 @@ main {
 .att-load-btn {
   background: none; border: 1px solid rgba(212,185,106,0.2); color: var(--gold-dim);
   font-family: 'Montserrat', sans-serif; font-size: 8px; letter-spacing: 0.3em;
-  text-transform: uppercase; padding: 9px 18px; cursor: none; transition: all .2s;
+  text-transform: uppercase; padding: 9px 18px; cursor: pointer; transition: all .2s;
 }
 .att-load-btn:hover { border-color: var(--gold); color: var(--gold); }
 .att-btn-yes { border-color: rgba(76,175,125,0.3); color: var(--green); }
@@ -831,9 +828,6 @@ main {
 </style>
 </head>
 <body>
-
-<div class="cursor" id="cursor"></div>
-<div class="cursor-ring" id="ring"></div>
 
 <!-- Login -->
 <div id="login-screen">
@@ -890,17 +884,29 @@ main {
       <div class="section-count" id="section-count"></div>
     </div>
 
-    <div class="filter-bar">
+    <div class="filter-bar" style="flex-wrap:wrap;gap:8px;">
       <button class="filter-btn active" onclick="loadMembers('PENDING')" id="filter-PENDING">Pending</button>
       <button class="filter-btn" onclick="loadMembers('APPROVED')" id="filter-APPROVED">Approved</button>
       <button class="filter-btn" onclick="loadMembers('DENIED')" id="filter-DENIED">Denied</button>
       <button class="filter-btn import-btn" onclick="openImport()">↑ Import CSV</button>
+      <div style="margin-left:auto;position:relative;">
+        <input type="text" id="member-search" placeholder="Search name or phone..." 
+          oninput="filterMembers(this.value)"
+          style="background:transparent;border:none;border-bottom:1px solid rgba(212,185,106,0.2);color:rgba(248,244,236,0.9);font-family:'Montserrat',sans-serif;font-size:11px;padding:8px 24px 8px 0;outline:none;width:220px;transition:border-color .2s;"
+          onfocus="this.style.borderColor='rgba(212,185,106,0.8)'"
+          onblur="this.style.borderColor='rgba(212,185,106,0.2)'"
+        />
+        <span style="position:absolute;right:0;top:50%;transform:translateY(-50%);color:rgba(212,185,106,0.4);font-size:11px;">⌕</span>
+      </div>
     </div>
 
     <!-- CSV Import Modal -->
-    <div id="import-modal" style="display:none;position:fixed;inset:0;z-index:500;background:rgba(6,6,8,0.92);display:none;align-items:center;justify-content:center;">
+    <div id="import-modal" onclick="if(event.target===this)closeImport()" style="display:none;position:fixed;inset:0;z-index:500;background:rgba(6,6,8,0.92);display:none;align-items:center;justify-content:center;">
       <div style="background:#0C0C10;border:1px solid rgba(212,185,106,0.15);padding:48px;max-width:520px;width:90%;position:relative;">
-        <p style="font-size:9px;letter-spacing:0.4em;text-transform:uppercase;color:rgba(212,185,106,0.7);margin-bottom:16px;">Import Members</p>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+          <p style="font-size:9px;letter-spacing:0.4em;text-transform:uppercase;color:rgba(212,185,106,0.7);margin:0;">Import Members</p>
+          <button onclick="closeImport()" style="background:none;border:none;color:rgba(248,244,236,0.4);font-size:18px;cursor:pointer;padding:0;line-height:1;transition:color .2s;" onmouseover="this.style.color='#F8F4EC'" onmouseout="this.style.color='rgba(248,244,236,0.4)'">✕</button>
+        </div>
         <h3 style="font-family:'Cormorant Garamond',serif;font-size:28px;font-weight:300;color:#F8F4EC;margin-bottom:8px;">CSV Import</h3>
         <p style="font-size:11px;color:rgba(248,244,236,0.5);letter-spacing:0.04em;line-height:1.8;margin-bottom:32px;">Supports Posh (name, phone, email, instagram) and Eventbrite (name, phone, email) exports. All imported members are set to <strong style="color:#F8F4EC;">Approved</strong>. Rows without a phone number are skipped.</p>
         <div id="import-drop" style="border:1px dashed rgba(212,185,106,0.2);padding:40px;text-align:center;cursor:pointer;transition:border-color .2s;margin-bottom:24px;" onclick="document.getElementById('csv-file-input').click()" ondragover="event.preventDefault();this.style.borderColor='rgba(212,185,106,0.5)'" ondragleave="this.style.borderColor='rgba(212,185,106,0.2)'" ondrop="handleDrop(event)">
@@ -1037,24 +1043,7 @@ let adminToken = '';
 let currentStatus = 'PENDING';
 let allMembers = [];
 
-// ── Cursor ──
-const cursor = document.getElementById('cursor');
-const ring   = document.getElementById('ring');
-let mx = 0, my = 0, rx = 0, ry = 0;
-document.addEventListener('mousemove', e => {
-  mx = e.clientX; my = e.clientY;
-  cursor.style.left = mx + 'px';
-  cursor.style.top  = my + 'px';
-});
-(function animRing() {
-  rx += (mx - rx) * 0.12;
-  ry += (my - ry) * 0.12;
-  ring.style.left = rx + 'px';
-  ring.style.top  = ry + 'px';
-  requestAnimationFrame(animRing);
-})();
-document.addEventListener('mousedown', () => cursor.style.transform = 'translate(-50%,-50%) scale(2)');
-document.addEventListener('mouseup',   () => cursor.style.transform = 'translate(-50%,-50%) scale(1)');
+// Custom cursor removed
 
 // ── Toast ──
 function showToast(msg, type = '') {
@@ -1141,6 +1130,10 @@ function setTab(tab) {
 async function loadMembers(status) {
   currentStatus = status;
 
+  // Clear search box
+  const searchEl = document.getElementById('member-search');
+  if (searchEl) searchEl.value = '';
+
   // Update filter buttons
   document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
   document.getElementById('filter-' + status).classList.add('active');
@@ -1222,7 +1215,7 @@ function renderMembers(members) {
 
     return `
       <tr id="row-${m.phone.replace(/\+/g,'').replace(/\s/g,'')}">
-        <td><span class="member-name">${escHtml(m.name || '—')}</span></td>
+        <td><span class="member-name">${escHtml(m.name || '')}${m.lastName ? ' ' + escHtml(m.lastName) : ''}</span></td>
         <td><span class="member-phone">${m.phone}</span></td>
         <td><span style="font-size:11px;color:rgba(248,244,236,0.55);">${m.instagram ? '@' + escHtml(m.instagram) : '—'}</span></td>
         <td>${optIn}</td>
@@ -1253,6 +1246,23 @@ function renderMembers(members) {
       <tbody>${rows}</tbody>
     </table>
   `;
+}
+
+
+// ── Filter visible members by search ──
+function filterMembers(query) {
+  const q = (query || '').toLowerCase().trim();
+  if (!q) {
+    renderMembers(allMembers);
+    return;
+  }
+  const filtered = allMembers.filter(m => {
+    const first = (m.name || '').toLowerCase();
+    const last  = (m.lastName || '').toLowerCase();
+    const phone = (m.phone || '').toLowerCase();
+    return first.includes(q) || last.includes(q) || (first + ' ' + last).includes(q) || phone.includes(q);
+  });
+  renderMembers(filtered);
 }
 
 // ── Set member status ──
@@ -1520,7 +1530,7 @@ async function loadAttendance() {
 
     const rows = members.map(m => `
       <tr id="att-row-${m.phone.replace(/\+/g,'').replace(/\s/g,'')}">
-        <td><span class="member-name">${escHtml(m.name || '—')}</span></td>
+        <td><span class="member-name">${escHtml(m.name || '')}${m.lastName ? ' ' + escHtml(m.lastName) : ''}</span></td>
         <td><span class="member-phone">${m.phone}</span></td>
         <td><span style="font-size:11px;color:rgba(248,244,236,0.55);">${m.instagram ? '@' + escHtml(m.instagram) : '—'}</span></td>
         <td><span class="member-date">Attended: ${m.attendedCount || 0} / Invited: ${m.invitedCount || 0}</span></td>
@@ -1578,7 +1588,7 @@ async function deleteMember(phone) {
     const data = await res.json();
     if (!data.ok) throw new Error(data.error);
     showToast('Member deleted', 'success');
-    loadMembers();
+    loadMembers(currentStatus);
   } catch (err) {
     showToast('Delete failed: ' + err.message, 'error');
   }
@@ -1631,10 +1641,12 @@ function parseCSV(file) {
       return -1;
     };
 
-    const phoneIdx = col(['phone', 'mobile', 'cell', 'number', 'tel']);
-    const nameIdx  = col(['name', 'first name', 'full name', 'attendee']);
-    const emailIdx = col(['email', 'e-mail', 'mail']);
-    const igIdx    = col(['instagram', 'ig', 'insta', '@']);
+    const phoneIdx    = col(['phone', 'mobile', 'cell', 'number', 'tel']);
+    const nameIdx     = col(['first name', 'name', 'full name', 'attendee']);
+    const lastNameIdx = col(['last name', 'lastname', 'surname']);
+    const emailIdx    = col(['email', 'e-mail', 'mail']);
+    const igIdx       = col(['instagram', 'ig', 'insta', '@']);
+    const tagsIdx     = col(['tags', 'tag', 'list']);
 
     if (phoneIdx === -1) {
       showToast('No phone column found in CSV', 'error');
@@ -1653,9 +1665,11 @@ function parseCSV(file) {
       if (!phone || phone.length < 7) { skipped++; continue; }
 
       const row = { phone };
-      if (nameIdx !== -1 && clean[nameIdx])  row.name      = clean[nameIdx];
-      if (emailIdx !== -1 && clean[emailIdx]) row.email     = clean[emailIdx];
-      if (igIdx !== -1 && clean[igIdx])       row.instagram = clean[igIdx].replace(/^@/, '');
+      if (nameIdx !== -1 && clean[nameIdx])              row.name      = clean[nameIdx];
+      if (lastNameIdx !== -1 && clean[lastNameIdx])      row.lastName  = clean[lastNameIdx];
+      if (emailIdx !== -1 && clean[emailIdx])            row.email     = clean[emailIdx];
+      if (igIdx !== -1 && clean[igIdx])                  row.instagram = clean[igIdx].replace(/^@/, '');
+      if (tagsIdx !== -1 && clean[tagsIdx])              row.tags      = clean[tagsIdx];
 
       importRows.push(row);
     }
