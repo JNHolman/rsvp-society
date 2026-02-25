@@ -11,23 +11,122 @@ provider "aws" {
   region = "us-east-1"
 }
 
-# ── IAM Role for Lambda ───────────────────────────────────
+data "aws_caller_identity" "current" {}
+data "aws_region" "current" {}
+
+variable "members_table_name" {
+  type    = string
+  default = "rsvp-members"
+}
+
+variable "allowed_origins" {
+  type    = list(string)
+  default = [
+  "https://rsvpsociety.com",
+  "http://localhost:8000"]
+}
+
+variable "quo_api_key_secret_id" {
+  type    = string
+  default = "rsvp/quo-api-key"
+}
+
+variable "admin_token_secret_id" {
+  type    = string
+  default = "rsvp/admin-token"
+}
+
+locals {
+  allowed_origins_csv = join(",", var.allowed_origins)
+}
+
+# -----------------------------
+# DynamoDB (source of truth)
+# -----------------------------
+resource "aws_dynamodb_table" "members" {
+  name         = var.members_table_name
+  billing_mode = "PAY_PER_REQUEST"
+  hash_key     = "phone"
+
+  attribute {
+    name = "phone"
+    type = "S"
+  }
+
+  point_in_time_recovery {
+    enabled = true
+  }
+}
+
+
+# -----------------------------
+# DynamoDB — Events (current event source of truth)
+# -----------------------------
+resource "aws_dynamodb_table" "events" {
+  name         = "rsvp-events"
+  billing_mode = "PAY_PER_REQUEST"
+  hash_key     = "eventId"
+
+  attribute {
+    name = "eventId"
+    type = "S"
+  }
+
+  point_in_time_recovery {
+    enabled = true
+  }
+}
+
+# -----------------------------
+# DynamoDB — EventInvites (composite key: eventId + phone)
+# -----------------------------
+resource "aws_dynamodb_table" "event_invites" {
+  name         = "rsvp-event-invites"
+  billing_mode = "PAY_PER_REQUEST"
+  hash_key     = "eventId"
+  range_key    = "phone"
+
+  attribute {
+    name = "eventId"
+    type = "S"
+  }
+
+  attribute {
+    name = "phone"
+    type = "S"
+  }
+
+  # GSI: look up all events a member was invited to (phone → eventId)
+  global_secondary_index {
+    name            = "phone-index"
+    hash_key        = "phone"
+    range_key       = "eventId"
+    projection_type = "ALL"
+  }
+
+  point_in_time_recovery {
+    enabled = true
+  }
+}
+
+# -----------------------------
+# IAM (Lambda execution)
+# -----------------------------
 resource "aws_iam_role" "lambda_role" {
   name = "rsvp-lambda-role"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{
-      Action    = "sts:AssumeRole"
       Effect    = "Allow"
       Principal = { Service = "lambda.amazonaws.com" }
+      Action    = "sts:AssumeRole"
     }]
   })
 }
 
-resource "aws_iam_role_policy" "lambda_policy" {
+resource "aws_iam_policy" "lambda_policy" {
   name = "rsvp-lambda-policy"
-  role = aws_iam_role.lambda_role.id
 
   policy = jsonencode({
     Version = "2012-10-17"
@@ -39,145 +138,864 @@ resource "aws_iam_role_policy" "lambda_policy" {
           "logs:CreateLogStream",
           "logs:PutLogEvents"
         ]
-        Resource = "arn:aws:logs:*:*:*"
+        Resource = "*"
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "dynamodb:GetItem",
+          "dynamodb:PutItem",
+          "dynamodb:UpdateItem",
+          "dynamodb:Query",
+          "dynamodb:Scan"
+        ]
+        Resource = [
+          aws_dynamodb_table.members.arn,
+          aws_dynamodb_table.events.arn,
+          aws_dynamodb_table.event_invites.arn,
+          "${aws_dynamodb_table.event_invites.arn}/index/*"
+        ]
       },
       {
         Effect = "Allow"
         Action = ["secretsmanager:GetSecretValue"]
         Resource = [
-          "arn:aws:secretsmanager:us-east-1:852121054175:secret:rsvp/superphone-api-key*",
-          "arn:aws:secretsmanager:us-east-1:852121054175:secret:rsvp/claude-api-key*"
+          "arn:aws:secretsmanager:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:secret:${var.quo_api_key_secret_id}*",
+          "arn:aws:secretsmanager:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:secret:${var.admin_token_secret_id}*",
+          "arn:aws:secretsmanager:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:secret:rsvp/claude-api-key*"
         ]
       }
     ]
   })
 }
 
-# ── Lambda Layer for Anthropic SDK ───────────────────────
-resource "aws_lambda_layer_version" "anthropic" {
-  filename            = "${path.module}/anthropic_layer.zip"
-  layer_name          = "anthropic-sdk"
-  compatible_runtimes = ["python3.12"]
-  description         = "Anthropic Python SDK"
+resource "aws_iam_role_policy_attachment" "lambda_policy_attach" {
+  role       = aws_iam_role.lambda_role.name
+  policy_arn = aws_iam_policy.lambda_policy.arn
 }
 
-# ── Access Request Lambda ─────────────────────────────────
-data "archive_file" "access_request" {
+# -----------------------------
+# Lambda packaging (one bundle)
+# -----------------------------
+data "archive_file" "lambda_bundle" {
   type        = "zip"
-  source_file = "${path.module}/../lambda/access_request.py"
-  output_path = "${path.module}/access_request.zip"
+  source_dir  = "${path.module}/../lambda"
+  output_path = "${path.module}/lambda_bundle.zip"
 }
 
 resource "aws_lambda_function" "access_request" {
-  filename         = data.archive_file.access_request.output_path
-  function_name    = "rsvp-access-request"
-  role             = aws_iam_role.lambda_role.arn
-  handler          = "access_request.handler"
-  runtime          = "python3.12"
-  timeout          = 30
-  source_code_hash = data.archive_file.access_request.output_base64sha256
+  function_name = "rsvp-access-request"
+  role          = aws_iam_role.lambda_role.arn
+  handler       = "access_request.handler"
+  runtime       = "python3.11"
+
+  filename         = data.archive_file.lambda_bundle.output_path
+  source_code_hash = data.archive_file.lambda_bundle.output_base64sha256
+
+  timeout = 10
 
   environment {
     variables = {
-      ENVIRONMENT = "production"
+      ENVIRONMENT           = "prod"
+      MEMBERS_TABLE_NAME    = aws_dynamodb_table.members.name
+      EVENTS_TABLE_NAME     = aws_dynamodb_table.events.name
+      INVITES_TABLE_NAME    = aws_dynamodb_table.event_invites.name
+      ALLOWED_ORIGINS       = local.allowed_origins_csv
+      SEND_WELCOME_SMS      = "false"
+      SMS_PROVIDER          = "quo"
+      QUO_API_KEY_SECRET_ID = var.quo_api_key_secret_id
     }
   }
 }
 
-# ── SMS Handler Lambda ────────────────────────────────────
-data "archive_file" "sms_handler" {
-  type        = "zip"
-  source_file = "${path.module}/../lambda/sms_handler.py"
-  output_path = "${path.module}/sms_handler.zip"
+resource "aws_lambda_function" "admin_handler" {
+  function_name = "rsvp-admin-handler"
+  role          = aws_iam_role.lambda_role.arn
+  handler       = "admin_handler.handler"
+  runtime       = "python3.11"
+
+  filename         = data.archive_file.lambda_bundle.output_path
+  source_code_hash = data.archive_file.lambda_bundle.output_base64sha256
+
+  timeout = 10
+
+  environment {
+    variables = {
+      ENVIRONMENT           = "prod"
+      MEMBERS_TABLE_NAME    = aws_dynamodb_table.members.name
+      EVENTS_TABLE_NAME     = aws_dynamodb_table.events.name
+      INVITES_TABLE_NAME    = aws_dynamodb_table.event_invites.name
+      ALLOWED_ORIGINS       = local.allowed_origins_csv
+      ADMIN_TOKEN_SECRET_ID = var.admin_token_secret_id
+    }
+  }
 }
 
 resource "aws_lambda_function" "sms_handler" {
-  filename         = data.archive_file.sms_handler.output_path
-  function_name    = "rsvp-sms-handler"
-  role             = aws_iam_role.lambda_role.arn
-  handler          = "sms_handler.handler"
-  runtime          = "python3.12"
-  timeout          = 30
-  source_code_hash = data.archive_file.sms_handler.output_base64sha256
-  layers           = [aws_lambda_layer_version.anthropic.arn]
+  function_name = "rsvp-sms-handler"
+  role          = aws_iam_role.lambda_role.arn
+  handler       = "sms_handler.handler"
+  runtime       = "python3.11"
+
+  filename         = data.archive_file.lambda_bundle.output_path
+  source_code_hash = data.archive_file.lambda_bundle.output_base64sha256
+
+  timeout = 15
 
   environment {
     variables = {
-      ENVIRONMENT = "production"
+      ENVIRONMENT              = "prod"
+      MEMBERS_TABLE_NAME       = aws_dynamodb_table.members.name
+      EVENTS_TABLE_NAME        = aws_dynamodb_table.events.name
+      INVITES_TABLE_NAME       = aws_dynamodb_table.event_invites.name
+      ALLOWED_ORIGINS          = local.allowed_origins_csv
+      SMS_PROVIDER             = "quo"
+      QUO_API_KEY_SECRET_ID    = var.quo_api_key_secret_id
+      CLAUDE_API_KEY_SECRET_ID = "rsvp/claude-api-key"
     }
   }
 }
 
-# ── API Gateway ───────────────────────────────────────────
-resource "aws_apigatewayv2_api" "rsvp_api" {
-  name          = "rsvp-society-api"
-  protocol_type = "HTTP"
 
-  cors_configuration {
-    allow_origins = ["https://rsvpsociety.com"]
-    allow_methods = ["POST", "OPTIONS"]
-    allow_headers = ["Content-Type"]
+
+resource "aws_lambda_function" "event_handler" {
+  function_name = "rsvp-event-handler"
+  role          = aws_iam_role.lambda_role.arn
+  handler       = "event_handler.handler"
+  runtime       = "python3.11"
+
+  filename         = data.archive_file.lambda_bundle.output_path
+  source_code_hash = data.archive_file.lambda_bundle.output_base64sha256
+
+  timeout = 15
+
+  environment {
+    variables = {
+      ENVIRONMENT           = "prod"
+      EVENTS_TABLE_NAME     = aws_dynamodb_table.events.name
+      ALLOWED_ORIGINS       = local.allowed_origins_csv
+      ADMIN_TOKEN_SECRET_ID = var.admin_token_secret_id
+    }
   }
 }
 
-resource "aws_apigatewayv2_stage" "prod" {
-  api_id      = aws_apigatewayv2_api.rsvp_api.id
-  name        = "prod"
-  auto_deploy = true
+resource "aws_lambda_function" "invite_handler" {
+  function_name = "rsvp-invite-handler"
+  role          = aws_iam_role.lambda_role.arn
+  handler       = "invite_handler.handler"
+  runtime       = "python3.11"
+
+  filename         = data.archive_file.lambda_bundle.output_path
+  source_code_hash = data.archive_file.lambda_bundle.output_base64sha256
+
+  timeout = 60  # blast can take longer for large lists
+
+  environment {
+    variables = {
+      ENVIRONMENT           = "prod"
+      MEMBERS_TABLE_NAME    = aws_dynamodb_table.members.name
+      EVENTS_TABLE_NAME     = aws_dynamodb_table.events.name
+      INVITES_TABLE_NAME    = aws_dynamodb_table.event_invites.name
+      ALLOWED_ORIGINS       = local.allowed_origins_csv
+      SEND_WELCOME_SMS      = "false"
+      SMS_PROVIDER          = "quo"
+      QUO_API_KEY_SECRET_ID = var.quo_api_key_secret_id
+      ADMIN_TOKEN_SECRET_ID = var.admin_token_secret_id
+    }
+  }
 }
 
-# Access Request endpoint
-resource "aws_apigatewayv2_integration" "access_request" {
-  api_id                 = aws_apigatewayv2_api.rsvp_api.id
-  integration_type       = "AWS_PROXY"
-  integration_uri        = aws_lambda_function.access_request.invoke_arn
-  payload_format_version = "2.0"
+# -----------------------------
+# API Gateway REST API (v1)
+# -----------------------------
+resource "aws_api_gateway_rest_api" "api" {
+  name = "rsvp-api"
+
+  endpoint_configuration {
+    types = ["REGIONAL"]
+  }
 }
 
-resource "aws_apigatewayv2_route" "access_request" {
-  api_id    = aws_apigatewayv2_api.rsvp_api.id
-  route_key = "POST /access"
-  target    = "integrations/${aws_apigatewayv2_integration.access_request.id}"
+# Resources
+resource "aws_api_gateway_resource" "access" {
+  rest_api_id = aws_api_gateway_rest_api.api.id
+  parent_id   = aws_api_gateway_rest_api.api.root_resource_id
+  path_part   = "access"
 }
 
-# SMS Handler endpoint
-resource "aws_apigatewayv2_integration" "sms_handler" {
-  api_id                 = aws_apigatewayv2_api.rsvp_api.id
-  integration_type       = "AWS_PROXY"
-  integration_uri        = aws_lambda_function.sms_handler.invoke_arn
-  payload_format_version = "2.0"
+resource "aws_api_gateway_resource" "admin" {
+  rest_api_id = aws_api_gateway_rest_api.api.id
+  parent_id   = aws_api_gateway_rest_api.api.root_resource_id
+  path_part   = "admin"
 }
 
-resource "aws_apigatewayv2_route" "sms_handler" {
-  api_id    = aws_apigatewayv2_api.rsvp_api.id
-  route_key = "POST /sms"
-  target    = "integrations/${aws_apigatewayv2_integration.sms_handler.id}"
+resource "aws_api_gateway_resource" "admin_members" {
+  rest_api_id = aws_api_gateway_rest_api.api.id
+  parent_id   = aws_api_gateway_resource.admin.id
+  path_part   = "members"
 }
 
+resource "aws_api_gateway_resource" "admin_members_status" {
+  rest_api_id = aws_api_gateway_rest_api.api.id
+  parent_id   = aws_api_gateway_resource.admin_members.id
+  path_part   = "status"
+}
+
+resource "aws_api_gateway_resource" "sms" {
+  rest_api_id = aws_api_gateway_rest_api.api.id
+  parent_id   = aws_api_gateway_rest_api.api.root_resource_id
+  path_part   = "sms"
+}
+
+resource "aws_api_gateway_resource" "sms_inbound" {
+  rest_api_id = aws_api_gateway_rest_api.api.id
+  parent_id   = aws_api_gateway_resource.sms.id
+  path_part   = "inbound"
+}
+
+# -----------------------------
+# Methods + Integrations (Lambda Proxy)
+# -----------------------------
+# /access POST
+resource "aws_api_gateway_method" "access_post" {
+  rest_api_id   = aws_api_gateway_rest_api.api.id
+  resource_id   = aws_api_gateway_resource.access.id
+  http_method   = "POST"
+  authorization = "NONE"
+}
+
+resource "aws_api_gateway_integration" "access_post" {
+  rest_api_id             = aws_api_gateway_rest_api.api.id
+  resource_id             = aws_api_gateway_resource.access.id
+  http_method             = aws_api_gateway_method.access_post.http_method
+  integration_http_method = "POST"
+  type                    = "AWS_PROXY"
+  uri                     = aws_lambda_function.access_request.invoke_arn
+}
+
+# /admin/members GET
+resource "aws_api_gateway_method" "admin_members_get" {
+  rest_api_id   = aws_api_gateway_rest_api.api.id
+  resource_id   = aws_api_gateway_resource.admin_members.id
+  http_method   = "GET"
+  authorization = "NONE"
+}
+
+resource "aws_api_gateway_integration" "admin_members_get" {
+  rest_api_id             = aws_api_gateway_rest_api.api.id
+  resource_id             = aws_api_gateway_resource.admin_members.id
+  http_method             = aws_api_gateway_method.admin_members_get.http_method
+  integration_http_method = "POST"
+  type                    = "AWS_PROXY"
+  uri                     = aws_lambda_function.admin_handler.invoke_arn
+}
+
+# /admin/members/status POST
+resource "aws_api_gateway_method" "admin_members_status_post" {
+  rest_api_id   = aws_api_gateway_rest_api.api.id
+  resource_id   = aws_api_gateway_resource.admin_members_status.id
+  http_method   = "POST"
+  authorization = "NONE"
+}
+
+resource "aws_api_gateway_integration" "admin_members_status_post" {
+  rest_api_id             = aws_api_gateway_rest_api.api.id
+  resource_id             = aws_api_gateway_resource.admin_members_status.id
+  http_method             = aws_api_gateway_method.admin_members_status_post.http_method
+  integration_http_method = "POST"
+  type                    = "AWS_PROXY"
+  uri                     = aws_lambda_function.admin_handler.invoke_arn
+}
+
+# /sms/inbound POST (kept for later)
+resource "aws_api_gateway_method" "sms_inbound_post" {
+  rest_api_id   = aws_api_gateway_rest_api.api.id
+  resource_id   = aws_api_gateway_resource.sms_inbound.id
+  http_method   = "POST"
+  authorization = "NONE"
+}
+
+resource "aws_api_gateway_integration" "sms_inbound_post" {
+  rest_api_id             = aws_api_gateway_rest_api.api.id
+  resource_id             = aws_api_gateway_resource.sms_inbound.id
+  http_method             = aws_api_gateway_method.sms_inbound_post.http_method
+  integration_http_method = "POST"
+  type                    = "AWS_PROXY"
+  uri                     = aws_lambda_function.sms_handler.invoke_arn
+}
+
+
+
+# /event
+resource "aws_api_gateway_resource" "event" {
+  rest_api_id = aws_api_gateway_rest_api.api.id
+  parent_id   = aws_api_gateway_rest_api.api.root_resource_id
+  path_part   = "event"
+}
+
+# /event/current (public)
+resource "aws_api_gateway_resource" "event_current" {
+  rest_api_id = aws_api_gateway_rest_api.api.id
+  parent_id   = aws_api_gateway_resource.event.id
+  path_part   = "current"
+}
+
+resource "aws_api_gateway_method" "event_current_get" {
+  rest_api_id   = aws_api_gateway_rest_api.api.id
+  resource_id   = aws_api_gateway_resource.event_current.id
+  http_method   = "GET"
+  authorization = "NONE"
+}
+resource "aws_api_gateway_integration" "event_current_get" {
+  rest_api_id             = aws_api_gateway_rest_api.api.id
+  resource_id             = aws_api_gateway_resource.event_current.id
+  http_method             = aws_api_gateway_method.event_current_get.http_method
+  integration_http_method = "POST"
+  type                    = "AWS_PROXY"
+  uri                     = aws_lambda_function.event_handler.invoke_arn
+}
+
+# /admin/event
+resource "aws_api_gateway_resource" "admin_event" {
+  rest_api_id = aws_api_gateway_rest_api.api.id
+  parent_id   = aws_api_gateway_resource.admin.id
+  path_part   = "event"
+}
+
+resource "aws_api_gateway_method" "admin_event_get" {
+  rest_api_id   = aws_api_gateway_rest_api.api.id
+  resource_id   = aws_api_gateway_resource.admin_event.id
+  http_method   = "GET"
+  authorization = "NONE"
+}
+resource "aws_api_gateway_integration" "admin_event_get" {
+  rest_api_id             = aws_api_gateway_rest_api.api.id
+  resource_id             = aws_api_gateway_resource.admin_event.id
+  http_method             = aws_api_gateway_method.admin_event_get.http_method
+  integration_http_method = "POST"
+  type                    = "AWS_PROXY"
+  uri                     = aws_lambda_function.event_handler.invoke_arn
+}
+
+resource "aws_api_gateway_method" "admin_event_post" {
+  rest_api_id   = aws_api_gateway_rest_api.api.id
+  resource_id   = aws_api_gateway_resource.admin_event.id
+  http_method   = "POST"
+  authorization = "NONE"
+}
+resource "aws_api_gateway_integration" "admin_event_post" {
+  rest_api_id             = aws_api_gateway_rest_api.api.id
+  resource_id             = aws_api_gateway_resource.admin_event.id
+  http_method             = aws_api_gateway_method.admin_event_post.http_method
+  integration_http_method = "POST"
+  type                    = "AWS_PROXY"
+  uri                     = aws_lambda_function.event_handler.invoke_arn
+}
+
+# /admin/invite
+resource "aws_api_gateway_resource" "admin_invite" {
+  rest_api_id = aws_api_gateway_rest_api.api.id
+  parent_id   = aws_api_gateway_resource.admin.id
+  path_part   = "invite"
+}
+
+# /admin/invite/preview
+resource "aws_api_gateway_resource" "admin_invite_preview" {
+  rest_api_id = aws_api_gateway_rest_api.api.id
+  parent_id   = aws_api_gateway_resource.admin_invite.id
+  path_part   = "preview"
+}
+
+# /admin/invite/send
+resource "aws_api_gateway_resource" "admin_invite_send" {
+  rest_api_id = aws_api_gateway_rest_api.api.id
+  parent_id   = aws_api_gateway_resource.admin_invite.id
+  path_part   = "send"
+}
+
+# /admin/members/gender
+resource "aws_api_gateway_resource" "admin_members_gender" {
+  rest_api_id = aws_api_gateway_rest_api.api.id
+  parent_id   = aws_api_gateway_resource.admin_members.id
+  path_part   = "gender"
+}
+
+# /admin/members/tier
+resource "aws_api_gateway_resource" "admin_members_tier" {
+  rest_api_id = aws_api_gateway_rest_api.api.id
+  parent_id   = aws_api_gateway_resource.admin_members.id
+  path_part   = "tier"
+}
+
+# /admin/members/attendance
+resource "aws_api_gateway_resource" "admin_members_attendance" {
+  rest_api_id = aws_api_gateway_rest_api.api.id
+  parent_id   = aws_api_gateway_resource.admin_members.id
+  path_part   = "attendance"
+}
+
+# Methods + integrations
+resource "aws_api_gateway_method" "admin_invite_preview_post" {
+  rest_api_id   = aws_api_gateway_rest_api.api.id
+  resource_id   = aws_api_gateway_resource.admin_invite_preview.id
+  http_method   = "POST"
+  authorization = "NONE"
+}
+resource "aws_api_gateway_integration" "admin_invite_preview_post" {
+  rest_api_id             = aws_api_gateway_rest_api.api.id
+  resource_id             = aws_api_gateway_resource.admin_invite_preview.id
+  http_method             = aws_api_gateway_method.admin_invite_preview_post.http_method
+  integration_http_method = "POST"
+  type                    = "AWS_PROXY"
+  uri                     = aws_lambda_function.invite_handler.invoke_arn
+}
+
+resource "aws_api_gateway_method" "admin_invite_send_post" {
+  rest_api_id   = aws_api_gateway_rest_api.api.id
+  resource_id   = aws_api_gateway_resource.admin_invite_send.id
+  http_method   = "POST"
+  authorization = "NONE"
+}
+resource "aws_api_gateway_integration" "admin_invite_send_post" {
+  rest_api_id             = aws_api_gateway_rest_api.api.id
+  resource_id             = aws_api_gateway_resource.admin_invite_send.id
+  http_method             = aws_api_gateway_method.admin_invite_send_post.http_method
+  integration_http_method = "POST"
+  type                    = "AWS_PROXY"
+  uri                     = aws_lambda_function.invite_handler.invoke_arn
+}
+
+resource "aws_api_gateway_method" "admin_members_gender_post" {
+  rest_api_id   = aws_api_gateway_rest_api.api.id
+  resource_id   = aws_api_gateway_resource.admin_members_gender.id
+  http_method   = "POST"
+  authorization = "NONE"
+}
+resource "aws_api_gateway_integration" "admin_members_gender_post" {
+  rest_api_id             = aws_api_gateway_rest_api.api.id
+  resource_id             = aws_api_gateway_resource.admin_members_gender.id
+  http_method             = aws_api_gateway_method.admin_members_gender_post.http_method
+  integration_http_method = "POST"
+  type                    = "AWS_PROXY"
+  uri                     = aws_lambda_function.admin_handler.invoke_arn
+}
+
+resource "aws_api_gateway_method" "admin_members_tier_post" {
+  rest_api_id   = aws_api_gateway_rest_api.api.id
+  resource_id   = aws_api_gateway_resource.admin_members_tier.id
+  http_method   = "POST"
+  authorization = "NONE"
+}
+resource "aws_api_gateway_integration" "admin_members_tier_post" {
+  rest_api_id             = aws_api_gateway_rest_api.api.id
+  resource_id             = aws_api_gateway_resource.admin_members_tier.id
+  http_method             = aws_api_gateway_method.admin_members_tier_post.http_method
+  integration_http_method = "POST"
+  type                    = "AWS_PROXY"
+  uri                     = aws_lambda_function.admin_handler.invoke_arn
+}
+
+resource "aws_api_gateway_method" "admin_members_attendance_post" {
+  rest_api_id   = aws_api_gateway_rest_api.api.id
+  resource_id   = aws_api_gateway_resource.admin_members_attendance.id
+  http_method   = "POST"
+  authorization = "NONE"
+}
+resource "aws_api_gateway_integration" "admin_members_attendance_post" {
+  rest_api_id             = aws_api_gateway_rest_api.api.id
+  resource_id             = aws_api_gateway_resource.admin_members_attendance.id
+  http_method             = aws_api_gateway_method.admin_members_attendance_post.http_method
+  integration_http_method = "POST"
+  type                    = "AWS_PROXY"
+  uri                     = aws_lambda_function.admin_handler.invoke_arn
+}
+
+
+# /event (public — no auth)
+resource "aws_api_gateway_resource" "event_public" {
+  rest_api_id = aws_api_gateway_rest_api.api.id
+  parent_id   = aws_api_gateway_rest_api.api.root_resource_id
+  path_part   = "event"
+}
+
+resource "aws_api_gateway_method" "event_public_get" {
+  rest_api_id   = aws_api_gateway_rest_api.api.id
+  resource_id   = aws_api_gateway_resource.event_public.id
+  http_method   = "GET"
+  authorization = "NONE"
+}
+resource "aws_api_gateway_integration" "event_public_get" {
+  rest_api_id             = aws_api_gateway_rest_api.api.id
+  resource_id             = aws_api_gateway_resource.event_public.id
+  http_method             = aws_api_gateway_method.event_public_get.http_method
+  integration_http_method = "POST"
+  type                    = "AWS_PROXY"
+  uri                     = aws_lambda_function.admin_handler.invoke_arn
+}
+
+# -----------------------------
+# CORS (OPTIONS) - required for browser calls
+# -----------------------------
+# Helper: we set method response headers, then mock integration returns them.
+
+# /access OPTIONS
+resource "aws_api_gateway_method" "access_options" {
+  rest_api_id   = aws_api_gateway_rest_api.api.id
+  resource_id   = aws_api_gateway_resource.access.id
+  http_method   = "OPTIONS"
+  authorization = "NONE"
+}
+
+resource "aws_api_gateway_integration" "access_options" {
+  rest_api_id = aws_api_gateway_rest_api.api.id
+  resource_id = aws_api_gateway_resource.access.id
+  http_method = aws_api_gateway_method.access_options.http_method
+  type        = "MOCK"
+
+  request_templates = {
+    "application/json" = "{\"statusCode\": 200}"
+  }
+}
+
+resource "aws_api_gateway_method_response" "access_options_200" {
+  rest_api_id = aws_api_gateway_rest_api.api.id
+  resource_id = aws_api_gateway_resource.access.id
+  http_method = aws_api_gateway_method.access_options.http_method
+  status_code = "200"
+
+  response_parameters = {
+    "method.response.header.Access-Control-Allow-Origin"  = true
+    "method.response.header.Access-Control-Allow-Methods" = true
+    "method.response.header.Access-Control-Allow-Headers" = true
+  }
+}
+
+resource "aws_api_gateway_integration_response" "access_options_200" {
+  rest_api_id = aws_api_gateway_rest_api.api.id
+  resource_id = aws_api_gateway_resource.access.id
+  http_method = aws_api_gateway_method.access_options.http_method
+  status_code = aws_api_gateway_method_response.access_options_200.status_code
+
+  response_parameters = {
+    "method.response.header.Access-Control-Allow-Origin"  = "'${var.allowed_origins[0]}'"
+    "method.response.header.Access-Control-Allow-Methods" = "'POST,OPTIONS'"
+    "method.response.header.Access-Control-Allow-Headers" = "'content-type'"
+  }
+}
+
+# /admin/members OPTIONS
+resource "aws_api_gateway_method" "admin_members_options" {
+  rest_api_id   = aws_api_gateway_rest_api.api.id
+  resource_id   = aws_api_gateway_resource.admin_members.id
+  http_method   = "OPTIONS"
+  authorization = "NONE"
+}
+
+resource "aws_api_gateway_integration" "admin_members_options" {
+  rest_api_id = aws_api_gateway_rest_api.api.id
+  resource_id = aws_api_gateway_resource.admin_members.id
+  http_method = aws_api_gateway_method.admin_members_options.http_method
+  type        = "MOCK"
+
+  request_templates = {
+    "application/json" = "{\"statusCode\": 200}"
+  }
+}
+
+resource "aws_api_gateway_method_response" "admin_members_options_200" {
+  rest_api_id = aws_api_gateway_rest_api.api.id
+  resource_id = aws_api_gateway_resource.admin_members.id
+  http_method = aws_api_gateway_method.admin_members_options.http_method
+  status_code = "200"
+
+  response_parameters = {
+    "method.response.header.Access-Control-Allow-Origin"  = true
+    "method.response.header.Access-Control-Allow-Methods" = true
+    "method.response.header.Access-Control-Allow-Headers" = true
+  }
+}
+
+resource "aws_api_gateway_integration_response" "admin_members_options_200" {
+  rest_api_id = aws_api_gateway_rest_api.api.id
+  resource_id = aws_api_gateway_resource.admin_members.id
+  http_method = aws_api_gateway_method.admin_members_options.http_method
+  status_code = aws_api_gateway_method_response.admin_members_options_200.status_code
+
+  response_parameters = {
+    "method.response.header.Access-Control-Allow-Origin"  = "'${var.allowed_origins[0]}'"
+    "method.response.header.Access-Control-Allow-Methods" = "'GET,OPTIONS'"
+    "method.response.header.Access-Control-Allow-Headers" = "'content-type,x-admin-token'"
+  }
+}
+
+# /admin/members/status OPTIONS
+resource "aws_api_gateway_method" "admin_members_status_options" {
+  rest_api_id   = aws_api_gateway_rest_api.api.id
+  resource_id   = aws_api_gateway_resource.admin_members_status.id
+  http_method   = "OPTIONS"
+  authorization = "NONE"
+}
+
+resource "aws_api_gateway_integration" "admin_members_status_options" {
+  rest_api_id = aws_api_gateway_rest_api.api.id
+  resource_id = aws_api_gateway_resource.admin_members_status.id
+  http_method = aws_api_gateway_method.admin_members_status_options.http_method
+  type        = "MOCK"
+
+  request_templates = {
+    "application/json" = "{\"statusCode\": 200}"
+  }
+}
+
+resource "aws_api_gateway_method_response" "admin_members_status_options_200" {
+  rest_api_id = aws_api_gateway_rest_api.api.id
+  resource_id = aws_api_gateway_resource.admin_members_status.id
+  http_method = aws_api_gateway_method.admin_members_status_options.http_method
+  status_code = "200"
+
+  response_parameters = {
+    "method.response.header.Access-Control-Allow-Origin"  = true
+    "method.response.header.Access-Control-Allow-Methods" = true
+    "method.response.header.Access-Control-Allow-Headers" = true
+  }
+}
+
+resource "aws_api_gateway_integration_response" "admin_members_status_options_200" {
+  rest_api_id = aws_api_gateway_rest_api.api.id
+  resource_id = aws_api_gateway_resource.admin_members_status.id
+  http_method = aws_api_gateway_method.admin_members_status_options.http_method
+  status_code = aws_api_gateway_method_response.admin_members_status_options_200.status_code
+
+  response_parameters = {
+    "method.response.header.Access-Control-Allow-Origin"  = "'${var.allowed_origins[0]}'"
+    "method.response.header.Access-Control-Allow-Methods" = "'POST,OPTIONS'"
+    "method.response.header.Access-Control-Allow-Headers" = "'content-type,x-admin-token'"
+  }
+}
+
+# /sms/inbound OPTIONS (for later)
+resource "aws_api_gateway_method" "sms_inbound_options" {
+  rest_api_id   = aws_api_gateway_rest_api.api.id
+  resource_id   = aws_api_gateway_resource.sms_inbound.id
+  http_method   = "OPTIONS"
+  authorization = "NONE"
+}
+
+resource "aws_api_gateway_integration" "sms_inbound_options" {
+  rest_api_id = aws_api_gateway_rest_api.api.id
+  resource_id = aws_api_gateway_resource.sms_inbound.id
+  http_method = aws_api_gateway_method.sms_inbound_options.http_method
+  type        = "MOCK"
+
+  request_templates = {
+    "application/json" = "{\"statusCode\": 200}"
+  }
+}
+
+resource "aws_api_gateway_method_response" "sms_inbound_options_200" {
+  rest_api_id = aws_api_gateway_rest_api.api.id
+  resource_id = aws_api_gateway_resource.sms_inbound.id
+  http_method = aws_api_gateway_method.sms_inbound_options.http_method
+  status_code = "200"
+
+  response_parameters = {
+    "method.response.header.Access-Control-Allow-Origin"  = true
+    "method.response.header.Access-Control-Allow-Methods" = true
+    "method.response.header.Access-Control-Allow-Headers" = true
+  }
+}
+
+resource "aws_api_gateway_integration_response" "sms_inbound_options_200" {
+  rest_api_id = aws_api_gateway_rest_api.api.id
+  resource_id = aws_api_gateway_resource.sms_inbound.id
+  http_method = aws_api_gateway_method.sms_inbound_options.http_method
+  status_code = aws_api_gateway_method_response.sms_inbound_options_200.status_code
+
+  response_parameters = {
+    "method.response.header.Access-Control-Allow-Origin"  = "'${var.allowed_origins[0]}'"
+    "method.response.header.Access-Control-Allow-Methods" = "'POST,OPTIONS'"
+    "method.response.header.Access-Control-Allow-Headers" = "'content-type'"
+  }
+}
+
+# -----------------------------
+# Deployment + Stage
+# -----------------------------
+resource "aws_api_gateway_deployment" "deploy" {
+  rest_api_id = aws_api_gateway_rest_api.api.id
+
+  triggers = {
+    redeploy = sha1(jsonencode([
+      aws_api_gateway_resource.access.id,
+      aws_api_gateway_resource.admin_members.id,
+      aws_api_gateway_resource.admin_members_status.id,
+      aws_api_gateway_resource.sms_inbound.id,
+      aws_api_gateway_method.access_post.id,
+      aws_api_gateway_method.admin_members_get.id,
+      aws_api_gateway_method.admin_members_status_post.id,
+      aws_api_gateway_method.sms_inbound_post.id,
+      aws_api_gateway_method.access_options.id,
+      aws_api_gateway_method.admin_members_options.id,
+      aws_api_gateway_method.admin_members_status_options.id,
+      aws_api_gateway_method.sms_inbound_options.id
+    ]))
+  }
+
+  depends_on = [
+    aws_api_gateway_integration.access_post,
+    aws_api_gateway_integration.admin_members_get,
+    aws_api_gateway_integration.admin_members_status_post,
+    aws_api_gateway_integration.sms_inbound_post,
+    aws_api_gateway_integration_response.access_options_200,
+    aws_api_gateway_integration_response.admin_members_options_200,
+    aws_api_gateway_integration_response.admin_members_status_options_200,
+    aws_api_gateway_integration_response.sms_inbound_options_200
+  ]
+
+  lifecycle {
+    create_before_destroy = true
+  }
+}
+
+resource "aws_api_gateway_stage" "prod" {
+  rest_api_id   = aws_api_gateway_rest_api.api.id
+  deployment_id = aws_api_gateway_deployment.deploy.id
+  stage_name    = "prod"
+}
+
+# -----------------------------
 # Lambda permissions for API Gateway
-resource "aws_lambda_permission" "access_request" {
-  statement_id  = "AllowAPIGateway"
+# -----------------------------
+resource "aws_lambda_permission" "allow_apigw_access" {
+  statement_id  = "AllowApiGwInvokeAccess"
   action        = "lambda:InvokeFunction"
   function_name = aws_lambda_function.access_request.function_name
   principal     = "apigateway.amazonaws.com"
-  source_arn    = "${aws_apigatewayv2_api.rsvp_api.execution_arn}/*/*"
+  source_arn    = "${aws_api_gateway_rest_api.api.execution_arn}/*/*"
 }
 
-resource "aws_lambda_permission" "sms_handler" {
-  statement_id  = "AllowAPIGateway"
+resource "aws_lambda_permission" "allow_apigw_admin" {
+  statement_id  = "AllowApiGwInvokeAdmin"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.admin_handler.function_name
+  principal     = "apigateway.amazonaws.com"
+  source_arn    = "${aws_api_gateway_rest_api.api.execution_arn}/*/*"
+}
+
+resource "aws_lambda_permission" "allow_apigw_sms" {
+  statement_id  = "AllowApiGwInvokeSms"
   action        = "lambda:InvokeFunction"
   function_name = aws_lambda_function.sms_handler.function_name
   principal     = "apigateway.amazonaws.com"
-  source_arn    = "${aws_apigatewayv2_api.rsvp_api.execution_arn}/*/*"
+  source_arn    = "${aws_api_gateway_rest_api.api.execution_arn}/*/*"
 }
 
-# ── Outputs ───────────────────────────────────────────────
-output "access_request_url" {
-  value       = "${aws_apigatewayv2_stage.prod.invoke_url}/access"
-  description = "Paste this into index.html form endpoint"
+
+
+resource "aws_lambda_permission" "allow_apigw_event" {
+  statement_id  = "AllowApiGwInvokeEvent"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.event_handler.function_name
+  principal     = "apigateway.amazonaws.com"
+  source_arn    = "${aws_api_gateway_rest_api.api.execution_arn}/*/*"
 }
 
-output "sms_webhook_url" {
-  value       = "${aws_apigatewayv2_stage.prod.invoke_url}/sms"
-  description = "Paste this into Superphone webhook settings"
+resource "aws_lambda_permission" "allow_apigw_invite" {
+  statement_id  = "AllowApiGwInvokeInvite"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.invite_handler.function_name
+  principal     = "apigateway.amazonaws.com"
+  source_arn    = "${aws_api_gateway_rest_api.api.execution_arn}/*/*"
+}
+
+# -----------------------------
+# WAF (rate limit /access) + Association (valid for REST API stage)
+# -----------------------------
+resource "aws_wafv2_web_acl" "api_acl" {
+  name  = "rsvp-api-acl"
+  scope = "REGIONAL"
+
+  default_action {
+    allow {}
+  }
+
+  visibility_config {
+    cloudwatch_metrics_enabled = true
+    metric_name                = "rsvp-api-acl"
+    sampled_requests_enabled   = true
+  }
+
+  rule {
+    name     = "rate-limit-access"
+    priority = 1
+
+    action {
+      block {}
+    }
+
+    statement {
+      rate_based_statement {
+        limit              = 500
+        aggregate_key_type = "IP"
+
+        scope_down_statement {
+          byte_match_statement {
+            search_string = "/access"
+            field_to_match {
+              uri_path {}
+            }
+            positional_constraint = "STARTS_WITH"
+            text_transformation {
+              priority = 0
+              type     = "NONE"
+            }
+          }
+        }
+      }
+    }
+
+    visibility_config {
+      cloudwatch_metrics_enabled = true
+      metric_name                = "rate-limit-access"
+      sampled_requests_enabled   = true
+    }
+  }
+}
+
+resource "aws_wafv2_web_acl_association" "api_stage" {
+  resource_arn = "arn:aws:apigateway:${data.aws_region.current.name}::/restapis/${aws_api_gateway_rest_api.api.id}/stages/${aws_api_gateway_stage.prod.stage_name}"
+  web_acl_arn  = aws_wafv2_web_acl.api_acl.arn
+}
+
+# -----------------------------
+# CloudWatch Log Groups (retention)
+# -----------------------------
+resource "aws_cloudwatch_log_group" "access_request" {
+  name              = "/aws/lambda/rsvp-access-request"
+  retention_in_days = 30
+}
+
+resource "aws_cloudwatch_log_group" "admin_handler" {
+  name              = "/aws/lambda/rsvp-admin-handler"
+  retention_in_days = 30
+}
+
+resource "aws_cloudwatch_log_group" "sms_handler" {
+  name              = "/aws/lambda/rsvp-sms-handler"
+  retention_in_days = 30
+}
+
+resource "aws_cloudwatch_log_group" "event_handler" {
+  name              = "/aws/lambda/rsvp-event-handler"
+  retention_in_days = 30
+}
+
+resource "aws_cloudwatch_log_group" "invite_handler" {
+  name              = "/aws/lambda/rsvp-invite-handler"
+  retention_in_days = 30
+}
+
+
+output "api_base_url" {
+  value = "https://${aws_api_gateway_rest_api.api.id}.execute-api.${data.aws_region.current.name}.amazonaws.com/${aws_api_gateway_stage.prod.stage_name}"
 }

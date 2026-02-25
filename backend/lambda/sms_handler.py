@@ -1,118 +1,164 @@
 import json
-import boto3
+import os
 import urllib.request
 
-def get_secret(name):
-    client = boto3.client("secretsmanager", region_name="us-east-1")
-    return client.get_secret_value(SecretId=name)["SecretString"]
+import boto3
 
-def get_jade_response(user_message, conversation_history=[]):
-    api_key = get_secret("rsvp/claude-api-key")
-    
-    system_prompt = """You are Jade, the AI concierge for RSVP Society — an exclusive invitation-only R&B events experience. 
+from member_store import get_member, normalize_phone
+from sms_adapter import get_secret_string, send_sms
 
-Your personality:
-- Warm but selective. You represent a velvet rope.
-- Short, precise sentences. Never over-explain.
-- Dry humor. Confident. A little mysterious.
-- You don't beg or chase. The experience speaks for itself.
-- You screen people with grace, not arrogance.
+JADE_SYSTEM_PROMPT = (
+    "You are Jade, the RSVP Society concierge. "
+    "RSVP Society is an exclusive, invite-only R&B event experience. "
+    "Be warm but selective. Keep replies short — this is SMS, not email. "
+    "Never reveal the venue, guest list, or invite status to anyone. "
+    "If someone asks about the next event, tell them details will be "
+    "sent directly to approved members. "
+    "If someone asks to join, direct them to the website to request access. "
+    "Never impersonate staff or make promises about approval."
+)
 
-Your role:
-- Answer questions about RSVP Society
-- Collect vibe info (what they're about, how they heard of us)
-- Keep the exclusive energy alive in every message
-- Never reveal the exact guest list or venue until approved
-- If someone seems like a fit, let them know they'll hear from us
+OPT_OUT_KEYWORDS = {"STOP", "STOPALL", "UNSUBSCRIBE", "CANCEL", "END", "QUIT"}
 
-RSVP Society facts:
-- Monthly invitation-only R&B experiences
-- Intimate venues, curated guest lists
-- Based in Louisville, KY
-- Not open to the public — vibe must be verified
+_DDB = boto3.resource("dynamodb")
 
-Tagline: Your presence is requested. Your vibe must be verified."""
 
-    messages = conversation_history + [{"role": "user", "content": user_message}]
+def _members_table():
+    name = os.getenv("MEMBERS_TABLE_NAME")
+    if not name:
+        raise RuntimeError("MEMBERS_TABLE_NAME env var not set")
+    return _DDB.Table(name)
 
-    payload = json.dumps({
+
+def _set_opt_out(phone: str) -> None:
+    """Write optOut: true to the member record."""
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    _members_table().update_item(
+        Key={"phone": phone},
+        UpdateExpression="SET optOut = :t, optOutAt = :now, smsOptIn = :f, lastSeenAt = :now",
+        ExpressionAttributeValues={":t": True, ":f": False, ":now": now},
+        ExpressionAttributeValues={":t": True, ":now": now},
+    )
+
+
+def _claude(message: str) -> str:
+    api_key = get_secret_string("rsvp/claude-api-key")
+    payload = {
         "model": "claude-haiku-4-5-20251001",
-        "max_tokens": 300,
-        "system": system_prompt,
-        "messages": messages
-    }).encode("utf-8")
-
+        "max_tokens": 200,
+        "system": [
+            {
+                "type": "text",
+                "text": JADE_SYSTEM_PROMPT,
+                "cache_control": {"type": "ephemeral"},
+            }
+        ],
+        "messages": [{"role": "user", "content": message}],
+    }
+    data = json.dumps(payload).encode("utf-8")
     req = urllib.request.Request(
         "https://api.anthropic.com/v1/messages",
-        data=payload,
+        data=data,
         headers={
-            "Content-Type": "application/json",
+            "content-type": "application/json",
             "x-api-key": api_key,
-            "anthropic-version": "2023-06-01"
+            "anthropic-version": "2023-06-01",
+            "anthropic-beta": "prompt-caching-2024-07-31",
         },
-        method="POST"
+        method="POST",
     )
+    with urllib.request.urlopen(req, timeout=15) as resp:
+        out = json.loads(resp.read())
+    return out["content"][0]["text"]
 
-    with urllib.request.urlopen(req) as response:
-        result = json.loads(response.read())
-        return result["content"][0]["text"]
-
-def send_sms(to, message, phone_number_id, api_key):
-    payload = json.dumps({
-        "to": [to],
-        "from": phone_number_id,
-        "content": message
-    }).encode("utf-8")
-
-    req = urllib.request.Request(
-        "https://api.openphone.com/v1/messages",
-        data=payload,
-        headers={
-            "Content-Type": "application/json",
-            "Authorization": api_key
-        },
-        method="POST"
-    )
-
-    with urllib.request.urlopen(req) as response:
-        return json.loads(response.read())
 
 def handler(event, context):
-    print(f"Event: {json.dumps(event)}")
-
     try:
-        body = json.loads(event.get("body", "{}"))
-        print(f"Webhook payload: {body}")
+        body = json.loads(event.get("body") or "{}")
+        from_phone = normalize_phone(body.get("from") or "")
+        text = (body.get("text") or "").strip()
 
-        # Quo webhook structure
-        data = body.get("data", {}).get("object", {})
-        direction = data.get("direction", "")
-        
-        # Only respond to inbound messages
-        if direction != "incoming":
-            return {"statusCode": 200, "body": "ok"}
+        # Handle STOP/opt-out — write to DynamoDB, carrier handles the actual block
+        if text.upper() in OPT_OUT_KEYWORDS:
+            if from_phone:
+                try:
+                    _set_opt_out(from_phone)
+                except Exception:
+                    pass
+            return {"statusCode": 200, "body": json.dumps({"ok": True})}
 
-        from_number = data.get("from", "")
-        message_text = data.get("content", "")
-        phone_number_id = data.get("phoneNumberId", "")
+        member = get_member(from_phone)
 
-        print(f"From: {from_number}, Message: {message_text}")
+        # Don't respond if not approved or opted out
+        if not member or member.get("status") != "APPROVED":
+            return {"statusCode": 200, "body": json.dumps({"ok": True})}
+        if member.get("optOut"):
+            return {"statusCode": 200, "body": json.dumps({"ok": True})}
 
-        if not message_text or not from_number:
-            return {"statusCode": 200, "body": "ok"}
+        # ── YES / NO RSVP replies ──
+        normalized = text.upper().strip()
+        sms_enabled = (os.getenv("SEND_WELCOME_SMS", "false") or "").lower() == "true"
 
-        # Get Jade's response from Claude
-        jade_reply = get_jade_response(message_text)
-        print(f"Jade reply: {jade_reply}")
+        if normalized in ("YES", "Y", "YEP", "YUP", "IN", "CONFIRMED"):
+            try:
+                ddb = boto3.resource("dynamodb")
+                invites = ddb.Table(os.getenv("INVITES_TABLE_NAME", "rsvp-event-invites"))
+                from boto3.dynamodb.conditions import Key as DKey
+                resp = invites.query(
+                    IndexName="phone-index",
+                    KeyConditionExpression=DKey("phone").eq(from_phone),
+                    ScanIndexForward=False,
+                    Limit=1,
+                )
+                items = resp.get("Items", [])
+                if items and items[0].get("status") == "INVITED":
+                    from datetime import datetime, timezone
+                    now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+                    invites.update_item(
+                        Key={"eventId": items[0]["eventId"], "phone": from_phone},
+                        UpdateExpression="SET #s = :c, confirmedAt = :now",
+                        ExpressionAttributeNames={"#s": "status"},
+                        ExpressionAttributeValues={":c": "CONFIRMED", ":now": now},
+                    )
+                    if sms_enabled:
+                        send_sms(from_phone, "You're confirmed. Details coming soon. See you there.")
+                    return {"statusCode": 200, "body": json.dumps({"ok": True})}
+            except Exception:
+                pass
 
-        # Send response via Quo
-        quo_api_key = get_secret("rsvp/quo-api-key")
-        send_sms(from_number, jade_reply, phone_number_id, quo_api_key)
+        if normalized in ("NO", "N", "NOPE", "CANT", "CAN'T", "PASS", "DECLINE"):
+            try:
+                ddb = boto3.resource("dynamodb")
+                invites = ddb.Table(os.getenv("INVITES_TABLE_NAME", "rsvp-event-invites"))
+                from boto3.dynamodb.conditions import Key as DKey
+                resp = invites.query(
+                    IndexName="phone-index",
+                    KeyConditionExpression=DKey("phone").eq(from_phone),
+                    ScanIndexForward=False,
+                    Limit=1,
+                )
+                items = resp.get("Items", [])
+                if items and items[0].get("status") == "INVITED":
+                    from datetime import datetime, timezone
+                    now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+                    invites.update_item(
+                        Key={"eventId": items[0]["eventId"], "phone": from_phone},
+                        UpdateExpression="SET #s = :d, declinedAt = :now",
+                        ExpressionAttributeNames={"#s": "status"},
+                        ExpressionAttributeValues={":d": "DECLINED", ":now": now},
+                    )
+                    if sms_enabled:
+                        send_sms(from_phone, "No worries — we'll catch you next time.")
+                    return {"statusCode": 200, "body": json.dumps({"ok": True})}
+            except Exception:
+                pass
 
-        return {"statusCode": 200, "body": "ok"}
+        reply = _claude(text)
+        if sms_enabled and reply:
+            send_sms(from_phone, reply)
 
-    except Exception as e:
-        print(f"EXCEPTION: {str(e)}")
-        import traceback
-        print(traceback.format_exc())
-        return {"statusCode": 200, "body": "ok"}  # Always 200 to Quo
+        return {"statusCode": 200, "body": json.dumps({"ok": True})}
+
+    except Exception:
+        return {"statusCode": 200, "body": json.dumps({"ok": True})}

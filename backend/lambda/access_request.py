@@ -1,100 +1,68 @@
 import json
-import boto3
-import urllib.request
-import re
+import os
+from member_store import upsert_member, normalize_phone
+from sms_adapter import maybe_send_welcome
 
-def get_secret(name):
-    client = boto3.client("secretsmanager", region_name="us-east-1")
-    return client.get_secret_value(SecretId=name)["SecretString"]
+def _get_method(event: dict) -> str:
+    if event.get("httpMethod"):
+        return event["httpMethod"]
+    rc = event.get("requestContext", {}).get("http", {})
+    return rc.get("method", "")
 
-def normalize_phone(phone):
-    digits = re.sub(r"\D", "", phone)
-    if len(digits) == 10:
-        return f"+1{digits}"
-    elif len(digits) == 11 and digits.startswith("1"):
-        return f"+{digits}"
-    return f"+{digits}"
+def _get_headers(event: dict) -> dict:
+    return event.get("headers") or {}
 
-def quo_request(endpoint, payload, api_key):
-    data = json.dumps(payload).encode("utf-8")
-    req = urllib.request.Request(
-        f"https://api.openphone.com/v1/{endpoint}",
-        data=data,
-        headers={
-            "Content-Type": "application/json",
-            "Authorization": api_key
+def _resp(status: int, body: dict, origin: str | None = None) -> dict:
+    allowed = os.getenv("ALLOWED_ORIGINS", "")
+    origins = [o.strip() for o in allowed.split(",") if o.strip()]
+    allow_origin = origin if origin in origins else (origins[0] if origins else "*")
+
+    return {
+        "statusCode": status,
+        "headers": {
+            "content-type": "application/json",
+            "access-control-allow-origin": allow_origin,
+            "access-control-allow-headers": "content-type,x-admin-token",
+            "access-control-allow-methods": "POST,OPTIONS",
         },
-        method="POST"
-    )
-    with urllib.request.urlopen(req) as response:
-        result = json.loads(response.read())
-        print(f"Quo response: {result}")
-        return result
-
-def get_phone_number_id(api_key):
-    req = urllib.request.Request(
-        "https://api.openphone.com/v1/phone-numbers",
-        headers={"Authorization": api_key},
-        method="GET"
-    )
-    with urllib.request.urlopen(req) as response:
-        result = json.loads(response.read())
-        print(f"Phone numbers: {result}")
-        return result["data"][0]["id"]
-
-def add_contact(mobile, first_name, api_key):
-    return quo_request("contacts", {
-        "defaultFields": {
-            "firstName": first_name,
-            "phoneNumbers": [{"value": mobile}]
-        }
-    }, api_key)
-
-def send_welcome(mobile, first_name, api_key, phone_number_id):
-    message = f"Josh — RSVP Society has your number. We'll reach out when the time is right. — Jade"
-    # personalize with actual name
-    message = f"{first_name} — RSVP Society has your number. We'll reach out when the time is right. — Jade"
-    return quo_request("messages", {
-        "to": [mobile],
-        "from": phone_number_id,
-        "content": message
-    }, api_key)
-
-def handler(event, context):
-    print(f"Event: {json.dumps(event)}")
-
-    headers = {
-        "Access-Control-Allow-Origin": "https://rsvpsociety.com",
-        "Access-Control-Allow-Headers": "Content-Type",
-        "Access-Control-Allow-Methods": "POST,OPTIONS"
+        "body": json.dumps(body),
     }
 
-    if event.get("httpMethod") == "OPTIONS" or event.get("requestContext", {}).get("http", {}).get("method") == "OPTIONS":
-        return {"statusCode": 200, "headers": headers, "body": ""}
-
+def handler(event, context):
     try:
-        body = json.loads(event.get("body", "{}"))
-        print(f"Body: {body}")
+        method = _get_method(event).upper()
+        origin = _get_headers(event).get("origin") or _get_headers(event).get("Origin")
 
-        raw_phone = body.get("phone", "").strip()
-        first_name = body.get("name", "").strip() or "Friend"
+        if method == "OPTIONS":
+            return _resp(200, {"ok": True}, origin)
 
-        if not raw_phone:
-            return {"statusCode": 400, "headers": headers, "body": json.dumps({"error": "Phone required"})}
+        if method != "POST":
+            return _resp(405, {"ok": False, "error": "Method not allowed"}, origin)
 
-        mobile = normalize_phone(raw_phone)
-        print(f"Mobile: {mobile}, Name: {first_name}")
+        raw_body = event.get("body") or ""
+        if event.get("isBase64Encoded"):
+            import base64
+            raw_body = base64.b64decode(raw_body).decode("utf-8")
 
-        api_key = get_secret("rsvp/quo-api-key")
-        phone_number_id = get_phone_number_id(api_key)
+        data = json.loads(raw_body) if raw_body else {}
+        name = (data.get("name") or "").strip()
+        phone = (data.get("phone") or "").strip()
+        email = (data.get("email") or "").strip() or None
+        source = (data.get("source") or "web").strip()
+        sms_opt_in = bool(data.get("smsOptIn", False))
 
-        add_contact(mobile, first_name, api_key)
-        send_welcome(mobile, first_name, api_key, phone_number_id)
+        if not name or not phone:
+            return _resp(400, {"ok": False, "error": "name and phone required"}, origin)
 
-        return {"statusCode": 200, "headers": headers, "body": json.dumps({"status": "success"})}
+        phone_e164 = normalize_phone(phone)
+
+        member = upsert_member(phone=phone_e164, name=name, email=email, source=source, sms_opt_in=sms_opt_in)
+
+        # Feature-flagged welcome SMS
+        maybe_send_welcome(member)
+
+        return _resp(200, {"ok": True}, origin)
 
     except Exception as e:
-        print(f"EXCEPTION: {str(e)}")
-        import traceback
-        print(traceback.format_exc())
-        return {"statusCode": 500, "headers": headers, "body": json.dumps({"error": str(e)})}
+        # Keep response concise but actionable
+        return _resp(500, {"ok": False, "error": str(e)}, None)
