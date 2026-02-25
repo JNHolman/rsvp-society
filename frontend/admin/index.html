@@ -848,7 +848,8 @@ main {
 
 <!-- App -->
 <div id="app">
-  <nav>
+  
+  <nav class="nav">
     <div class="nav-left">
       <span class="nav-wordmark">[RSVP]</span>
       <div class="nav-divider"></div>
@@ -859,8 +860,6 @@ main {
       <button class="tab-btn" id="tab-invite" onclick="setTab('invite'); showSection('invite')">Invite</button>
       <button class="tab-btn" id="tab-event" onclick="setTab('event'); showSection('event'); loadCurrentEvent()">Event</button>
       <button class="tab-btn" id="tab-attendance" onclick="setTab('attendance'); showSection('attendance')">Attendance</button>
-      <button class="tab-btn" id="tab-event" onclick="setTab('event'); showSection('event'); loadCurrentEvent()">Event</button>
-      <button class="tab-btn" id="tab-attendance" onclick="setTab('attendance'); showSection('attendance')">Attendance</button>
       <div class="nav-divider"></div>
       <button class="settings-btn" onclick="openSettings()">Settings</button>
       <button class="logout-btn" onclick="doLogout()">Sign Out</button>
@@ -868,7 +867,7 @@ main {
   </nav>
 
   <main>
-  <div id="members-section">
+<div id="members-section">
     <!-- Stats -->
     <div class="stats-row" id="stats-row">
       <div class="stat-card">
@@ -921,12 +920,11 @@ main {
     <div id="members-container">
       <div class="loading-state">Loading members...</div>
     </div>
-  </main>
+  
 
-  </div><!-- /members-section -->
+  </div>
 
-  <!-- Invite Section -->
-  <div id="invite-section">
+<div id="invite-section" style="display:none">
     <div class="section-header">
       <div class="section-title">Invite Blast</div>
     </div>
@@ -963,57 +961,7 @@ main {
     </div>
   </div>
 
-  <!-- Event Section -->
-  <div id="event-section">
-    <div class="section-header">
-      <div class="section-title">Current Event</div>
-    </div>
-
-    <div class="event-current" id="current-event-display">Loading current event...</div>
-
-    <div class="event-form">
-      <div class="event-grid">
-        <div class="event-field">
-          <label for="ev-date">Date</label>
-          <input type="text" id="ev-date" placeholder="March 15, 2026" />
-        </div>
-        <div class="event-field">
-          <label for="ev-city">City</label>
-          <input type="text" id="ev-city" placeholder="Louisville, KY" />
-        </div>
-        <div class="event-field">
-          <label for="ev-time">Time</label>
-          <input type="text" id="ev-time" placeholder="10:00 PM" />
-        </div>
-        <div class="event-field">
-          <label for="ev-dresscode">Dress Code</label>
-          <input type="text" id="ev-dresscode" placeholder="All Black" />
-        </div>
-        <div class="event-field full">
-          <label for="ev-notes">Notes (visible on event page)</label>
-          <textarea id="ev-notes" rows="3" placeholder="Any additional details..."></textarea>
-        </div>
-      </div>
-      <button class="event-save" onclick="saveEvent()">Save Event Details</button>
-    </div>
-  </div>
-
-  <!-- Attendance Section -->
-  <div id="attendance-section">
-    <div class="section-header">
-      <div class="section-title">Mark Attendance</div>
-    </div>
-    <p style="font-size:10px;letter-spacing:0.1em;color:rgba(248,244,236,0.5);margin-bottom:28px;">Search an invited member and mark whether they showed up.</p>
-
-    <div class="attendance-filter">
-      <input type="text" id="att-search" placeholder="Search by name or phone..." oninput="searchAttendance(this.value)" />
-    </div>
-
-    <div id="attendance-results"></div>
-  </div>
-
-  <!-- Event Section -->
-  <div id="event-section">
+<div id="event-section" style="display:none">
     <div class="section-header">
       <div class="section-title">Current Event</div>
     </div>
@@ -1056,8 +1004,7 @@ main {
     </div>
   </div>
 
-  <!-- Attendance Section -->
-  <div id="attendance-section">
+<div id="attendance-section" style="display:none">
     <div class="section-header">
       <div class="section-title">Mark Attendance</div>
     </div>
@@ -1068,11 +1015,11 @@ main {
     <div id="attendance-container"></div>
   </div>
 
-  <!-- Settings overlay -->
-  <div class="settings-overlay" id="settings-overlay" onclick="closeSettings()"></div>
+  </main>
+</div>
 
-  <!-- Settings panel -->
-  <div class="settings-panel" id="settings-panel">
+<div class="settings-overlay" id="settings-overlay" onclick="closeSettings()"></div>
+<div class="settings-panel" id="settings-panel">
     <div class="settings-title">Settings</div>
 
     <label class="settings-label" for="api-input">API Base URL</label>
@@ -1082,11 +1029,7 @@ main {
     <button class="settings-save" onclick="saveSettings()">Save</button>
     <button class="settings-close" onclick="closeSettings()">Cancel</button>
   </div>
-
-</div>
-
 <div class="toast" id="toast"></div>
-
 <script>
 const API_DEFAULT = 'https://ez2z31emm2.execute-api.us-east-1.amazonaws.com/prod';
 let API = (localStorage.getItem('rsvp_api_base') || API_DEFAULT).replace(/\/+$/, '');
@@ -1128,27 +1071,46 @@ document.getElementById('token-input').addEventListener('keydown', e => {
 
 async function doLogin() {
   const val = document.getElementById('token-input').value.trim();
+  const errEl = document.getElementById('login-error');
   if (!val) return;
 
-  // Validate token by hitting the members endpoint
-  const res = await fetch(`${API}/admin/members?status=PENDING`, {
-    headers: { 'x-admin-token': val }
-  });
+  const btn = document.getElementById('login-btn');
+  btn.textContent = 'Checking...';
+  errEl.textContent = '';
 
-  if (res.status === 401) {
-    document.getElementById('login-error').textContent = 'Invalid token.';
-    return;
+  try {
+    const res = await fetch(`${API}/admin/members?status=PENDING`, {
+      headers: { 'x-admin-token': val }
+    });
+
+    if (res.status === 401 || res.status === 403) {
+      errEl.textContent = 'Invalid token.';
+      btn.textContent = 'Enter';
+      return;
+    }
+
+    if (!res.ok) {
+      errEl.textContent = `Error ${res.status}. Check API URL.`;
+      btn.textContent = 'Enter';
+      return;
+    }
+
+    adminToken = val;
+    sessionStorage.setItem('rsvp_admin_token', val);
+    document.getElementById('login-screen').style.display = 'none';
+    document.getElementById('app').style.display = 'block';
+    btn.textContent = 'Enter';
+
+    const data = await res.json();
+    allMembers = data.members || [];
+    renderMembers(allMembers);
+    loadStats();
+
+  } catch(err) {
+    errEl.textContent = 'Network error — check API URL in settings.';
+    btn.textContent = 'Enter';
+    console.error('Login error:', err);
   }
-
-  adminToken = val;
-  sessionStorage.setItem('rsvp_admin_token', val);
-  document.getElementById('login-screen').style.display = 'none';
-  document.getElementById('app').style.display = 'block';
-
-  const data = await res.json();
-  allMembers = data.members || [];
-  renderMembers(allMembers);
-  loadStats();
 }
 
 function doLogout() {
@@ -1478,138 +1440,6 @@ async function loadCurrentEvent() {
       headers: { 'x-admin-token': adminToken }
     });
     const data = await res.json();
-    const ev = data.event || {};
-    const display = document.getElementById('current-event-display');
-
-    if (!ev.date && !ev.city) {
-      display.innerHTML = '<em style="color:rgba(248,244,236,0.3)">No event set yet.</em>';
-      return;
-    }
-
-    display.innerHTML = [
-      ev.date      ? `<strong>Date:</strong> ${ev.date}` : '',
-      ev.city      ? `<strong>City:</strong> ${ev.city}` : '',
-      ev.time      ? `<strong>Time:</strong> ${ev.time}` : '',
-      ev.dresscode ? `<strong>Dress Code:</strong> ${ev.dresscode}` : '',
-      ev.notes     ? `<strong>Notes:</strong> ${ev.notes}` : '',
-      ev.updatedAt ? `<span style="font-size:9px;color:rgba(248,244,236,0.35)">Last updated: ${ev.updatedAt}</span>` : '',
-    ].filter(Boolean).join('<br>');
-
-    // Pre-fill the form
-    if (ev.date)      document.getElementById('ev-date').value = ev.date;
-    if (ev.city)      document.getElementById('ev-city').value = ev.city;
-    if (ev.time)      document.getElementById('ev-time').value = ev.time;
-    if (ev.dresscode) document.getElementById('ev-dresscode').value = ev.dresscode;
-    if (ev.notes)     document.getElementById('ev-notes').value = ev.notes;
-  } catch(e) {
-    document.getElementById('current-event-display').textContent = 'Failed to load.';
-  }
-}
-
-async function saveEvent() {
-  const body = {
-    date:      document.getElementById('ev-date').value.trim(),
-    city:      document.getElementById('ev-city').value.trim(),
-    time:      document.getElementById('ev-time').value.trim(),
-    dresscode: document.getElementById('ev-dresscode').value.trim(),
-    notes:     document.getElementById('ev-notes').value.trim(),
-  };
-
-  try {
-    const res = await fetch(`${API}/admin/event`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', 'x-admin-token': adminToken },
-      body: JSON.stringify(body)
-    });
-    const data = await res.json();
-    if (!data.ok) throw new Error(data.error);
-    showToast('Event saved', 'success');
-    loadCurrentEvent();
-  } catch(e) {
-    showToast('Save failed: ' + e.message, 'error');
-  }
-}
-
-// ── Attendance ──
-let attMembers = [];
-
-async function loadAttendanceMembers() {
-  try {
-    const res = await fetch(`${API}/admin/members?status=APPROVED`, {
-      headers: { 'x-admin-token': adminToken }
-    });
-    const data = await res.json();
-    attMembers = data.members || [];
-  } catch(e) {}
-}
-
-function searchAttendance(query) {
-  const q = query.toLowerCase();
-  const results = q.length < 2 ? [] : attMembers.filter(m =>
-    (m.name || '').toLowerCase().includes(q) ||
-    (m.phone || '').includes(q)
-  ).slice(0, 20);
-
-  const container = document.getElementById('attendance-results');
-  if (!results.length) {
-    container.innerHTML = q.length >= 2 ? '<div class="empty-state" style="padding:40px 0">No members found.</div>' : '';
-    return;
-  }
-
-  container.innerHTML = `
-    <table class="member-table">
-      <thead><tr>
-        <th>Name</th><th>Phone</th><th>Attended</th><th>Invited</th><th>Mark</th>
-      </tr></thead>
-      <tbody>
-        ${results.map(m => `
-          <tr id="att-row-${m.phone.replace(/[^0-9]/g,'')}">
-            <td><span class="member-name">${escHtml(m.name || '—')}</span></td>
-            <td><span class="member-phone">${m.phone}</span></td>
-            <td><span class="member-date">${m.attendedCount || 0}</span></td>
-            <td><span class="member-date">${m.invitedCount || 0}</span></td>
-            <td>
-              <div class="action-btns">
-                <button class="att-btn-yes" onclick="markAttendance('${m.phone}', true)">Attended</button>
-                <button class="att-btn-no" onclick="markAttendance('${m.phone}', false)">No Show</button>
-              </div>
-            </td>
-          </tr>
-        `).join('')}
-      </tbody>
-    </table>
-  `;
-}
-
-async function markAttendance(phone, attended) {
-  const rowId = 'att-row-' + phone.replace(/[^0-9]/g, '');
-  const row = document.getElementById(rowId);
-  if (row) row.style.opacity = '0.4';
-
-  try {
-    const res = await fetch(`${API}/admin/members/attendance`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', 'x-admin-token': adminToken },
-      body: JSON.stringify({ phone, attended })
-    });
-    const data = await res.json();
-    if (!data.ok) throw new Error(data.error);
-    showToast(attended ? 'Marked as attended' : 'Marked as no show', attended ? 'success' : '');
-    if (row) row.remove();
-  } catch(e) {
-    if (row) row.style.opacity = '1';
-    showToast('Failed: ' + e.message, 'error');
-  }
-}
-
-
-// ── Event management ──
-async function loadCurrentEvent() {
-  try {
-    const res = await fetch(`${API}/admin/event`, {
-      headers: { 'x-admin-token': adminToken }
-    });
-    const data = await res.json();
     if (data.ok && data.event && data.event.date) {
       const ev = data.event;
       // Populate form
@@ -1897,7 +1727,6 @@ function saveSettings() {
   showToast('API URL saved', 'success');
   closeSettings();
 }
-
 </script>
 </body>
 </html>

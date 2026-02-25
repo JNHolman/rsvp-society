@@ -35,37 +35,58 @@ body {
 .cursor-ring { position: fixed; width: 24px; height: 24px; border: 1px solid rgba(212,185,106,0.3); border-radius: 50%; pointer-events: none; z-index: 9998; transform: translate(-50%,-50%); transition: width .3s, height .3s; }
 
 nav {
-  position: fixed; top: 0; left: 0; right: 0; z-index: 100;
-  padding: 24px 60px;
-  display: flex; justify-content: space-between; align-items: center;
-  background: linear-gradient(180deg, rgba(6,6,8,0.95) 0%, transparent 100%);
+  position: fixed;
+  top: 0; left: 0; right: 0;
+  z-index: 200;
+  padding: 28px 60px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: linear-gradient(180deg, rgba(6,6,8,0.75) 0%, transparent 100%);
 }
 .nav-wordmark {
   font-family: 'Cormorant Garamond', serif;
-  font-size: 13px; letter-spacing: 0.38em; color: var(--gold);
+  font-weight: 400;
+  font-size: 14px;
+  letter-spacing: 0.38em;
+  color: var(--gold);
   text-decoration: none;
 }
 .nav-back {
-  font-size: 8px; letter-spacing: 0.35em; text-transform: uppercase;
-  color: var(--white-dim); text-decoration: none; transition: color .2s;
+  font-family: 'Montserrat', sans-serif;
+  font-size: 10px;
+  font-weight: 300;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  color: rgba(248,244,236,0.75);
+  text-decoration: none;
+  transition: color .2s;
 }
 .nav-back:hover { color: var(--gold); }
 
 .page-header {
-  padding: 140px 60px 60px;
+  padding: 140px 60px 100px;
   text-align: center;
-  border-bottom: 1px solid rgba(212,185,106,0.07);
 }
 
 .eyebrow {
-  font-size: 8px; letter-spacing: 0.5em; text-transform: uppercase;
-  color: var(--gold); opacity: 0.75; margin-bottom: 20px;
+  font-family: 'Montserrat', sans-serif;
+  font-size: 11px;
+  letter-spacing: 0.48em;
+  text-transform: uppercase;
+  color: var(--gold);
+  opacity: 0.9;
+  margin-bottom: 28px;
 }
 
 .page-headline {
   font-family: 'Cormorant Garamond', serif;
-  font-weight: 300; font-style: italic;
-  font-size: 54px; color: var(--white);
+  font-weight: 300;
+  font-style: italic;
+  font-size: 56px;
+  color: var(--white);
+  line-height: 1.05;
+  margin-bottom: 40px;
 }
 
 /* Event folder tabs */
@@ -161,11 +182,22 @@ nav {
 
 @media (max-width: 768px) {
   nav { padding: 20px 24px; }
-  .page-header { padding: 100px 24px 40px; }
+  .page-header {
+  padding: 140px 60px 100px;
+  text-align: center;
+}
   .folder-nav { padding: 0 24px; }
   .gallery-section { padding: 32px 24px 60px; }
   .gallery-grid { grid-template-columns: repeat(2, 1fr); gap: 2px; }
-  .page-headline { font-size: 36px; }
+  .page-headline {
+  font-family: 'Cormorant Garamond', serif;
+  font-weight: 300;
+  font-style: italic;
+  font-size: 56px;
+  color: var(--white);
+  line-height: 1.05;
+  margin-bottom: 40px;
+}
 }
 </style>
 </head>
