@@ -46,6 +46,9 @@ variable "admin_token_secret_id" {
 
 locals {
   allowed_origins_csv = join(",", var.allowed_origins)
+  cors_origins        = "'https://rsvpsociety.com'"
+  cors_methods        = "'GET,POST,PUT,DELETE,OPTIONS'"
+  cors_headers        = "'content-type,x-admin-token'"
 }
 
 # -----------------------------
@@ -1244,5 +1247,225 @@ resource "aws_api_gateway_integration_response" "admin_invite_send_options_200" 
     "method.response.header.Access-Control-Allow-Origin"  = "'https://rsvpsociety.com'"
     "method.response.header.Access-Control-Allow-Methods" = "'GET,POST,PUT,DELETE,OPTIONS'"
     "method.response.header.Access-Control-Allow-Headers" = "'content-type,x-admin-token'"
+  }
+}
+
+# -----------------------------
+# CORS OPTIONS — missing endpoints (batch fix)
+# -----------------------------
+
+resource "aws_api_gateway_method" "admin_event_options" {
+  rest_api_id   = aws_api_gateway_rest_api.api.id
+  resource_id   = aws_api_gateway_resource.admin_event.id
+  http_method   = "OPTIONS"
+  authorization = "NONE"
+}
+resource "aws_api_gateway_integration" "admin_event_options" {
+  rest_api_id = aws_api_gateway_rest_api.api.id
+  resource_id = aws_api_gateway_resource.admin_event.id
+  http_method = aws_api_gateway_method.admin_event_options.http_method
+  type        = "MOCK"
+  request_templates = { "application/json" = "{\"statusCode\": 200}" }
+}
+resource "aws_api_gateway_method_response" "admin_event_options_200" {
+  rest_api_id = aws_api_gateway_rest_api.api.id
+  resource_id = aws_api_gateway_resource.admin_event.id
+  http_method = aws_api_gateway_method.admin_event_options.http_method
+  status_code = "200"
+  response_parameters = {
+    "method.response.header.Access-Control-Allow-Origin"  = true
+    "method.response.header.Access-Control-Allow-Methods" = true
+    "method.response.header.Access-Control-Allow-Headers" = true
+  }
+}
+resource "aws_api_gateway_integration_response" "admin_event_options_200" {
+  rest_api_id = aws_api_gateway_rest_api.api.id
+  resource_id = aws_api_gateway_resource.admin_event.id
+  http_method = aws_api_gateway_method.admin_event_options.http_method
+  status_code = aws_api_gateway_method_response.admin_event_options_200.status_code
+  response_parameters = {
+    "method.response.header.Access-Control-Allow-Origin"  = local.cors_origins
+    "method.response.header.Access-Control-Allow-Methods" = local.cors_methods
+    "method.response.header.Access-Control-Allow-Headers" = local.cors_headers
+  }
+}
+
+resource "aws_api_gateway_method" "admin_members_gender_options" {
+  rest_api_id   = aws_api_gateway_rest_api.api.id
+  resource_id   = aws_api_gateway_resource.admin_members_gender.id
+  http_method   = "OPTIONS"
+  authorization = "NONE"
+}
+resource "aws_api_gateway_integration" "admin_members_gender_options" {
+  rest_api_id = aws_api_gateway_rest_api.api.id
+  resource_id = aws_api_gateway_resource.admin_members_gender.id
+  http_method = aws_api_gateway_method.admin_members_gender_options.http_method
+  type        = "MOCK"
+  request_templates = { "application/json" = "{\"statusCode\": 200}" }
+}
+resource "aws_api_gateway_method_response" "admin_members_gender_options_200" {
+  rest_api_id = aws_api_gateway_rest_api.api.id
+  resource_id = aws_api_gateway_resource.admin_members_gender.id
+  http_method = aws_api_gateway_method.admin_members_gender_options.http_method
+  status_code = "200"
+  response_parameters = {
+    "method.response.header.Access-Control-Allow-Origin"  = true
+    "method.response.header.Access-Control-Allow-Methods" = true
+    "method.response.header.Access-Control-Allow-Headers" = true
+  }
+}
+resource "aws_api_gateway_integration_response" "admin_members_gender_options_200" {
+  rest_api_id = aws_api_gateway_rest_api.api.id
+  resource_id = aws_api_gateway_resource.admin_members_gender.id
+  http_method = aws_api_gateway_method.admin_members_gender_options.http_method
+  status_code = aws_api_gateway_method_response.admin_members_gender_options_200.status_code
+  response_parameters = {
+    "method.response.header.Access-Control-Allow-Origin"  = local.cors_origins
+    "method.response.header.Access-Control-Allow-Methods" = local.cors_methods
+    "method.response.header.Access-Control-Allow-Headers" = local.cors_headers
+  }
+}
+
+resource "aws_api_gateway_method" "admin_members_tier_options" {
+  rest_api_id   = aws_api_gateway_rest_api.api.id
+  resource_id   = aws_api_gateway_resource.admin_members_tier.id
+  http_method   = "OPTIONS"
+  authorization = "NONE"
+}
+resource "aws_api_gateway_integration" "admin_members_tier_options" {
+  rest_api_id = aws_api_gateway_rest_api.api.id
+  resource_id = aws_api_gateway_resource.admin_members_tier.id
+  http_method = aws_api_gateway_method.admin_members_tier_options.http_method
+  type        = "MOCK"
+  request_templates = { "application/json" = "{\"statusCode\": 200}" }
+}
+resource "aws_api_gateway_method_response" "admin_members_tier_options_200" {
+  rest_api_id = aws_api_gateway_rest_api.api.id
+  resource_id = aws_api_gateway_resource.admin_members_tier.id
+  http_method = aws_api_gateway_method.admin_members_tier_options.http_method
+  status_code = "200"
+  response_parameters = {
+    "method.response.header.Access-Control-Allow-Origin"  = true
+    "method.response.header.Access-Control-Allow-Methods" = true
+    "method.response.header.Access-Control-Allow-Headers" = true
+  }
+}
+resource "aws_api_gateway_integration_response" "admin_members_tier_options_200" {
+  rest_api_id = aws_api_gateway_rest_api.api.id
+  resource_id = aws_api_gateway_resource.admin_members_tier.id
+  http_method = aws_api_gateway_method.admin_members_tier_options.http_method
+  status_code = aws_api_gateway_method_response.admin_members_tier_options_200.status_code
+  response_parameters = {
+    "method.response.header.Access-Control-Allow-Origin"  = local.cors_origins
+    "method.response.header.Access-Control-Allow-Methods" = local.cors_methods
+    "method.response.header.Access-Control-Allow-Headers" = local.cors_headers
+  }
+}
+
+resource "aws_api_gateway_method" "admin_members_attendance_options" {
+  rest_api_id   = aws_api_gateway_rest_api.api.id
+  resource_id   = aws_api_gateway_resource.admin_members_attendance.id
+  http_method   = "OPTIONS"
+  authorization = "NONE"
+}
+resource "aws_api_gateway_integration" "admin_members_attendance_options" {
+  rest_api_id = aws_api_gateway_rest_api.api.id
+  resource_id = aws_api_gateway_resource.admin_members_attendance.id
+  http_method = aws_api_gateway_method.admin_members_attendance_options.http_method
+  type        = "MOCK"
+  request_templates = { "application/json" = "{\"statusCode\": 200}" }
+}
+resource "aws_api_gateway_method_response" "admin_members_attendance_options_200" {
+  rest_api_id = aws_api_gateway_rest_api.api.id
+  resource_id = aws_api_gateway_resource.admin_members_attendance.id
+  http_method = aws_api_gateway_method.admin_members_attendance_options.http_method
+  status_code = "200"
+  response_parameters = {
+    "method.response.header.Access-Control-Allow-Origin"  = true
+    "method.response.header.Access-Control-Allow-Methods" = true
+    "method.response.header.Access-Control-Allow-Headers" = true
+  }
+}
+resource "aws_api_gateway_integration_response" "admin_members_attendance_options_200" {
+  rest_api_id = aws_api_gateway_rest_api.api.id
+  resource_id = aws_api_gateway_resource.admin_members_attendance.id
+  http_method = aws_api_gateway_method.admin_members_attendance_options.http_method
+  status_code = aws_api_gateway_method_response.admin_members_attendance_options_200.status_code
+  response_parameters = {
+    "method.response.header.Access-Control-Allow-Origin"  = local.cors_origins
+    "method.response.header.Access-Control-Allow-Methods" = local.cors_methods
+    "method.response.header.Access-Control-Allow-Headers" = local.cors_headers
+  }
+}
+
+resource "aws_api_gateway_method" "event_current_options" {
+  rest_api_id   = aws_api_gateway_rest_api.api.id
+  resource_id   = aws_api_gateway_resource.event_current.id
+  http_method   = "OPTIONS"
+  authorization = "NONE"
+}
+resource "aws_api_gateway_integration" "event_current_options" {
+  rest_api_id = aws_api_gateway_rest_api.api.id
+  resource_id = aws_api_gateway_resource.event_current.id
+  http_method = aws_api_gateway_method.event_current_options.http_method
+  type        = "MOCK"
+  request_templates = { "application/json" = "{\"statusCode\": 200}" }
+}
+resource "aws_api_gateway_method_response" "event_current_options_200" {
+  rest_api_id = aws_api_gateway_rest_api.api.id
+  resource_id = aws_api_gateway_resource.event_current.id
+  http_method = aws_api_gateway_method.event_current_options.http_method
+  status_code = "200"
+  response_parameters = {
+    "method.response.header.Access-Control-Allow-Origin"  = true
+    "method.response.header.Access-Control-Allow-Methods" = true
+    "method.response.header.Access-Control-Allow-Headers" = true
+  }
+}
+resource "aws_api_gateway_integration_response" "event_current_options_200" {
+  rest_api_id = aws_api_gateway_rest_api.api.id
+  resource_id = aws_api_gateway_resource.event_current.id
+  http_method = aws_api_gateway_method.event_current_options.http_method
+  status_code = aws_api_gateway_method_response.event_current_options_200.status_code
+  response_parameters = {
+    "method.response.header.Access-Control-Allow-Origin"  = local.cors_origins
+    "method.response.header.Access-Control-Allow-Methods" = local.cors_methods
+    "method.response.header.Access-Control-Allow-Headers" = local.cors_headers
+  }
+}
+
+resource "aws_api_gateway_method" "event_public_options" {
+  rest_api_id   = aws_api_gateway_rest_api.api.id
+  resource_id   = aws_api_gateway_resource.event_public.id
+  http_method   = "OPTIONS"
+  authorization = "NONE"
+}
+resource "aws_api_gateway_integration" "event_public_options" {
+  rest_api_id = aws_api_gateway_rest_api.api.id
+  resource_id = aws_api_gateway_resource.event_public.id
+  http_method = aws_api_gateway_method.event_public_options.http_method
+  type        = "MOCK"
+  request_templates = { "application/json" = "{\"statusCode\": 200}" }
+}
+resource "aws_api_gateway_method_response" "event_public_options_200" {
+  rest_api_id = aws_api_gateway_rest_api.api.id
+  resource_id = aws_api_gateway_resource.event_public.id
+  http_method = aws_api_gateway_method.event_public_options.http_method
+  status_code = "200"
+  response_parameters = {
+    "method.response.header.Access-Control-Allow-Origin"  = true
+    "method.response.header.Access-Control-Allow-Methods" = true
+    "method.response.header.Access-Control-Allow-Headers" = true
+  }
+}
+resource "aws_api_gateway_integration_response" "event_public_options_200" {
+  rest_api_id = aws_api_gateway_rest_api.api.id
+  resource_id = aws_api_gateway_resource.event_public.id
+  http_method = aws_api_gateway_method.event_public_options.http_method
+  status_code = aws_api_gateway_method_response.event_public_options_200.status_code
+  response_parameters = {
+    "method.response.header.Access-Control-Allow-Origin"  = local.cors_origins
+    "method.response.header.Access-Control-Allow-Methods" = local.cors_methods
+    "method.response.header.Access-Control-Allow-Headers" = local.cors_headers
   }
 }
