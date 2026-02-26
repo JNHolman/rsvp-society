@@ -980,7 +980,10 @@ resource "aws_api_gateway_deployment" "deploy" {
   rest_api_id = aws_api_gateway_rest_api.api.id
 
   triggers = {
-    redeploy = filesha1("${path.module}/main.tf")
+    redeploy = sha1(join("", [
+    filesha1("${path.module}/main.tf"),
+    filesha1("${path.module}/cloudwatch_dashboard.tf")
+  ]))
   }
   depends_on = [
     aws_api_gateway_integration.access_post,
