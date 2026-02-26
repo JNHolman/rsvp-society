@@ -1,4 +1,11 @@
 import json
+from decimal import Decimal
+
+class DecimalEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, Decimal):
+            return int(obj) if obj % 1 == 0 else float(obj)
+        return super().default(obj)
 import os
 import boto3
 from datetime import datetime, timezone
@@ -47,12 +54,12 @@ def handler(event, context):
                 return {
                     "statusCode": 200,
                     "headers": cors_headers(origin),
-                    "body": json.dumps({"ok": True, "event": None})
+                    "body": json.dumps({"ok": True, "event": None}, cls=DecimalEncoder)
                 }
             return {
                 "statusCode": 200,
                 "headers": cors_headers(origin),
-                "body": json.dumps({"ok": True, "event": item})
+                "body": json.dumps({"ok": True, "event": item}, cls=DecimalEncoder)
             }
 
         if method == "POST":
@@ -84,7 +91,7 @@ def handler(event, context):
             return {
                 "statusCode": 200,
                 "headers": cors_headers(origin),
-                "body": json.dumps({"ok": True, "event": item})
+                "body": json.dumps({"ok": True, "event": item}, cls=DecimalEncoder)
             }
 
         return {
