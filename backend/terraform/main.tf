@@ -1006,7 +1006,9 @@ resource "aws_api_gateway_deployment" "deploy" {
     aws_api_gateway_integration.admin_members_import_post,
     aws_api_gateway_integration_response.admin_members_import_options_200,
     aws_api_gateway_integration.admin_members_search_get,
-    aws_api_gateway_integration_response.admin_members_search_options_200
+    aws_api_gateway_integration_response.admin_members_search_options_200,
+    aws_api_gateway_integration_response.admin_invite_preview_options_200,
+    aws_api_gateway_integration_response.admin_invite_send_options_200
   ]
 
   lifecycle {
@@ -1155,4 +1157,92 @@ resource "aws_cloudwatch_log_group" "invite_handler" {
 
 output "api_base_url" {
   value = "https://api.rsvpsociety.com"
+}
+
+# -----------------------------
+# CORS OPTIONS — /admin/invite/preview
+# -----------------------------
+resource "aws_api_gateway_method" "admin_invite_preview_options" {
+  rest_api_id   = aws_api_gateway_rest_api.api.id
+  resource_id   = aws_api_gateway_resource.admin_invite_preview.id
+  http_method   = "OPTIONS"
+  authorization = "NONE"
+}
+
+resource "aws_api_gateway_integration" "admin_invite_preview_options" {
+  rest_api_id = aws_api_gateway_rest_api.api.id
+  resource_id = aws_api_gateway_resource.admin_invite_preview.id
+  http_method = aws_api_gateway_method.admin_invite_preview_options.http_method
+  type        = "MOCK"
+  request_templates = {
+    "application/json" = "{\"statusCode\": 200}"
+  }
+}
+
+resource "aws_api_gateway_method_response" "admin_invite_preview_options_200" {
+  rest_api_id = aws_api_gateway_rest_api.api.id
+  resource_id = aws_api_gateway_resource.admin_invite_preview.id
+  http_method = aws_api_gateway_method.admin_invite_preview_options.http_method
+  status_code = "200"
+  response_parameters = {
+    "method.response.header.Access-Control-Allow-Origin"  = true
+    "method.response.header.Access-Control-Allow-Methods" = true
+    "method.response.header.Access-Control-Allow-Headers" = true
+  }
+}
+
+resource "aws_api_gateway_integration_response" "admin_invite_preview_options_200" {
+  rest_api_id = aws_api_gateway_rest_api.api.id
+  resource_id = aws_api_gateway_resource.admin_invite_preview.id
+  http_method = aws_api_gateway_method.admin_invite_preview_options.http_method
+  status_code = aws_api_gateway_method_response.admin_invite_preview_options_200.status_code
+  response_parameters = {
+    "method.response.header.Access-Control-Allow-Origin"  = "'https://rsvpsociety.com'"
+    "method.response.header.Access-Control-Allow-Methods" = "'GET,POST,PUT,DELETE,OPTIONS'"
+    "method.response.header.Access-Control-Allow-Headers" = "'content-type,x-admin-token'"
+  }
+}
+
+# -----------------------------
+# CORS OPTIONS — /admin/invite/send
+# -----------------------------
+resource "aws_api_gateway_method" "admin_invite_send_options" {
+  rest_api_id   = aws_api_gateway_rest_api.api.id
+  resource_id   = aws_api_gateway_resource.admin_invite_send.id
+  http_method   = "OPTIONS"
+  authorization = "NONE"
+}
+
+resource "aws_api_gateway_integration" "admin_invite_send_options" {
+  rest_api_id = aws_api_gateway_rest_api.api.id
+  resource_id = aws_api_gateway_resource.admin_invite_send.id
+  http_method = aws_api_gateway_method.admin_invite_send_options.http_method
+  type        = "MOCK"
+  request_templates = {
+    "application/json" = "{\"statusCode\": 200}"
+  }
+}
+
+resource "aws_api_gateway_method_response" "admin_invite_send_options_200" {
+  rest_api_id = aws_api_gateway_rest_api.api.id
+  resource_id = aws_api_gateway_resource.admin_invite_send.id
+  http_method = aws_api_gateway_method.admin_invite_send_options.http_method
+  status_code = "200"
+  response_parameters = {
+    "method.response.header.Access-Control-Allow-Origin"  = true
+    "method.response.header.Access-Control-Allow-Methods" = true
+    "method.response.header.Access-Control-Allow-Headers" = true
+  }
+}
+
+resource "aws_api_gateway_integration_response" "admin_invite_send_options_200" {
+  rest_api_id = aws_api_gateway_rest_api.api.id
+  resource_id = aws_api_gateway_resource.admin_invite_send.id
+  http_method = aws_api_gateway_method.admin_invite_send_options.http_method
+  status_code = aws_api_gateway_method_response.admin_invite_send_options_200.status_code
+  response_parameters = {
+    "method.response.header.Access-Control-Allow-Origin"  = "'https://rsvpsociety.com'"
+    "method.response.header.Access-Control-Allow-Methods" = "'GET,POST,PUT,DELETE,OPTIONS'"
+    "method.response.header.Access-Control-Allow-Headers" = "'content-type,x-admin-token'"
+  }
 }
