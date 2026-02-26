@@ -57,10 +57,20 @@ body { background: var(--black); color: var(--white); font-family: 'Montserrat',
 .cursor-trail { position: fixed; width: 28px; height: 28px; border: 1px solid rgba(201,168,76,0.35); border-radius: 50%; pointer-events: none; z-index: 9998; transform: translate(-50%,-50%); transition: width .3s ease, height .3s ease, border-color .3s ease; }
 
 /* ── NAV ── */
-nav { position: fixed; top: 0; left: 0; right: 0; z-index: 200; padding: 28px 60px; display: flex; justify-content: space-between; align-items: center; background: linear-gradient(180deg, rgba(6,6,8,0.75) 0%, transparent 100%); }
-.nav-wordmark { font-family: 'Cormorant Garamond', serif; font-weight: 400; font-size: 14px; letter-spacing: 0.38em; color: var(--gold); text-decoration: none; opacity: 0; animation: fadeIn 1s ease 2s forwards; }
-.nav-links { list-style: none; display: flex; gap: 44px; opacity: 0; animation: fadeIn 1s ease 2.2s forwards; }
-.nav-links a { font-size: 11px; letter-spacing: 0.28em; text-transform: uppercase; color: rgba(248,244,236,0.88); text-decoration: none; transition: color .3s; }
+nav {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 200;
+  padding: 0 60px; height: 64px;
+  display: flex; justify-content: space-between; align-items: center;
+  background: rgba(6,6,8,0.97);
+  border-bottom: 1px solid rgba(201,168,76,0.07);
+  opacity: 0; animation: fadeIn 1s ease 1.8s forwards;
+}
+.nav-left { display: flex; align-items: center; gap: 0; }
+.nav-wordmark { font-family: 'Cormorant Garamond', serif; font-weight: 400; font-size: 14px; letter-spacing: 0.38em; color: var(--gold); text-decoration: none; }
+.nav-divider { width: 1px; height: 16px; background: rgba(201,168,76,0.2); margin: 0 20px; }
+.nav-sub { font-size: 8px; letter-spacing: 0.45em; text-transform: uppercase; color: rgba(248,244,236,0.3); font-family: 'Montserrat', sans-serif; font-weight: 300; }
+.nav-links { list-style: none; display: flex; gap: 36px; }
+.nav-links a { font-size: 9px; letter-spacing: 0.35em; text-transform: uppercase; color: rgba(248,244,236,0.5); text-decoration: none; transition: color .3s; font-weight: 300; }
 .nav-links a:hover { color: var(--gold); }
 
 /* ── HERO ── */
@@ -94,7 +104,7 @@ nav { position: fixed; top: 0; left: 0; right: 0; z-index: 200; padding: 28px 60
 .hero-headline { font-family: 'Cormorant Garamond', serif; font-weight: 300; font-style: italic; font-size: 76px; line-height: 1.05; color: var(--white); letter-spacing: -0.01em; }
 .hero-headline strong { font-style: normal; font-weight: 500; color: var(--gold-light); display: block; }
 .hero-sub { margin-top: 18px; font-size: 11px; letter-spacing: 0.4em; text-transform: uppercase; color: rgba(248,244,236,0.82); }
-.hero-actions { margin-top: 48px; display: flex; flex-direction: column; align-items: center; gap: 20px; opacity: 0; animation: fadeUp 1s ease 1.3s forwards; padding-bottom: 60px; }
+.hero-actions { margin-top: 48px; display: flex; flex-direction: column; align-items: center; gap: 0; opacity: 0; animation: fadeUp 1s ease 1.3s forwards; padding-bottom: 0; }
 
 /* ── BUTTONS ── */
 .btn-primary { display: inline-block; padding: 18px 64px; background: transparent; border: 1px solid rgba(201,168,76,0.55); color: var(--gold-light); font-family: 'Montserrat', sans-serif; font-size: 10px; font-weight: 400; letter-spacing: 0.42em; text-transform: uppercase; text-decoration: none; position: relative; overflow: hidden; transition: color .4s, border-color .4s; cursor: none; }
@@ -103,13 +113,12 @@ nav { position: fixed; top: 0; left: 0; right: 0; z-index: 200; padding: 28px 60
 .btn-primary:hover::before { transform: translateX(0); }
 .btn-primary span { position: relative; z-index: 1; }
 
-.hero-status { display: flex; align-items: center; justify-content: center; gap: 9px; margin-top: 20px; padding-top: 20px; border-top: 1px solid rgba(201,168,76,0.08); width: 100%; }
+.hero-status { display: flex; align-items: center; justify-content: center; gap: 9px; margin-top: 28px; padding-top: 28px; border-top: 1px solid rgba(201,168,76,0.08); width: 240px; }
 .hero-status-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--gold); flex-shrink: 0; animation: statusPulse 2.8s ease-in-out infinite; }
 @keyframes statusPulse { 0%, 100% { opacity: 1; transform: scale(1); box-shadow: 0 0 0 0 rgba(212,185,106,0.4); } 50% { opacity: 0.45; transform: scale(0.8); box-shadow: 0 0 0 3px rgba(212,185,106,0); } }
 .hero-status-text { font-size: 9px; letter-spacing: 0.34em; text-transform: uppercase; color: rgba(212,185,106,0.75); font-family: 'Montserrat', sans-serif; font-weight: 300; }
 
-.scroll-indicator { position: absolute; bottom: 36px; left: 50%; transform: translateX(-50%); z-index: 10; display: flex; flex-direction: column; align-items: center; gap: 8px; opacity: 0; animation: fadeIn 1s ease 3s forwards; }
-.scroll-indicator span { font-size: 8px; letter-spacing: 0.42em; text-transform: uppercase; color: rgba(212,185,106,0.75); }
+
 
 /* ── STATEMENT ── */
 .statement { position: relative; padding: 120px 60px; background: var(--black-2); border-top: 1px solid rgba(201,168,76,0.07); border-bottom: 1px solid rgba(201,168,76,0.07); overflow: hidden; }
@@ -179,6 +188,7 @@ footer { padding: 36px 60px; display: flex; align-items: center; justify-content
 
 /* ── DESKTOP ── */
 @media (min-width: 769px) {
+  nav { padding: 0 80px; }
   .statement-label { font-size: 11px; letter-spacing: 0.5em; }
   .section-label { font-size: 11px; letter-spacing: 0.5em; }
   .access-eyebrow { font-size: 11px; letter-spacing: 0.52em; }
@@ -191,7 +201,10 @@ footer { padding: 36px 60px; display: flex; align-items: center; justify-content
 
 /* ── MOBILE ── */
 @media (max-width: 768px) {
-  nav { padding: 16px 24px; }
+  .cursor, .cursor-trail { display: none !important; }
+  * { cursor: auto !important; }
+  body { cursor: auto; }
+  nav { padding: 0 24px; height: 56px; }
   .nav-links { gap: 24px; }
   .hero { padding-top: 28px; }
   .hero-rule-top, .hero-rule-bottom { left: 24px; right: 24px; }
@@ -221,7 +234,11 @@ footer { padding: 36px 60px; display: flex; align-items: center; justify-content
 <div class="cursor-trail" id="trail"></div>
 
 <nav>
-  <a href="/" class="nav-wordmark">[RSVP] Society</a>
+  <div class="nav-left">
+    <a href="/" class="nav-wordmark">[RSVP]</a>
+    <div class="nav-divider"></div>
+    <span class="nav-sub">Society</span>
+  </div>
   <ul class="nav-links">
     <li><a href="/pics.html">Gallery</a></li>
   </ul>
@@ -273,7 +290,6 @@ footer { padding: 36px 60px; display: flex; align-items: center; justify-content
       </div>
     </div>
   </div>
-  <div class="scroll-indicator"><span>Scroll</span></div>
 </section>
 
 <!-- WHO WE ARE -->
