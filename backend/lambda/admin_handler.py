@@ -199,6 +199,7 @@ def handler(event, context):
                     email = (row.get("email") or "").strip() or None
                     instagram = (row.get("instagram") or "").strip() or None
                     tags = (row.get("tags") or "").strip() or None
+                    sms_opt_in = bool(row.get("smsOptIn", True))
 
                     upsert_member(
                         phone=phone_e164,
@@ -206,7 +207,7 @@ def handler(event, context):
                         last_name=last_name,
                         email=email,
                         source="import",
-                        sms_opt_in=False,
+                        sms_opt_in=sms_opt_in,
                         tags=tags,
                     )
 

@@ -1253,7 +1253,7 @@ function renderMembers(members, page) {
       <tr id="row-${m.phone.replace(/\+/g,'').replace(/\s/g,'')}">
         <td><span class="member-name">${escHtml(m.name || '')}${m.lastName ? ' ' + escHtml(m.lastName) : ''}</span></td>
         <td><span class="member-phone">${m.phone}</span></td>
-        <td><span style="font-size:11px;color:rgba(248,244,236,0.55);">${m.instagram ? '@' + escHtml(m.instagram) : '—'}</span></td>
+
         <td>${optIn}</td>
         <td>${genderSelect}</td>
         <td>${tierSelect}</td>
@@ -1270,7 +1270,7 @@ function renderMembers(members, page) {
         <tr>
           <th>Name</th>
           <th>Phone</th>
-          <th>Instagram</th>
+          
           <th>SMS</th>
           <th>Gender</th>
               <th>Tier</th>
@@ -1605,7 +1605,7 @@ async function loadAttendance() {
       <tr id="att-row-${m.phone.replace(/\+/g,'').replace(/\s/g,'')}">
         <td><span class="member-name">${escHtml(m.name || '')}${m.lastName ? ' ' + escHtml(m.lastName) : ''}</span></td>
         <td><span class="member-phone">${m.phone}</span></td>
-        <td><span style="font-size:11px;color:rgba(248,244,236,0.55);">${m.instagram ? '@' + escHtml(m.instagram) : '—'}</span></td>
+
         <td><span class="member-date">Attended: ${m.attendedCount || 0} / Invited: ${m.invitedCount || 0}</span></td>
         <td>
           <div class="action-btns">
