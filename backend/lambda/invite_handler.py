@@ -32,28 +32,15 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
-# ── Reliability tier calculation ──
 def calc_tier(member: Dict[str, Any]) -> int:
-    """
-    Auto-calculate reliability tier from attendance history.
-    Returns 1 (reliable), 2 (inconsistent), or 3 (ghost).
-    Requires at least 3 invites before assigning — defaults to 2 otherwise.
-    Admin override (tierOverride) always wins.
-    """
-    # Admin override takes priority
     override = member.get("tierOverride")
     if override in (1, 2, 3):
         return int(override)
-
     invited = int(member.get("invitedCount", 0))
     attended = int(member.get("attendedCount", 0))
-
-    # Not enough data — give benefit of the doubt
     if invited < 3:
         return 2
-
     rate = attended / invited
-
     if rate >= 0.80:
         return 1
     elif rate >= 0.40:
@@ -101,14 +88,21 @@ def _admin_token() -> str:
 
 
 def _get_approved_members() -> List[Dict[str, Any]]:
-    """Scan all APPROVED members."""
     t = members_table()
     resp = t.scan(FilterExpression=Attr("status").eq("APPROVED"))
     members = resp.get("Items", [])
-    # Attach calculated tier to each member
     for m in members:
         m["_tier"] = calc_tier(m)
     return members
+
+
+def _get_current_event() -> Dict[str, Any]:
+    """Fetch the current event details."""
+    try:
+        result = _events_table().get_item(Key={"eventId": "current"})
+        return result.get("Item") or {}
+    except Exception:
+        return {}
 
 
 def _build_invite_list(
@@ -116,24 +110,22 @@ def _build_invite_list(
     capacity: int,
     female_pct: int,
     tier2_buffer_pct: int = 30,
+    removed_phones: List[str] = None,
 ) -> Dict[str, Any]:
-    """
-    Build the invite list respecting gender ratio and reliability tiers.
+    removed = set(removed_phones or [])
 
-    Logic:
-    - Tier 1 fills first (guaranteed spots)
-    - Tier 2 fills remaining slots with a buffer for ghosts
-    - Tier 3 never auto-invited
-    - Within each tier+gender bucket, shuffle randomly for fairness
-    """
+    # Filter out removed phones
+    members = [m for m in members if m.get("phone") not in removed]
+
     male_pct = 100 - female_pct
-
-    # Target counts
     target_f = round(capacity * female_pct / 100)
     target_m = capacity - target_f
 
-    # Bucket members by gender + tier
-    buckets: Dict[str, List] = {"F1": [], "F2": [], "F3": [], "M1": [], "M2": [], "M3": [], "O1": [], "O2": [], "O3": []}
+    buckets: Dict[str, List] = {
+        "F1": [], "F2": [], "F3": [],
+        "M1": [], "M2": [], "M3": [],
+        "O1": [], "O2": [], "O3": []
+    }
 
     for m in members:
         gender = (m.get("gender") or "O").upper()
@@ -144,37 +136,26 @@ def _build_invite_list(
         if key in buckets:
             buckets[key].append(m)
 
-    # Shuffle each bucket for fairness
     for bucket in buckets.values():
         random.shuffle(bucket)
 
     def fill_gender(gender: str, target: int) -> Tuple[List, List, int]:
-        """Fill target slots for a gender. Returns (tier1_list, tier2_list, buffer_count)."""
         t1 = buckets.get(f"{gender}1", [])
         t2 = buckets.get(f"{gender}2", [])
-
-        # Tier 1 fills first
         tier1_invited = t1[:target]
         remaining = target - len(tier1_invited)
-
-        # Tier 2 fills the rest with ghost buffer
         if remaining > 0:
             buffer_multiplier = 1 + (tier2_buffer_pct / 100)
             tier2_needed = math.ceil(remaining * buffer_multiplier)
             tier2_invited = t2[:tier2_needed]
         else:
             tier2_invited = []
-            tier2_needed = 0
-
         return tier1_invited, tier2_invited, len(tier2_invited)
 
     f_t1, f_t2, f_buffer = fill_gender("F", target_f)
     m_t1, m_t2, m_buffer = fill_gender("M", target_m)
-
-    # Other gender gets any remaining Tier 1/2 spots (overflow)
     o_t1 = buckets.get("O1", [])
     o_t2 = buckets.get("O2", [])
-
     all_invited = f_t1 + f_t2 + m_t1 + m_t2 + o_t1 + o_t2
 
     return {
@@ -200,12 +181,36 @@ def _build_invite_list(
     }
 
 
+def _build_sms_message(member: Dict[str, Any], event: Dict[str, Any]) -> str:
+    """Build a warm, personal invite SMS with event details."""
+    name = (member.get("name") or "").split()[0] or "hey"
+
+    if event and event.get("date"):
+        date = event.get("date", "")
+        venue = event.get("venue", "")
+        dresscode = event.get("dresscode", "")
+        notes = event.get("notes", "")
+
+        lines = [f"Hey {name} —"]
+        lines.append(f"You're invited to the next RSVP Society experience.")
+        if date:
+            lines.append(f"{date}")
+        if venue:
+            lines.append(f"{venue}")
+        if dresscode:
+            lines.append(f"Dress: {dresscode}")
+        if notes:
+            lines.append(notes)
+        lines.append("Reply YES to confirm your spot or NO to pass. Reply STOP to opt out.")
+        return " ".join(lines)
+    else:
+        return (
+            f"Hey {name}, you're invited to the next RSVP Society experience. "
+            "Reply YES to confirm your spot or NO to pass. Reply STOP to opt out."
+        )
+
+
 def handle_preview(body: dict, origin: str) -> dict:
-    """
-    Preview who would be invited — no SMS sent, no DB writes.
-    POST /admin/invite/preview
-    Body: { eventId, capacity, femalePercent, tier2BufferPct? }
-    """
     event_id = (body.get("eventId") or "").strip()
     capacity = int(body.get("capacity") or 0)
     female_pct = int(body.get("femalePercent") or 60)
@@ -220,12 +225,11 @@ def handle_preview(body: dict, origin: str) -> dict:
     members = _get_approved_members()
     result = _build_invite_list(members, capacity, female_pct, tier2_buffer)
 
-    # Return summary + preview of members (phone masked for safety)
+    # Return full phone number in preview — admin needs to see who's on the list
     preview_members = []
     for m in result["members"]:
-        phone = m.get("phone", "")
         preview_members.append({
-            "phone": phone[:6] + "****" + phone[-2:] if len(phone) > 8 else phone,
+            "phone": m.get("phone", ""),
             "name": m.get("name", ""),
             "gender": m.get("gender", "?"),
             "tier": m["_tier"],
@@ -242,12 +246,6 @@ def handle_preview(body: dict, origin: str) -> dict:
 
 
 def handle_send(body: dict, origin: str) -> dict:
-    """
-    Execute the invite blast.
-    POST /admin/invite/send
-    Body: { eventId, capacity, femalePercent, tier2BufferPct?, confirmSend: true }
-    Writes to EventInvites table + fires Quo SMS.
-    """
     if not body.get("confirmSend"):
         return _resp(400, {"ok": False, "error": "confirmSend: true required"}, origin)
 
@@ -255,12 +253,16 @@ def handle_send(body: dict, origin: str) -> dict:
     capacity = int(body.get("capacity") or 0)
     female_pct = int(body.get("femalePercent") or 60)
     tier2_buffer = int(body.get("tier2BufferPct") or 30)
+    removed_phones = body.get("removedPhones") or []
 
     if not event_id or capacity < 1:
         return _resp(400, {"ok": False, "error": "eventId and capacity required"}, origin)
 
     members_list = _get_approved_members()
-    result = _build_invite_list(members_list, capacity, female_pct, tier2_buffer)
+    result = _build_invite_list(members_list, capacity, female_pct, tier2_buffer, removed_phones)
+
+    # Fetch current event for SMS message
+    current_event = _get_current_event()
 
     invites_t = _invites_table()
     members_t = members_table()
@@ -275,7 +277,6 @@ def handle_send(body: dict, origin: str) -> dict:
         if not phone:
             continue
 
-        # Write to EventInvites table
         try:
             invites_t.put_item(Item={
                 "eventId": event_id,
@@ -286,17 +287,15 @@ def handle_send(body: dict, origin: str) -> dict:
                 "invitedAt": now,
             })
 
-            # Increment invitedCount on member record
             members_t.update_item(
                 Key={"phone": phone},
                 UpdateExpression="SET invitedCount = if_not_exists(invitedCount, :zero) + :one, lastSeenAt = :now",
                 ExpressionAttributeValues={":zero": 0, ":one": 1, ":now": now},
             )
 
-            # Send SMS if Quo is live
             if sms_enabled:
-                name = (m.get("name") or "").split()[0] or "there"
-                send_sms(phone, f"Hey {name}, you're invited to the next RSVP Society event. Reply YES to confirm your spot. Reply STOP to opt out.")
+                message = _build_sms_message(m, current_event)
+                send_sms(phone, message)
                 sent += 1
 
         except Exception:
@@ -322,7 +321,6 @@ def handler(event, context):
         if method == "OPTIONS":
             return _resp(200, {"ok": True}, origin)
 
-        # Auth
         token = (headers.get("x-admin-token") or headers.get("X-Admin-Token") or "").strip()
         if not token or token != _admin_token():
             return _resp(401, {"ok": False, "error": "unauthorized"}, origin)
