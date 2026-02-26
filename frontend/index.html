@@ -426,7 +426,7 @@ async function handleSubmit(e) {
   label.textContent = 'Adding you...';
 
   try {
-    const res = await fetch('https://ez2z31emm2.execute-api.us-east-1.amazonaws.com/prod/access', {
+    const res = await fetch('https://api.rsvpsociety.com/access', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ phone, name, source: 'web', smsOptIn: true })
