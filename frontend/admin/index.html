@@ -1657,9 +1657,17 @@ function parseCSV(file) {
     let skipped = 0;
 
     for (let i = 1; i < lines.length; i++) {
-      // Handle quoted CSV fields
-      const cells = lines[i].match(/(".*?"|[^,]+)(?=,|$)/g) || lines[i].split(',');
-      const clean = cells.map(c => c.replace(/^"|"$/g, '').trim());
+      // Parse CSV row — handles empty fields like "","" correctly
+      const cells = [];
+      let cur = '', inQ = false;
+      for (let ci = 0; ci < lines[i].length; ci++) {
+        const ch = lines[i][ci];
+        if (ch === '"') { inQ = !inQ; }
+        else if (ch === ',' && !inQ) { cells.push(cur); cur = ''; }
+        else { cur += ch; }
+      }
+      cells.push(cur);
+      const clean = cells.map(c => c.trim());
 
       const phone = clean[phoneIdx] || '';
       if (!phone || phone.length < 7) { skipped++; continue; }
