@@ -825,6 +825,24 @@ main {
   color: #C0474A;
 }
 
+
+  /* Pagination */
+  .page-btn {
+    background: transparent;
+    border: 1px solid rgba(212,185,106,0.15);
+    color: rgba(248,244,236,0.6);
+    font-family: 'Montserrat', sans-serif;
+    font-size: 10px;
+    letter-spacing: 0.15em;
+    padding: 7px 12px;
+    cursor: pointer;
+    transition: all .2s;
+    min-width: 36px;
+  }
+  .page-btn:hover:not(:disabled) { border-color: rgba(212,185,106,0.5); color: var(--gold); }
+  .page-btn.active { border-color: var(--gold); color: var(--gold); background: rgba(212,185,106,0.08); }
+  .page-btn:disabled { opacity: 0.25; cursor: not-allowed; }
+  .page-ellipsis { color: rgba(248,244,236,0.3); font-size: 12px; padding: 0 4px; }
 </style>
 </head>
 <body>
@@ -926,6 +944,7 @@ main {
     <div id="members-container">
       <div class="loading-state">Loading members...</div>
     </div>
+    <div id="pagination" style="display:flex;align-items:center;justify-content:center;gap:6px;padding:24px 0 40px;flex-wrap:wrap;"></div>
   
 
   </div>
@@ -1042,6 +1061,8 @@ let API = (localStorage.getItem('rsvp_api_base') || API_DEFAULT).replace(/\/+$/,
 let adminToken = '';
 let currentStatus = 'PENDING';
 let allMembers = [];
+let currentPage = 1;
+const PAGE_SIZE = 50;
 
 // Custom cursor removed
 
@@ -1169,7 +1190,22 @@ async function loadStats() {
 }
 
 // ── Render members table ──
-function renderMembers(members) {
+function renderMembers(members, page) {
+  // Sort alphabetically by lastName then firstName
+  members = [...members].sort((a, b) => {
+    const aLast  = (a.lastName || a.name || '').toLowerCase();
+    const bLast  = (b.lastName || b.name || '').toLowerCase();
+    const aFirst = (a.name || '').toLowerCase();
+    const bFirst = (b.name || '').toLowerCase();
+    return aLast < bLast ? -1 : aLast > bLast ? 1 : aFirst < bFirst ? -1 : aFirst > bFirst ? 1 : 0;
+  });
+
+  currentPage = page || 1;
+  const totalPages = Math.ceil(members.length / PAGE_SIZE) || 1;
+  currentPage = Math.min(Math.max(currentPage, 1), totalPages);
+
+  const paginated = members.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
+
   const container = document.getElementById('members-container');
   document.getElementById('section-count').textContent = members.length ? `${members.length} member${members.length !== 1 ? 's' : ''}` : '';
 
@@ -1178,7 +1214,7 @@ function renderMembers(members) {
     return;
   }
 
-  const rows = members.map(m => {
+  const rows = paginated.map(m => {
     const date = m.createdAt ? new Date(m.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: '2-digit' }) : '—';
     const optIn = m.smsOptIn ? '<span class="optin-dot" title="SMS opted in"></span>' : '<span class="optin-dot no" title="No SMS opt-in"></span>';
     const source = m.source || 'web';
@@ -1246,6 +1282,43 @@ function renderMembers(members) {
       <tbody>${rows}</tbody>
     </table>
   `;
+
+  // Pagination controls
+  const paginationEl = document.getElementById('pagination');
+  if (totalPages <= 1) {
+    paginationEl.innerHTML = '';
+    return;
+  }
+
+  let pages = '';
+  // Prev button
+  pages += `<button class="page-btn" onclick="goPage(${currentPage - 1})" ${currentPage === 1 ? 'disabled' : ''}>‹</button>`;
+
+  // Page numbers — show first, last, current ±2
+  const pageNums = new Set([1, totalPages]);
+  for (let p = Math.max(1, currentPage - 2); p <= Math.min(totalPages, currentPage + 2); p++) pageNums.add(p);
+  const sorted = [...pageNums].sort((a,b) => a - b);
+
+  let prev = 0;
+  for (const p of sorted) {
+    if (prev && p - prev > 1) pages += `<span class="page-ellipsis">…</span>`;
+    pages += `<button class="page-btn ${p === currentPage ? 'active' : ''}" onclick="goPage(${p})">${p}</button>`;
+    prev = p;
+  }
+
+  // Next button
+  pages += `<button class="page-btn" onclick="goPage(${currentPage + 1})" ${currentPage === totalPages ? 'disabled' : ''}>›</button>`;
+
+  paginationEl.innerHTML = pages;
+
+  // Store members ref for page switching
+  paginationEl._members = members;
+}
+
+function goPage(p) {
+  const paginationEl = document.getElementById('pagination');
+  renderMembers(paginationEl._members, p);
+  window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
 
