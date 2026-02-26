@@ -168,13 +168,14 @@ nav {
   font-size: 9px;
   letter-spacing: 0.35em;
   text-transform: uppercase;
-  color: var(--white-faint);
+  color: rgba(248,244,236,0.55);
   cursor: pointer;
   padding: 6px 0;
   border-bottom: 1px solid transparent;
   transition: color .2s, border-color .2s;
 }
-.tab-btn:hover, .tab-btn.active {
+.tab-btn:hover { color: rgba(248,244,236,0.9); }
+.tab-btn.active {
   color: var(--gold);
   border-bottom-color: var(--gold);
 }
@@ -654,7 +655,7 @@ main {
 
 
 /* Event section */
-#event-section, #attendance-section { display: none; }
+#event-section { display: none; }
 .event-form {
   background: var(--black-2);
   border: 1px solid rgba(212,185,106,0.08);
@@ -757,7 +758,7 @@ main {
 
 
 /* Event editor */
-#event-section, #attendance-section { display: none; }
+#event-section { display: none; }
 .event-form { background: var(--black-2); border: 1px solid rgba(212,185,106,0.08); padding: 36px; margin-bottom: 32px; }
 .event-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; margin-bottom: 28px; }
 .event-grid-full { grid-column: 1 / -1; }
@@ -871,7 +872,6 @@ main {
       <button class="tab-btn active" id="tab-members" onclick="setTab('members'); showSection('members')">Members</button>
       <button class="tab-btn" id="tab-event" onclick="setTab('event'); showSection('event'); loadCurrentEvent()">Event</button>
       <button class="tab-btn" id="tab-invite" onclick="setTab('invite'); showSection('invite'); loadEventIntoInviteForm()">Invite</button>
-      <button class="tab-btn" id="tab-attendance" onclick="setTab('attendance'); showSection('attendance')">Attendance</button>
       <div class="nav-divider"></div>
       <button class="settings-btn" onclick="openSettings()">Settings</button>
       <button class="logout-btn" onclick="doLogout()">Sign Out</button>
@@ -983,7 +983,6 @@ main {
       </div>
       <div style="margin-top:12px;">
         <button onclick="goToSection('event')" style="background:none;border:none;color:rgba(248,244,236,0.3);font-family:'Montserrat',sans-serif;font-size:9px;letter-spacing:0.2em;cursor:pointer;padding:0;">← Back to Event</button>
-        <button onclick="goToSection('attendance')" style="background:none;border:none;color:rgba(248,244,236,0.3);font-family:'Montserrat',sans-serif;font-size:9px;letter-spacing:0.2em;cursor:pointer;padding:0;margin-left:24px;">Next: Attendance →</button>
       </div>
     </div>
 
@@ -1064,16 +1063,7 @@ main {
     </div>
   </div>
 
-<div id="attendance-section" style="display:none">
-    <div class="section-header">
-      <div class="section-title">Mark Attendance</div>
-    </div>
-    <div class="att-filter-row">
-      <input type="text" class="att-event-input" id="att-event-id" placeholder="Event ID (e.g. 2026-03-march)" />
-      <button class="att-load-btn" onclick="loadAttendance()">Load Invitees</button>
-    </div>
-    <div id="attendance-container"></div>
-  </div>
+
 
   </main>
 </div>
@@ -1426,9 +1416,7 @@ function showSection(section) {
   document.getElementById('members-section').style.display   = section === 'members'    ? 'block' : 'none';
   document.getElementById('invite-section').style.display    = section === 'invite'     ? 'block' : 'none';
   document.getElementById('event-section').style.display     = section === 'event'      ? 'block' : 'none';
-  document.getElementById('attendance-section').style.display = section === 'attendance' ? 'block' : 'none';
   if (section === 'event') loadCurrentEvent();
-  if (section === 'attendance') loadAttendanceMembers();
 }
 
 function goToSection(section) {
