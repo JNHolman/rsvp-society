@@ -189,32 +189,32 @@ header {
 }
 .counter-num {
   font-family: 'Cormorant Garamond', serif;
-  font-size: 36px;
+  font-size: 48px;
   font-weight: 300;
   color: var(--green);
   line-height: 1;
 }
 .counter-sep {
-  font-size: 24px;
+  font-size: 32px;
   color: rgba(248,244,236,0.15);
 }
 .counter-total {
   font-family: 'Cormorant Garamond', serif;
-  font-size: 36px;
+  font-size: 48px;
   font-weight: 300;
   color: rgba(248,244,236,0.25);
   line-height: 1;
 }
 .counter-label {
-  font-size: 8px;
+  font-size: 9px;
   letter-spacing: 0.3em;
   text-transform: uppercase;
   color: rgba(248,244,236,0.3);
-  margin-left: 6px;
+  margin-left: 8px;
 }
 .counter-pct {
   margin-left: auto;
-  font-size: 13px;
+  font-size: 16px;
   letter-spacing: 0.1em;
   color: var(--gold-dim);
 }
@@ -312,15 +312,15 @@ header {
   display: flex;
   align-items: center;
   padding: 0 20px;
-  min-height: 68px;
-  border-bottom: 1px solid rgba(248,244,236,0.04);
+  min-height: 76px;
+  border-bottom: 1px solid rgba(248,244,236,0.05);
   transition: background .2s;
   gap: 16px;
 }
 .guest-row.checked-in { background: var(--green-faint); }
 .guest-info { flex: 1; min-width: 0; }
 .guest-name {
-  font-size: 17px;
+  font-size: 20px;
   font-weight: 400;
   color: var(--white);
   letter-spacing: 0.01em;
@@ -330,24 +330,24 @@ header {
 }
 .guest-row.checked-in .guest-name { color: var(--green); }
 .guest-meta {
-  font-size: 10px;
-  color: rgba(248,244,236,0.25);
-  margin-top: 3px;
+  font-size: 12px;
+  color: rgba(248,244,236,0.3);
+  margin-top: 4px;
 }
 
 .checkin-btn {
   flex-shrink: 0;
   background: transparent;
-  border: 1px solid rgba(212,185,106,0.2);
+  border: 1px solid rgba(212,185,106,0.25);
   color: var(--gold);
   font-family: 'Montserrat', sans-serif;
-  font-size: 9px;
-  letter-spacing: 0.25em;
+  font-size: 10px;
+  letter-spacing: 0.2em;
   text-transform: uppercase;
-  padding: 12px 20px;
+  padding: 14px 24px;
   cursor: pointer;
   transition: all .15s;
-  min-width: 100px;
+  min-width: 110px;
   text-align: center;
   -webkit-tap-highlight-color: transparent;
   touch-action: manipulation;
@@ -497,7 +497,7 @@ async function doLogin() {
   errEl.textContent = '';
 
   try {
-    const res = await fetch(`${API}/admin/members?status=APPROVED`, {
+    const res = await fetch(`${API}/admin/event`, {
       headers: { 'x-admin-token': val }
     });
     if (res.status === 401 || res.status === 403) {
@@ -557,7 +557,7 @@ async function loadEvent() {
 
 async function loadGuests() {
   try {
-    const res = await fetch(`${API}/admin/members?status=APPROVED`, {
+    const res = await fetch(`${API}/admin/members/confirmed`, {
       headers: { 'x-admin-token': adminToken }
     });
     const data = await res.json();
