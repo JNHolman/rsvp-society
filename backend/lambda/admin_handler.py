@@ -1,5 +1,12 @@
 import boto3
 import json
+from decimal import Decimal
+
+class DecimalEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, Decimal):
+            return int(obj) if obj % 1 == 0 else float(obj)
+        return super().default(obj)
 import logging
 import os
 
@@ -55,7 +62,7 @@ def _resp(headers: dict, status: int, body) -> dict:
     return {
         "statusCode": status,
         "headers": _cors_headers(headers),
-        "body": json.dumps(body) if not isinstance(body, str) else body,
+        "body": json.dumps(body, cls=DecimalEncoder) if not isinstance(body, str) else body,
     }
 
 
