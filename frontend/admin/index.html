@@ -979,6 +979,11 @@ main {
       <div class="invite-actions">
         <button class="invite-btn-preview" onclick="runPreview()">Preview Invite List</button>
         <button class="invite-btn-send" id="send-btn" onclick="sendInvites()" disabled>Send Invites</button>
+        <button class="invite-btn-preview" id="reminder-blast-btn" onclick="sendReminderBlast()" style="border-color:rgba(248,244,236,0.15);color:rgba(248,244,236,0.5);margin-left:auto;">Send Reminder Blast</button>
+      </div>
+      <div style="margin-top:12px;">
+        <button onclick="goToSection('event')" style="background:none;border:none;color:rgba(248,244,236,0.3);font-family:'Montserrat',sans-serif;font-size:9px;letter-spacing:0.2em;cursor:pointer;padding:0;">← Back to Event</button>
+        <button onclick="goToSection('attendance')" style="background:none;border:none;color:rgba(248,244,236,0.3);font-family:'Montserrat',sans-serif;font-size:9px;letter-spacing:0.2em;cursor:pointer;padding:0;margin-left:24px;">Next: Attendance →</button>
       </div>
     </div>
 
@@ -1039,8 +1044,23 @@ main {
           <label>Vibe / Notes <span style="opacity:0.5;font-size:8px;">(Jade references this in the invite)</span></label>
           <textarea id="ev-notes" rows="2" placeholder="rooftop with views, open bar, limited spots..."></textarea>
         </div>
+        <div class="event-field">
+          <label>Start Time</label>
+          <input type="text" id="ev-time" placeholder="9:00 PM" />
+        </div>
+        <div class="event-field">
+          <label>Reminder Timing</label>
+          <select id="ev-reminder" style="background:#0C0C10;border:none;border-bottom:1px solid rgba(212,185,106,0.2);color:rgba(248,244,236,0.9);font-family:'Montserrat',sans-serif;font-size:11px;padding:8px 0;outline:none;width:100%;cursor:pointer;">
+            <option value="manual">Manual only</option>
+            <option value="day_before">Day before at 6 PM</option>
+            <option value="day_of">Day of at 4 PM</option>
+          </select>
+        </div>
       </div>
-      <button class="event-save-btn" onclick="saveEvent()">Save Event</button>
+      <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
+        <button class="event-save-btn" onclick="saveEvent()">Save Event</button>
+        <button class="event-save-btn" onclick="goToSection('invite')" style="border-color:rgba(248,244,236,0.15);color:rgba(248,244,236,0.5);">Next: Invite →</button>
+      </div>
     </div>
   </div>
 
@@ -1411,6 +1431,13 @@ function showSection(section) {
   if (section === 'attendance') loadAttendanceMembers();
 }
 
+function goToSection(section) {
+  setTab(section);
+  showSection(section);
+  if (section === 'invite') loadEventIntoInviteForm();
+  if (section === 'event') loadCurrentEvent();
+}
+
 // ── Invite preview ──
 let lastPreview = null;
 let allPreviewMembers = [];
@@ -1664,6 +1691,8 @@ async function loadCurrentEvent() {
       document.getElementById('ev-dresscode').value   = ev.dresscode || '';
       document.getElementById('ev-reveal-venue').checked = ev.revealVenue || false;
       document.getElementById('ev-notes').value       = ev.notes     || '';
+      document.getElementById('ev-time').value        = ev.startTime || '';
+      document.getElementById('ev-reminder').value    = ev.reminderTiming || 'manual';
 
       // Show current event display
       const fields = [
@@ -1691,15 +1720,17 @@ async function loadCurrentEvent() {
 
 async function saveEvent() {
   const body = {
-    eventSlug:    document.getElementById('ev-id').value.trim(),
-    date:         document.getElementById('ev-date').value.trim(),
-    city:         document.getElementById('ev-city').value.trim(),
-    capacity:     parseInt(document.getElementById('ev-capacity').value) || 0,
-    venue:        document.getElementById('ev-venue').value.trim(),
-    address:      document.getElementById('ev-address').value.trim(),
-    dresscode:    document.getElementById('ev-dresscode').value.trim(),
-    revealVenue:  document.getElementById('ev-reveal-venue').checked,
-    notes:        document.getElementById('ev-notes').value.trim(),
+    eventSlug:      document.getElementById('ev-id').value.trim(),
+    date:           document.getElementById('ev-date').value.trim(),
+    city:           document.getElementById('ev-city').value.trim(),
+    capacity:       parseInt(document.getElementById('ev-capacity').value) || 0,
+    venue:          document.getElementById('ev-venue').value.trim(),
+    address:        document.getElementById('ev-address').value.trim(),
+    dresscode:      document.getElementById('ev-dresscode').value.trim(),
+    revealVenue:    document.getElementById('ev-reveal-venue').checked,
+    notes:          document.getElementById('ev-notes').value.trim(),
+    startTime:      document.getElementById('ev-time').value.trim(),
+    reminderTiming: document.getElementById('ev-reminder').value,
   };
 
   if (!body.date) { showToast('Date is required', 'error'); return; }
@@ -1716,6 +1747,35 @@ async function saveEvent() {
     loadCurrentEvent();
   } catch (err) {
     showToast('Save failed: ' + err.message, 'error');
+  }
+}
+
+// ── Manual reminder blast ──
+async function sendReminderBlast() {
+  const btn = document.getElementById('reminder-blast-btn');
+  
+  // Get current event for message preview
+  let eventName = document.getElementById('inv-event-id').value || 'the event';
+  
+  if (!confirm(`Send reminder to all confirmed members for "${eventName}"?`)) return;
+  
+  btn.textContent = 'Sending...';
+  btn.disabled = true;
+  
+  try {
+    const res = await fetch(`${API}/admin/invite/reminder`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-admin-token': adminToken },
+      body: JSON.stringify({ eventId: eventName, manual: true })
+    });
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.error);
+    showToast(`Reminder sent to ${data.sent} confirmed members`, 'success');
+  } catch (err) {
+    showToast('Blast failed: ' + err.message, 'error');
+  } finally {
+    btn.textContent = 'Send Reminder Blast';
+    btn.disabled = false;
   }
 }
 

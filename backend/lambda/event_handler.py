@@ -73,17 +73,19 @@ def handler(event, context):
                 }
 
             item = {
-                "eventId":     CURRENT_EVENT_ID,
-                "eventSlug":   body.get("eventSlug", "").strip(),
-                "date":        body.get("date", ""),
-                "city":        body.get("city", ""),
-                "capacity":    int(body.get("capacity") or 0),
-                "venue":       body.get("venue", ""),
-                "address":     body.get("address", ""),
-                "dresscode":   body.get("dresscode", ""),
-                "revealVenue": bool(body.get("revealVenue", False)),
-                "notes":       body.get("notes", ""),
-                "updatedAt":   datetime.now(timezone.utc).isoformat()
+                "eventId":        CURRENT_EVENT_ID,
+                "eventSlug":      body.get("eventSlug", "").strip(),
+                "date":           body.get("date", ""),
+                "city":           body.get("city", ""),
+                "capacity":       int(body.get("capacity") or 0),
+                "venue":          body.get("venue", ""),
+                "address":        body.get("address", ""),
+                "dresscode":      body.get("dresscode", ""),
+                "revealVenue":    bool(body.get("revealVenue", False)),
+                "notes":          body.get("notes", ""),
+                "startTime":      body.get("startTime", ""),
+                "reminderTiming": body.get("reminderTiming", "manual"),
+                "updatedAt":      datetime.now(timezone.utc).isoformat()
             }
 
             events_table.put_item(Item=item)
