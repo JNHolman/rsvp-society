@@ -30,6 +30,7 @@ variable "allowed_origins" {
   type    = list(string)
   default = [
   "https://rsvpsociety.com",
+  "https://www.rsvpsociety.com",
   "http://localhost:8000"]
 }
 
