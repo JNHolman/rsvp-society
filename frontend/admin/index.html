@@ -954,7 +954,8 @@ main {
       <div class="section-title">Invite Blast</div>
     </div>
 
-    <div id="invite-event-summary" style="display:none;"></div>
+    <!-- Event summary pulled from Event tab -->
+    <div id="invite-event-summary" style="display:none;margin-bottom:24px;"></div>
 
     <div class="invite-form">
       <div class="invite-grid">
@@ -1412,12 +1413,95 @@ function showSection(section) {
 
 // ── Invite preview ──
 let lastPreview = null;
+let allPreviewMembers = [];
+let removedPhones = new Set();
+let activeMarketFilter = 'All';
+
+// Area code → state mapping (auto-expands as new markets join)
+const AREA_TO_STATE = {
+  '270':'Kentucky','364':'Kentucky','502':'Kentucky','606':'Kentucky','859':'Kentucky',
+  '317':'Indiana','463':'Indiana','574':'Indiana','765':'Indiana','812':'Indiana',
+  '513':'Ohio','614':'Ohio','740':'Ohio','937':'Ohio',
+  '615':'Tennessee','629':'Tennessee','731':'Tennessee','901':'Tennessee',
+  '314':'Missouri','417':'Missouri','573':'Missouri','636':'Missouri',
+  '404':'Georgia','470':'Georgia','678':'Georgia','770':'Georgia',
+  '312':'Illinois','618':'Illinois','630':'Illinois','708':'Illinois','773':'Illinois',
+};
+
+function getState(phone) {
+  const digits = (phone || '').replace(/\D/g,'');
+  const area = digits.length >= 10 ? digits.slice(digits.length - 10, digits.length - 7) : '???';
+  return AREA_TO_STATE[area] || `+${area}`;
+}
+
+function removeFromPreview(phone) {
+  removedPhones.add(phone);
+  const rowId = 'preview-row-' + phone.replace(/\D/g,'');
+  const row = document.getElementById(rowId);
+  if (row) row.remove();
+  updatePreviewCount();
+}
+
+function updatePreviewCount() {
+  const remaining = document.querySelectorAll('#preview-table-container tbody tr:not([style*="display: none"])').length;
+  const countEl = document.getElementById('preview-remaining-count');
+  if (countEl) countEl.textContent = remaining;
+}
+
+function filterByMarket(state) {
+  activeMarketFilter = state;
+  // Update pill styles
+  document.querySelectorAll('.market-pill').forEach(p => {
+    p.style.borderColor = p.dataset.market === state ? 'rgba(212,185,106,0.8)' : 'rgba(212,185,106,0.15)';
+    p.style.color = p.dataset.market === state ? '#D4B96A' : 'rgba(248,244,236,0.5)';
+  });
+  // Show/hide rows
+  document.querySelectorAll('#preview-table-container tbody tr').forEach(row => {
+    if (state === 'All') {
+      row.style.display = removedPhones.has(row.dataset.phone) ? 'none' : '';
+    } else {
+      const rowState = row.dataset.state;
+      row.style.display = (rowState === state && !removedPhones.has(row.dataset.phone)) ? '' : 'none';
+    }
+  });
+  updatePreviewCount();
+}
+
+async function loadEventIntoInviteForm() {
+  try {
+    const res = await fetch(`${API}/admin/event`, {
+      headers: { 'x-admin-token': adminToken }
+    });
+    const data = await res.json();
+    if (data.ok && data.event && data.event.date) {
+      const ev = data.event;
+      const invEventId = document.getElementById('inv-event-id');
+      if (!invEventId.value) invEventId.value = ev.eventSlug || ev.eventId || '';
+      const invCapacity = document.getElementById('inv-capacity');
+      if (!invCapacity.value && ev.capacity) invCapacity.value = ev.capacity;
+      const summaryEl = document.getElementById('invite-event-summary');
+      if (summaryEl) {
+        summaryEl.innerHTML = `
+          <div style="border:1px solid rgba(212,185,106,0.12);padding:20px 24px;margin-bottom:8px;">
+            <div style="font-size:8px;letter-spacing:0.4em;text-transform:uppercase;color:rgba(212,185,106,0.6);margin-bottom:12px;">Current Event</div>
+            <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px;">
+              ${ev.date ? `<div><div style="font-size:8px;letter-spacing:0.2em;color:rgba(248,244,236,0.4);margin-bottom:4px;">DATE</div><div style="font-size:12px;color:#F8F4EC;">${ev.date}</div></div>` : ''}
+              ${ev.venue ? `<div><div style="font-size:8px;letter-spacing:0.2em;color:rgba(248,244,236,0.4);margin-bottom:4px;">VENUE</div><div style="font-size:12px;color:#F8F4EC;">${ev.venue}${ev.revealVenue ? ' <span style="color:rgba(76,175,125,0.8);font-size:9px;">revealed</span>' : ' <span style="color:rgba(212,185,106,0.5);font-size:9px;">hidden</span>'}</div></div>` : ''}
+              ${ev.notes ? `<div><div style="font-size:8px;letter-spacing:0.2em;color:rgba(248,244,236,0.4);margin-bottom:4px;">VIBE</div><div style="font-size:12px;color:#F8F4EC;">${ev.notes}</div></div>` : ''}
+              ${ev.capacity ? `<div><div style="font-size:8px;letter-spacing:0.2em;color:rgba(248,244,236,0.4);margin-bottom:4px;">CAPACITY</div><div style="font-size:12px;color:#F8F4EC;">${ev.capacity}</div></div>` : ''}
+            </div>
+          </div>`;
+        summaryEl.style.display = 'block';
+      }
+    }
+  } catch(e) { /* silent */ }
+}
 
 async function runPreview() {
-  const eventId    = document.getElementById('inv-event-id').value.trim();
-  const capacity   = parseInt(document.getElementById('inv-capacity').value) || 0;
-  const femalePct  = parseInt(document.getElementById('inv-female-pct').value) || 60;
-  const buffer     = parseInt(document.getElementById('inv-buffer').value) || 30;
+  const eventId  = document.getElementById('inv-event-id').value.trim();
+  const capacity = parseInt(document.getElementById('inv-capacity').value) || 0;
+  const femalePct = parseInt(document.getElementById('inv-female-pct').value) || 60;
+  const buffer   = parseInt(document.getElementById('inv-buffer').value) || 30;
 
   if (!eventId || !capacity) { showToast('Event ID and capacity required', 'error'); return; }
 
@@ -1432,6 +1516,9 @@ async function runPreview() {
     if (!data.ok) throw new Error(data.error);
 
     lastPreview = { eventId, capacity, femalePercent: femalePct, tier2BufferPct: buffer };
+    allPreviewMembers = data.members;
+    removedPhones = new Set();
+    activeMarketFilter = 'All';
     renderPreview(data);
 
     const sendBtn = document.getElementById('send-btn');
@@ -1447,44 +1534,50 @@ function renderPreview(data) {
   const s = data.summary;
   const box = document.getElementById('preview-box');
   box.classList.add('visible');
-  removedPhones = new Set();
 
-  // Market breakdown by area code
-  const marketMap = {'502':'Louisville','859':'Lexington','513':'Cincinnati','317':'Indianapolis','812':'Evansville'};
-  const markets = {};
+  // Build state → count map
+  const stateCounts = {};
   data.members.forEach(m => {
-    const digits = (m.phone || '').replace(/\D/g,'');
-    const area = digits.length >= 10 ? digits.slice(digits.length-10, digits.length-7) : '???';
-    const label = marketMap[area] || area;
-    markets[label] = (markets[label] || 0) + 1;
+    const st = getState(m.phone);
+    stateCounts[st] = (stateCounts[st] || 0) + 1;
   });
-  const marketHtml = Object.entries(markets).sort((a,b)=>b[1]-a[1]).map(([city,count]) =>
-    `<div class="preview-stat"><div class="preview-stat-num">${count}</div><div class="preview-stat-label">${city}</div></div>`
-  ).join('');
+
+  // Market pill buttons
+  const pills = ['All', ...Object.keys(stateCounts).sort()].map(st => {
+    const count = st === 'All' ? data.members.length : stateCounts[st];
+    const active = st === 'All';
+    return `<button class="market-pill" data-market="${st}" onclick="filterByMarket('${st}')" style="background:none;border:1px solid rgba(212,185,106,${active ? '0.8' : '0.15'});color:${active ? '#D4B96A' : 'rgba(248,244,236,0.5)'};font-family:'Montserrat',sans-serif;font-size:9px;letter-spacing:0.2em;text-transform:uppercase;padding:6px 14px;cursor:pointer;transition:all .2s;">${st} <span style="opacity:0.6;">${count}</span></button>`;
+  }).join('');
 
   document.getElementById('preview-stats').innerHTML = `
     <div class="preview-stat"><div class="preview-stat-num" id="preview-remaining-count">${s.totalInvites}</div><div class="preview-stat-label">Selected</div></div>
     <div class="preview-stat"><div class="preview-stat-num gold">${s.breakdown.femTier1 + s.breakdown.femTier2}</div><div class="preview-stat-label">Female (${s.femalePercent}%)</div></div>
     <div class="preview-stat"><div class="preview-stat-num">${s.breakdown.maleTier1 + s.breakdown.maleTier2}</div><div class="preview-stat-label">Male (${s.malePercent}%)</div></div>
     <div class="preview-stat"><div class="preview-stat-num red">${s.breakdown.tier3Skipped}</div><div class="preview-stat-label">Tier 3 Skipped</div></div>
-    ${marketHtml}
+    <div style="width:100%;margin-top:16px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+      <span style="font-size:8px;letter-spacing:0.3em;text-transform:uppercase;color:rgba(248,244,236,0.3);margin-right:4px;">Filter</span>
+      ${pills}
+    </div>
   `;
 
-  const rows = data.members.map(m => `
-    <tr id="preview-row-${m.phone.replace(/\+/g,'')}">
+  const rows = data.members.map(m => {
+    const state = getState(m.phone);
+    const rowId = 'preview-row-' + m.phone.replace(/\D/g,'');
+    return `<tr id="${rowId}" data-phone="${m.phone}" data-state="${state}">
       <td><span class="member-name">${escHtml(m.name || '—')}</span></td>
       <td><span class="member-phone">${m.phone}</span></td>
       <td><span class="member-source">${m.gender || '?'}</span></td>
       <td><span class="status-badge PENDING">Tier ${m.tier}</span></td>
       <td><span class="member-date">${m.attendedCount}/${m.invitedCount} attended</span></td>
+      <td><span style="font-size:9px;color:rgba(248,244,236,0.3);">${state}</span></td>
       <td><button class="action-btn delete" onclick="removeFromPreview('${m.phone}')">Remove</button></td>
-    </tr>
-  `).join('');
+    </tr>`;
+  }).join('');
 
   document.getElementById('preview-table-container').innerHTML = `
     <table class="member-table">
       <thead><tr>
-        <th>Name</th><th>Phone</th><th>Gender</th><th>Tier</th><th>Attendance</th><th></th>
+        <th>Name</th><th>Phone</th><th>Gender</th><th>Tier</th><th>Attendance</th><th>Market</th><th></th>
       </tr></thead>
       <tbody>${rows}</tbody>
     </table>
@@ -1493,8 +1586,12 @@ function renderPreview(data) {
 
 async function sendInvites() {
   if (!lastPreview) return;
-  const remaining = document.querySelectorAll('#preview-table-container tbody tr').length;
+  const visibleRows = document.querySelectorAll('#preview-table-container tbody tr:not([style*="display: none"])');
+  const remaining = visibleRows.length;
   if (!confirm(`Send invites to ${remaining} member${remaining !== 1 ? 's' : ''}?`)) return;
+
+  // Collect phones of visible (non-removed, non-filtered-out) rows
+  const phonesToSend = Array.from(visibleRows).map(r => r.dataset.phone).filter(Boolean);
 
   const sendBtn = document.getElementById('send-btn');
   sendBtn.disabled = true;
@@ -1511,6 +1608,7 @@ async function sendInvites() {
 
     showToast(`Done — ${data.invitesWritten} invites written, ${data.smsSent} SMS sent`, 'success');
     lastPreview = null;
+    removedPhones = new Set();
     document.getElementById('preview-box').classList.remove('visible');
     sendBtn.classList.remove('ready');
   } catch (err) {
