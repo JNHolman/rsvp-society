@@ -1,8 +1,25 @@
-backend/terraform/.terraform/
-backend/terraform/*.zip
-backend/terraform/*.zip
-backend/terraform/terraform.tfstate
-backend/terraform/terraform.tfstate.backup
-backend/terraform/*.zip
-backend/terraform/terraform.tfstate
-backend/terraform/terraform.tfstate.backup
+# Terraform
+**/.terraform/
+*.tfstate
+*.tfstate.backup
+*.tfplan
+tfplan
+
+# Lambda build artifacts
+*.zip
+backend/terraform/admin_handler.py
+backend/terraform/invite_handler.py
+backend/terraform/member_store.py
+backend/terraform/sms_adapter.py
+backend/terraform/event_handler.py
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# macOS
+.DS_Store
+
+# CLI accident files
+backend/terraform/--*
