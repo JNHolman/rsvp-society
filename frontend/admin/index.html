@@ -869,8 +869,8 @@ main {
     </div>
     <div class="nav-right">
       <button class="tab-btn active" id="tab-members" onclick="setTab('members'); showSection('members')">Members</button>
-      <button class="tab-btn" id="tab-invite" onclick="setTab('invite'); showSection('invite')">Invite</button>
       <button class="tab-btn" id="tab-event" onclick="setTab('event'); showSection('event'); loadCurrentEvent()">Event</button>
+      <button class="tab-btn" id="tab-invite" onclick="setTab('invite'); showSection('invite'); loadEventIntoInviteForm()">Invite</button>
       <button class="tab-btn" id="tab-attendance" onclick="setTab('attendance'); showSection('attendance')">Attendance</button>
       <div class="nav-divider"></div>
       <button class="settings-btn" onclick="openSettings()">Settings</button>
@@ -953,6 +953,8 @@ main {
     <div class="section-header">
       <div class="section-title">Invite Blast</div>
     </div>
+
+    <div id="invite-event-summary" style="display:none;"></div>
 
     <div class="invite-form">
       <div class="invite-grid">
@@ -1445,28 +1447,44 @@ function renderPreview(data) {
   const s = data.summary;
   const box = document.getElementById('preview-box');
   box.classList.add('visible');
+  removedPhones = new Set();
+
+  // Market breakdown by area code
+  const marketMap = {'502':'Louisville','859':'Lexington','513':'Cincinnati','317':'Indianapolis','812':'Evansville'};
+  const markets = {};
+  data.members.forEach(m => {
+    const digits = (m.phone || '').replace(/\D/g,'');
+    const area = digits.length >= 10 ? digits.slice(digits.length-10, digits.length-7) : '???';
+    const label = marketMap[area] || area;
+    markets[label] = (markets[label] || 0) + 1;
+  });
+  const marketHtml = Object.entries(markets).sort((a,b)=>b[1]-a[1]).map(([city,count]) =>
+    `<div class="preview-stat"><div class="preview-stat-num">${count}</div><div class="preview-stat-label">${city}</div></div>`
+  ).join('');
 
   document.getElementById('preview-stats').innerHTML = `
-    <div class="preview-stat"><div class="preview-stat-num">${s.totalInvites}</div><div class="preview-stat-label">Total Invites</div></div>
+    <div class="preview-stat"><div class="preview-stat-num" id="preview-remaining-count">${s.totalInvites}</div><div class="preview-stat-label">Selected</div></div>
     <div class="preview-stat"><div class="preview-stat-num gold">${s.breakdown.femTier1 + s.breakdown.femTier2}</div><div class="preview-stat-label">Female (${s.femalePercent}%)</div></div>
     <div class="preview-stat"><div class="preview-stat-num">${s.breakdown.maleTier1 + s.breakdown.maleTier2}</div><div class="preview-stat-label">Male (${s.malePercent}%)</div></div>
     <div class="preview-stat"><div class="preview-stat-num red">${s.breakdown.tier3Skipped}</div><div class="preview-stat-label">Tier 3 Skipped</div></div>
+    ${marketHtml}
   `;
 
   const rows = data.members.map(m => `
-    <tr>
+    <tr id="preview-row-${m.phone.replace(/\+/g,'')}">
       <td><span class="member-name">${escHtml(m.name || '—')}</span></td>
       <td><span class="member-phone">${m.phone}</span></td>
       <td><span class="member-source">${m.gender || '?'}</span></td>
       <td><span class="status-badge PENDING">Tier ${m.tier}</span></td>
       <td><span class="member-date">${m.attendedCount}/${m.invitedCount} attended</span></td>
+      <td><button class="action-btn delete" onclick="removeFromPreview('${m.phone}')">Remove</button></td>
     </tr>
   `).join('');
 
   document.getElementById('preview-table-container').innerHTML = `
     <table class="member-table">
       <thead><tr>
-        <th>Name</th><th>Phone</th><th>Gender</th><th>Tier</th><th>Attendance</th>
+        <th>Name</th><th>Phone</th><th>Gender</th><th>Tier</th><th>Attendance</th><th></th>
       </tr></thead>
       <tbody>${rows}</tbody>
     </table>
@@ -1475,7 +1493,8 @@ function renderPreview(data) {
 
 async function sendInvites() {
   if (!lastPreview) return;
-  if (!confirm('Send invites to all members in the preview list?')) return;
+  const remaining = document.querySelectorAll('#preview-table-container tbody tr').length;
+  if (!confirm(`Send invites to ${remaining} member${remaining !== 1 ? 's' : ''}?`)) return;
 
   const sendBtn = document.getElementById('send-btn');
   sendBtn.disabled = true;
@@ -1485,7 +1504,7 @@ async function sendInvites() {
     const res = await fetch(`${API}/admin/invite/send`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', 'x-admin-token': adminToken },
-      body: JSON.stringify({ ...lastPreview, confirmSend: true })
+      body: JSON.stringify({ ...lastPreview, confirmSend: true, removedPhones: Array.from(removedPhones) })
     });
     const data = await res.json();
     if (!data.ok) throw new Error(data.error);
