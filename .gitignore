@@ -23,3 +23,5 @@ __pycache__/
 
 # CLI accident files
 backend/terraform/--*
+backend/terraform/terraform.tfstate
+backend/terraform/terraform.tfstate.backup
