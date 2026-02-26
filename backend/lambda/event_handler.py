@@ -40,7 +40,6 @@ def handler(event, context):
         }
 
     try:
-        # GET — return current event
         if method == "GET":
             result = events_table.get_item(Key={"eventId": CURRENT_EVENT_ID})
             item = result.get("Item")
@@ -56,7 +55,6 @@ def handler(event, context):
                 "body": json.dumps({"ok": True, "event": item})
             }
 
-        # POST — save/update current event
         if method == "POST":
             body = json.loads(event.get("body") or "{}")
 
@@ -68,14 +66,17 @@ def handler(event, context):
                 }
 
             item = {
-                "eventId":   CURRENT_EVENT_ID,
-                "date":      body.get("date", ""),
-                "city":      body.get("city", ""),
-                "capacity":  int(body.get("capacity") or 0),
-                "venue":     body.get("venue", ""),
-                "dresscode": body.get("dresscode", ""),
-                "notes":     body.get("notes", ""),
-                "updatedAt": datetime.now(timezone.utc).isoformat()
+                "eventId":     CURRENT_EVENT_ID,
+                "eventSlug":   body.get("eventSlug", "").strip(),
+                "date":        body.get("date", ""),
+                "city":        body.get("city", ""),
+                "capacity":    int(body.get("capacity") or 0),
+                "venue":       body.get("venue", ""),
+                "address":     body.get("address", ""),
+                "dresscode":   body.get("dresscode", ""),
+                "revealVenue": bool(body.get("revealVenue", False)),
+                "notes":       body.get("notes", ""),
+                "updatedAt":   datetime.now(timezone.utc).isoformat()
             }
 
             events_table.put_item(Item=item)

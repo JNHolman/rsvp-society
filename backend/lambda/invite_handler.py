@@ -182,31 +182,36 @@ def _build_invite_list(
 
 
 def _build_sms_message(member: Dict[str, Any], event: Dict[str, Any]) -> str:
-    """Build a warm, personal invite SMS with event details."""
+    """Build a warm personal invite SMS — sounds like a friend, not a promoter."""
     name = (member.get("name") or "").split()[0] or "hey"
 
     if event and event.get("date"):
         date = event.get("date", "")
         venue = event.get("venue", "")
-        dresscode = event.get("dresscode", "")
         notes = event.get("notes", "")
+        reveal_venue = event.get("revealVenue", False)
 
-        lines = [f"Hey {name} —"]
-        lines.append(f"You're invited to the next RSVP Society experience.")
-        if date:
-            lines.append(f"{date}")
-        if venue:
-            lines.append(f"{venue}")
-        if dresscode:
-            lines.append(f"Dress: {dresscode}")
+        parts = [f"Hey {name}, it's Jade."]
+        parts.append(f"You're on the list for the next RSVP Society —")
+
+        if date and reveal_venue and venue:
+            parts.append(f"{date} at {venue}.")
+        elif date:
+            parts.append(f"{date}.")
+
         if notes:
-            lines.append(notes)
-        lines.append("Reply YES to confirm your spot or NO to pass. Reply STOP to opt out.")
-        return " ".join(lines)
+            parts.append(f"This one's {notes}.")
+
+        if not reveal_venue and venue:
+            parts.append("Location revealed to confirmed guests.")
+
+        parts.append("Reply YES to hold your spot.")
+
+        return " ".join(parts)
     else:
         return (
-            f"Hey {name}, you're invited to the next RSVP Society experience. "
-            "Reply YES to confirm your spot or NO to pass. Reply STOP to opt out."
+            f"Hey {name}, it's Jade. You're on the list for the next RSVP Society experience. "
+            "Reply YES to hold your spot."
         )
 
 

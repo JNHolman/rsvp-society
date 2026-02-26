@@ -121,7 +121,17 @@ def handler(event, context):
                         ExpressionAttributeValues={":c": "CONFIRMED", ":now": now},
                     )
                     if sms_enabled:
-                        send_sms(from_phone, "You're confirmed. Details coming soon. See you there.")
+                        try:
+                        import boto3 as _b3
+                        _ev = (_b3.resource("dynamodb").Table(os.getenv("EVENTS_TABLE_NAME","rsvp-events")).get_item(Key={"eventId":"current"}).get("Item") or {})
+                        _p = ["You're in."]
+                        if _ev.get("date"): _p.append(f"See you {_ev['date']}.")
+                        if _ev.get("revealVenue") and _ev.get("venue"): _p.append(f"{_ev['venue']}.")
+                        elif _ev.get("address"): _p.append(f"{_ev['address']}.")
+                        _p.append("More details to follow.")
+                        send_sms(from_phone, " ".join(_p))
+                    except Exception:
+                        send_sms(from_phone, "You're in. See you there.")
                     return {"statusCode": 200, "body": json.dumps({"ok": True})}
             except Exception:
                 pass

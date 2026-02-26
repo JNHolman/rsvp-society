@@ -869,8 +869,8 @@ main {
     </div>
     <div class="nav-right">
       <button class="tab-btn active" id="tab-members" onclick="setTab('members'); showSection('members')">Members</button>
+      <button class="tab-btn" id="tab-invite" onclick="setTab('invite'); showSection('invite')">Invite</button>
       <button class="tab-btn" id="tab-event" onclick="setTab('event'); showSection('event'); loadCurrentEvent()">Event</button>
-      <button class="tab-btn" id="tab-invite" onclick="setTab('invite'); showSection('invite'); loadEventIntoInviteForm()">Invite</button>
       <button class="tab-btn" id="tab-attendance" onclick="setTab('attendance'); showSection('attendance')">Attendance</button>
       <div class="nav-divider"></div>
       <button class="settings-btn" onclick="openSettings()">Settings</button>
@@ -954,9 +954,6 @@ main {
       <div class="section-title">Invite Blast</div>
     </div>
 
-    <!-- Current event summary pulled from Event tab -->
-    <div id="invite-event-summary" style="display:none;"></div>
-
     <div class="invite-form">
       <div class="invite-grid">
         <div class="invite-field">
@@ -1004,8 +1001,12 @@ main {
     <div class="event-form">
       <div class="event-grid">
         <div class="event-field">
+          <label>Event ID</label>
+          <input type="text" id="ev-id" placeholder="rooftop-may2026" />
+        </div>
+        <div class="event-field">
           <label>Date</label>
-          <input type="text" id="ev-date" placeholder="Saturday, March 15, 2026" />
+          <input type="text" id="ev-date" placeholder="Saturday, May 15, 2026" />
         </div>
         <div class="event-field">
           <label>City</label>
@@ -1016,16 +1017,24 @@ main {
           <input type="number" id="ev-capacity" placeholder="150" />
         </div>
         <div class="event-field">
-          <label>Venue (revealed to approved only)</label>
+          <label>Venue Name</label>
           <input type="text" id="ev-venue" placeholder="Venue name" />
+        </div>
+        <div class="event-field">
+          <label>Address</label>
+          <input type="text" id="ev-address" placeholder="123 Main St, Louisville KY" />
         </div>
         <div class="event-field">
           <label>Dress Code</label>
           <input type="text" id="ev-dresscode" placeholder="All Black Preferred" />
         </div>
+        <div class="event-field event-grid-full" style="display:flex;align-items:center;gap:12px;padding:8px 0;">
+          <input type="checkbox" id="ev-reveal-venue" style="width:16px;height:16px;accent-color:#D4B96A;cursor:pointer;" />
+          <label for="ev-reveal-venue" style="font-size:9px;letter-spacing:0.3em;text-transform:uppercase;color:rgba(212,185,106,0.8);cursor:pointer;margin:0;">Reveal venue name in invite SMS</label>
+        </div>
         <div class="event-field event-grid-full">
-          <label>Notes (Jade will reference this)</label>
-          <textarea id="ev-notes" rows="3" placeholder="Any additional details Jade should know about this event..."></textarea>
+          <label>Vibe / Notes <span style="opacity:0.5;font-size:8px;">(Jade references this in the invite)</span></label>
+          <textarea id="ev-notes" rows="2" placeholder="rooftop with views, open bar, limited spots..."></textarea>
         </div>
       </div>
       <button class="event-save-btn" onclick="saveEvent()">Save Event</button>
@@ -1402,46 +1411,6 @@ function showSection(section) {
 // ── Invite preview ──
 let lastPreview = null;
 
-// Auto-populate invite form from current event
-async function loadEventIntoInviteForm() {
-  try {
-    const res = await fetch(`${API}/admin/event`, {
-      headers: { 'x-admin-token': adminToken }
-    });
-    const data = await res.json();
-    if (data.ok && data.event && data.event.date) {
-      const ev = data.event;
-      // Auto-fill event ID from date if empty
-      const invEventId = document.getElementById('inv-event-id');
-      if (!invEventId.value && ev.date) {
-        const d = new Date(ev.date);
-        const month = d.toLocaleString('en-US', { month: 'long' }).toLowerCase();
-        invEventId.value = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${month}`;
-      }
-      // Auto-fill capacity if empty
-      const invCapacity = document.getElementById('inv-capacity');
-      if (!invCapacity.value && ev.capacity) {
-        invCapacity.value = ev.capacity;
-      }
-      // Show event summary at top of invite section
-      const summaryEl = document.getElementById('invite-event-summary');
-      if (summaryEl && ev.date) {
-        summaryEl.innerHTML = `
-          <div class="event-current-grid" style="margin-bottom:24px;">
-            <div class="event-current-item"><label>Date</label><span>${ev.date || '—'}</span></div>
-            <div class="event-current-item"><label>Venue</label><span>${ev.venue || '—'}</span></div>
-            <div class="event-current-item"><label>Dresscode</label><span>${ev.dresscode || '—'}</span></div>
-            <div class="event-current-item"><label>Capacity</label><span>${ev.capacity || '—'}</span></div>
-          </div>
-        `;
-        summaryEl.style.display = 'block';
-      }
-    }
-  } catch (err) {
-    // silently fail
-  }
-}
-
 async function runPreview() {
   const eventId    = document.getElementById('inv-event-id').value.trim();
   const capacity   = parseInt(document.getElementById('inv-capacity').value) || 0;
@@ -1472,47 +1441,32 @@ async function runPreview() {
   }
 }
 
-// Track removed phones from preview
-let removedPhones = new Set();
-
-function removeFromPreview(phone) {
-  removedPhones.add(phone);
-  const row = document.getElementById('preview-row-' + phone.replace(/\+/g,''));
-  if (row) row.remove();
-  // Update count
-  const remaining = document.querySelectorAll('#preview-table-container tbody tr').length;
-  const countEl = document.getElementById('preview-remaining-count');
-  if (countEl) countEl.textContent = remaining + ' selected';
-}
-
 function renderPreview(data) {
   const s = data.summary;
   const box = document.getElementById('preview-box');
   box.classList.add('visible');
-  removedPhones = new Set();
 
   document.getElementById('preview-stats').innerHTML = `
-    <div class="preview-stat"><div class="preview-stat-num" id="preview-remaining-count">${s.totalInvites}</div><div class="preview-stat-label">Selected</div></div>
+    <div class="preview-stat"><div class="preview-stat-num">${s.totalInvites}</div><div class="preview-stat-label">Total Invites</div></div>
     <div class="preview-stat"><div class="preview-stat-num gold">${s.breakdown.femTier1 + s.breakdown.femTier2}</div><div class="preview-stat-label">Female (${s.femalePercent}%)</div></div>
     <div class="preview-stat"><div class="preview-stat-num">${s.breakdown.maleTier1 + s.breakdown.maleTier2}</div><div class="preview-stat-label">Male (${s.malePercent}%)</div></div>
     <div class="preview-stat"><div class="preview-stat-num red">${s.breakdown.tier3Skipped}</div><div class="preview-stat-label">Tier 3 Skipped</div></div>
   `;
 
   const rows = data.members.map(m => `
-    <tr id="preview-row-${m.phone.replace(/\+/g,'')}">
+    <tr>
       <td><span class="member-name">${escHtml(m.name || '—')}</span></td>
       <td><span class="member-phone">${m.phone}</span></td>
       <td><span class="member-source">${m.gender || '?'}</span></td>
       <td><span class="status-badge PENDING">Tier ${m.tier}</span></td>
       <td><span class="member-date">${m.attendedCount}/${m.invitedCount} attended</span></td>
-      <td><button class="action-btn delete" onclick="removeFromPreview('${m.phone}')">Remove</button></td>
     </tr>
   `).join('');
 
   document.getElementById('preview-table-container').innerHTML = `
     <table class="member-table">
       <thead><tr>
-        <th>Name</th><th>Phone</th><th>Gender</th><th>Tier</th><th>Attendance</th><th></th>
+        <th>Name</th><th>Phone</th><th>Gender</th><th>Tier</th><th>Attendance</th>
       </tr></thead>
       <tbody>${rows}</tbody>
     </table>
@@ -1521,8 +1475,7 @@ function renderPreview(data) {
 
 async function sendInvites() {
   if (!lastPreview) return;
-  const remaining = document.querySelectorAll('#preview-table-container tbody tr').length;
-  if (!confirm(`Send invites to ${remaining} member${remaining !== 1 ? 's' : ''}?`)) return;
+  if (!confirm('Send invites to all members in the preview list?')) return;
 
   const sendBtn = document.getElementById('send-btn');
   sendBtn.disabled = true;
@@ -1532,14 +1485,13 @@ async function sendInvites() {
     const res = await fetch(`${API}/admin/invite/send`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', 'x-admin-token': adminToken },
-      body: JSON.stringify({ ...lastPreview, confirmSend: true, removedPhones: Array.from(removedPhones) })
+      body: JSON.stringify({ ...lastPreview, confirmSend: true })
     });
     const data = await res.json();
     if (!data.ok) throw new Error(data.error);
 
     showToast(`Done — ${data.invitesWritten} invites written, ${data.smsSent} SMS sent`, 'success');
     lastPreview = null;
-    removedPhones = new Set();
     document.getElementById('preview-box').classList.remove('visible');
     sendBtn.classList.remove('ready');
   } catch (err) {
@@ -1586,20 +1538,25 @@ async function loadCurrentEvent() {
     if (data.ok && data.event && data.event.date) {
       const ev = data.event;
       // Populate form
-      document.getElementById('ev-date').value      = ev.date      || '';
-      document.getElementById('ev-city').value      = ev.city      || '';
-      document.getElementById('ev-capacity').value  = ev.capacity  || '';
-      document.getElementById('ev-venue').value     = ev.venue     || '';
-      document.getElementById('ev-dresscode').value = ev.dresscode || '';
-      document.getElementById('ev-notes').value     = ev.notes     || '';
+      document.getElementById('ev-id').value          = ev.eventSlug  || ev.eventId || '';
+      document.getElementById('ev-date').value        = ev.date      || '';
+      document.getElementById('ev-city').value        = ev.city      || '';
+      document.getElementById('ev-capacity').value    = ev.capacity  || '';
+      document.getElementById('ev-venue').value       = ev.venue     || '';
+      document.getElementById('ev-address').value     = ev.address   || '';
+      document.getElementById('ev-dresscode').value   = ev.dresscode || '';
+      document.getElementById('ev-reveal-venue').checked = ev.revealVenue || false;
+      document.getElementById('ev-notes').value       = ev.notes     || '';
 
       // Show current event display
       const fields = [
+        { label: 'Event',     val: ev.eventSlug || ev.eventId },
         { label: 'Date',      val: ev.date },
-        { label: 'City',      val: ev.city },
-        { label: 'Venue',     val: ev.venue },
+        { label: 'Venue',     val: ev.venue + (ev.revealVenue ? ' ✓ revealed' : ' — hidden') },
+        { label: 'Address',   val: ev.address },
         { label: 'Dresscode', val: ev.dresscode },
         { label: 'Capacity',  val: ev.capacity },
+        { label: 'Vibe',      val: ev.notes },
         { label: 'Updated',   val: (ev.updatedAt || '').replace('T', ' ').slice(0, 16) },
       ];
       document.getElementById('event-current-grid').innerHTML = fields.map(f => `
@@ -1617,12 +1574,15 @@ async function loadCurrentEvent() {
 
 async function saveEvent() {
   const body = {
-    date:      document.getElementById('ev-date').value.trim(),
-    city:      document.getElementById('ev-city').value.trim(),
-    capacity:  parseInt(document.getElementById('ev-capacity').value) || 0,
-    venue:     document.getElementById('ev-venue').value.trim(),
-    dresscode: document.getElementById('ev-dresscode').value.trim(),
-    notes:     document.getElementById('ev-notes').value.trim(),
+    eventSlug:    document.getElementById('ev-id').value.trim(),
+    date:         document.getElementById('ev-date').value.trim(),
+    city:         document.getElementById('ev-city').value.trim(),
+    capacity:     parseInt(document.getElementById('ev-capacity').value) || 0,
+    venue:        document.getElementById('ev-venue').value.trim(),
+    address:      document.getElementById('ev-address').value.trim(),
+    dresscode:    document.getElementById('ev-dresscode').value.trim(),
+    revealVenue:  document.getElementById('ev-reveal-venue').checked,
+    notes:        document.getElementById('ev-notes').value.trim(),
   };
 
   if (!body.date) { showToast('Date is required', 'error'); return; }
