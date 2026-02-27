@@ -13,12 +13,17 @@ def maybe_send_welcome(member: dict) -> None:
         return
 
     phone = member.get("phone")
-    name = member.get("name") or "there"
+    name = (member.get("name") or "").split()[0] or ""
 
     if not phone:
         return
 
-    send_sms(phone, f"Welcome to RSVP Society, {name}. Reply STOP to opt out.")
+    if name:
+        msg = f"Hey {name}, it's Jade. Welcome to RSVP Society. Reply STOP to opt out."
+    else:
+        msg = "Hey, it's Jade. Welcome to RSVP Society. Reply STOP to opt out."
+
+    send_sms(phone, msg)
 
 def send_sms(to_phone: str, message: str) -> None:
     secret_id = os.getenv("QUO_API_KEY_SECRET_ID")
