@@ -9,7 +9,7 @@ def get_secret_string(secret_id: str) -> str:
     return resp.get("SecretString", "")
 
 def maybe_send_welcome(member: dict) -> None:
-    if (os.getenv("SEND_WELCOME_SMS", "false") or "").lower() != "true":
+    if (os.getenv("SMS_ENABLED", "false") or "").lower() != "true":
         return
 
     phone = member.get("phone")

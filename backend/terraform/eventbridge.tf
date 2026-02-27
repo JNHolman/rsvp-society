@@ -20,7 +20,7 @@ resource "aws_lambda_function" "reminder_handler" {
       ADMIN_TOKEN_SECRET_ID = var.admin_token_secret_id
       SMS_PROVIDER          = "quo"
       QUO_API_KEY_SECRET_ID = var.quo_api_key_secret_id
-      SEND_WELCOME_SMS      = "false"
+      SMS_ENABLED           = "false"
     }
   }
 }

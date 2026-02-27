@@ -65,8 +65,6 @@ Closings (global rotation — use in roughly 1 out of 3 messages, never more tha
 — "We on?"
 — "Still on?"
 — "Pull up."
-— "You sliding?"
-— "Say less."
 
 Message modes:
 
@@ -105,11 +103,11 @@ One line only. Use sparingly:
 — "Come through."
 
 Inbound reply handling:
-— If they reply with something ambiguous ("bet", "maybe", "might", "trying", "depends") — do not treat it as confirmed. Respond with a soft, direct confirm prompt:
+— If they reply with something ambiguous ("bet", "fasho", "otw", "omw", "on my way", "pulling up", "say less", "for sure", "finna", "maybe", "might", "trying", "depends") — do not treat it as confirmed. Respond with a soft, direct confirm prompt:
   — "You in?"
   — "Want me to keep your spot?"
   — "Lock you in?"
-— If they reply with a clear yes ("in", "there", "say less", "pulling up") — acknowledge briefly and move on. One line max.
+— If they reply with a clear yes ("in", "yes", "there", "confirmed") — acknowledge briefly and move on. One line max.
 — If they're being difficult — don't match the energy. One word or no response.
 — Invite = 1 text. Reminder = 1 text. No follow-ups unless they reply.
 
@@ -117,21 +115,24 @@ You're not a bot. You're Jade. Keep it tight."""
 
 # ── Intent classification ─────────────────────────────────────────────────────
 
-# Clear confirmation — update invite to CONFIRMED
+# Clear confirmation — unambiguous hard yes only
 CONFIRMED_KEYWORDS = {
     "YES", "Y", "YEP", "YUP", "IN", "CONFIRMED", "THERE",
-    "SAY LESS", "PULLING UP", "ON MY WAY", "OMW", "BET",
 }
 
-# Clear decline — update invite to DECLINED
+# Clear decline
 DECLINED_KEYWORDS = {
-    "NO", "N", "NOPE", "CANT", "CAN'T", "PASS", "DECLINE", "NOT COMING",
+    "NO", "N", "NOPE", "NAH", "NAWL", "CANT", "CAN'T", "PASS",
+    "DECLINE", "NOT COMING", "CAN'T MAKE IT", "CANT MAKE IT",
+    "NOT GOING", "WON'T MAKE IT", "WONT MAKE IT", "SKIP",
 }
 
 # Ambiguous — Jade responds with a soft confirm prompt, no status change
 AMBIGUOUS_KEYWORDS = {
     "MAYBE", "MIGHT", "TRYING", "DEPENDS", "IDK", "I DON'T KNOW",
     "POSSIBLY", "HOPEFULLY", "WE'LL SEE", "NOT SURE",
+    "BET", "SAY LESS", "OMW", "OTW", "ON MY WAY", "PULLING UP",
+    "FASHO", "FA SHO", "FOR SURE", "FINNA",
 }
 
 OPT_OUT_KEYWORDS = {"STOP", "STOPALL", "UNSUBSCRIBE", "CANCEL", "END", "QUIT"}
@@ -197,9 +198,10 @@ def _build_confirmation_message(phone: str) -> str:
         parts = ["You're in."]
         if ev.get("date"):
             parts.append(f"See you {ev['date']}.")
+        # Only reveal venue/address if revealVenue is explicitly enabled
         if ev.get("revealVenue") and ev.get("venue"):
             parts.append(f"{ev['venue']}.")
-        elif ev.get("address"):
+        if ev.get("revealVenue") and ev.get("address"):
             parts.append(f"{ev['address']}.")
         return " ".join(parts)
     except Exception:
@@ -264,7 +266,7 @@ def handler(event, context):
         text = (body.get("text") or "").strip()
         normalized = text.upper().strip()
 
-        sms_enabled = (os.getenv("SEND_WELCOME_SMS", "false") or "").lower() == "true"
+        sms_enabled = (os.getenv("SMS_ENABLED", "false") or "").lower() == "true"
 
         # ── Opt-out ───────────────────────────────────────────────────────────
         if normalized in OPT_OUT_KEYWORDS:

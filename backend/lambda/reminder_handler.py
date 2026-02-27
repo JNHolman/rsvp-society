@@ -55,7 +55,7 @@ def send_reminders(event: dict, is_day_of: bool) -> dict:
     """Send reminder SMS to all confirmed members."""
     event["_is_day_of"] = is_day_of
     event_id = event.get("eventId", "current")
-    sms_enabled = (os.getenv("SEND_WELCOME_SMS", "false") or "").lower() == "true"
+    sms_enabled = (os.getenv("SMS_ENABLED", "false") or "").lower() == "true"
 
     confirmed = _get_confirmed_members(event_id)
     members_t = _members_table()

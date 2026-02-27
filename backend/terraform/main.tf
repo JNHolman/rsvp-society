@@ -213,7 +213,7 @@ resource "aws_lambda_function" "access_request" {
       EVENTS_TABLE_NAME     = aws_dynamodb_table.events.name
       INVITES_TABLE_NAME    = aws_dynamodb_table.event_invites.name
       ALLOWED_ORIGINS       = local.allowed_origins_csv
-      SEND_WELCOME_SMS      = "false"
+      SMS_ENABLED           = "false"
       SMS_PROVIDER          = "quo"
       QUO_API_KEY_SECRET_ID = var.quo_api_key_secret_id
     }
@@ -309,7 +309,7 @@ resource "aws_lambda_function" "invite_handler" {
       EVENTS_TABLE_NAME     = aws_dynamodb_table.events.name
       INVITES_TABLE_NAME    = aws_dynamodb_table.event_invites.name
       ALLOWED_ORIGINS       = local.allowed_origins_csv
-      SEND_WELCOME_SMS      = "false"
+      SMS_ENABLED           = "false"
       SMS_PROVIDER          = "quo"
       QUO_API_KEY_SECRET_ID = var.quo_api_key_secret_id
       ADMIN_TOKEN_SECRET_ID = var.admin_token_secret_id
@@ -503,7 +503,7 @@ resource "aws_api_gateway_integration" "admin_event_get" {
   http_method             = aws_api_gateway_method.admin_event_get.http_method
   integration_http_method = "POST"
   type                    = "AWS_PROXY"
-  uri                     = aws_lambda_function.admin_handler.invoke_arn
+  uri                     = aws_lambda_function.event_handler.invoke_arn
 }
 
 resource "aws_api_gateway_method" "admin_event_post" {
@@ -518,7 +518,7 @@ resource "aws_api_gateway_integration" "admin_event_post" {
   http_method             = aws_api_gateway_method.admin_event_post.http_method
   integration_http_method = "POST"
   type                    = "AWS_PROXY"
-  uri                     = aws_lambda_function.admin_handler.invoke_arn
+  uri                     = aws_lambda_function.event_handler.invoke_arn
 }
 
 # /admin/invite

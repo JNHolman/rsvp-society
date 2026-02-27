@@ -89,11 +89,18 @@ def _admin_token() -> str:
 
 def _get_approved_members() -> List[Dict[str, Any]]:
     t = members_table()
-    resp = t.scan(FilterExpression=Attr("status").eq("APPROVED"))
-    members = resp.get("Items", [])
-    for m in members:
+    items = []
+    kwargs: Dict[str, Any] = {"FilterExpression": Attr("status").eq("APPROVED")}
+    while True:
+        resp = t.scan(**kwargs)
+        items.extend(resp.get("Items", []))
+        last = resp.get("LastEvaluatedKey")
+        if not last:
+            break
+        kwargs["ExclusiveStartKey"] = last
+    for m in items:
         m["_tier"] = calc_tier(m)
-    return members
+    return items
 
 
 def _get_current_event() -> Dict[str, Any]:
@@ -206,7 +213,7 @@ def _build_sms_message(member: Dict[str, Any], event: Dict[str, Any]) -> str:
         event_label = (event.get("event_label") or "").strip()
         vibe_tag = (event.get("vibe_tag") or "").strip()
 
-        closings = ["Tap in.", "Lmk.", "We on?", "You sliding?", "Still on?", "Pull up."]
+        closings = ["Tap in.", "Lmk.", "We on?", "Still on?", "Pull up."]
         closing = _random.choice(closings) if _random.random() < 0.4 else ""
 
         parts = []
@@ -222,9 +229,9 @@ def _build_sms_message(member: Dict[str, Any], event: Dict[str, Any]) -> str:
         return " ".join(parts)
     else:
         if name:
-            return f"{name}. You're on the list. You coming?"
+            return f"{name}. You're on the list. Lmk."
         else:
-            return "You're on the list. You coming?"
+            return "You're on the list. Lmk."
 
 
 def handle_preview(body: dict, origin: str) -> dict:
@@ -285,7 +292,7 @@ def handle_send(body: dict, origin: str) -> dict:
     members_t = members_table()
     now = _now_iso()
 
-    sms_enabled = (os.getenv("SEND_WELCOME_SMS", "false") or "").lower() == "true"
+    sms_enabled = (os.getenv("SMS_ENABLED", "false") or "").lower() == "true"
     sent = 0
     failed = 0
 
