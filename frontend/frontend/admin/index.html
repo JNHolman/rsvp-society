@@ -1032,9 +1032,21 @@ main {
           <input type="checkbox" id="ev-reveal-venue" style="width:16px;height:16px;accent-color:#D4B96A;cursor:pointer;" />
           <label for="ev-reveal-venue" style="font-size:9px;letter-spacing:0.3em;text-transform:uppercase;color:rgba(212,185,106,0.8);cursor:pointer;margin:0;">Reveal venue name in invite SMS</label>
         </div>
+        <div class="event-field">
+          <label>Vibe Tag <span style="opacity:0.5;font-size:8px;">2–5 words — goes in Jade's invite text</span></label>
+          <input type="text" id="ev-vibe-tag" placeholder="suits + shots" maxlength="40" />
+        </div>
+        <div class="event-field">
+          <label>Event Label <span style="opacity:0.5;font-size:8px;">Short name Jade uses in SMS</span></label>
+          <input type="text" id="ev-label" placeholder="Rooftop Night" maxlength="40" />
+        </div>
+        <div class="event-field">
+          <label>Time <span style="opacity:0.5;font-size:8px;">As Jade will text it</span></label>
+          <input type="text" id="ev-time" placeholder="9PM" maxlength="20" />
+        </div>
         <div class="event-field event-grid-full">
-          <label>Vibe / Notes <span style="opacity:0.5;font-size:8px;">(Jade references this in the invite)</span></label>
-          <textarea id="ev-notes" rows="2" placeholder="rooftop with views, open bar, limited spots..."></textarea>
+          <label>Notes <span style="opacity:0.5;font-size:8px;">(internal only — Jade does not see this)</span></label>
+          <textarea id="ev-notes" rows="2" placeholder="Internal notes, logistics, etc."></textarea>
         </div>
       </div>
       <button class="event-save-btn" onclick="saveEvent()">Save Event</button>
@@ -1544,19 +1556,24 @@ async function loadCurrentEvent() {
       document.getElementById('ev-capacity').value    = ev.capacity  || '';
       document.getElementById('ev-venue').value       = ev.venue     || '';
       document.getElementById('ev-address').value     = ev.address   || '';
-      document.getElementById('ev-dresscode').value   = ev.dresscode || '';
+      document.getElementById('ev-dresscode').value   = ev.dresscode  || '';
       document.getElementById('ev-reveal-venue').checked = ev.revealVenue || false;
-      document.getElementById('ev-notes').value       = ev.notes     || '';
+      document.getElementById('ev-vibe-tag').value    = ev.vibe_tag   || '';
+      document.getElementById('ev-label').value       = ev.event_label || '';
+      document.getElementById('ev-time').value        = ev.time_text  || '';
+      document.getElementById('ev-notes').value       = ev.notes      || '';
 
       // Show current event display
       const fields = [
         { label: 'Event',     val: ev.eventSlug || ev.eventId },
+        { label: 'Label',     val: ev.event_label },
         { label: 'Date',      val: ev.date },
+        { label: 'Time',      val: ev.time_text },
+        { label: 'Vibe Tag',  val: ev.vibe_tag },
         { label: 'Venue',     val: ev.venue + (ev.revealVenue ? ' ✓ revealed' : ' — hidden') },
         { label: 'Address',   val: ev.address },
         { label: 'Dresscode', val: ev.dresscode },
         { label: 'Capacity',  val: ev.capacity },
-        { label: 'Vibe',      val: ev.notes },
         { label: 'Updated',   val: (ev.updatedAt || '').replace('T', ' ').slice(0, 16) },
       ];
       document.getElementById('event-current-grid').innerHTML = fields.map(f => `
@@ -1582,6 +1599,9 @@ async function saveEvent() {
     address:      document.getElementById('ev-address').value.trim(),
     dresscode:    document.getElementById('ev-dresscode').value.trim(),
     revealVenue:  document.getElementById('ev-reveal-venue').checked,
+    vibe_tag:     document.getElementById('ev-vibe-tag').value.trim(),
+    event_label:  document.getElementById('ev-label').value.trim(),
+    time_text:    document.getElementById('ev-time').value.trim(),
     notes:        document.getElementById('ev-notes').value.trim(),
   };
 
