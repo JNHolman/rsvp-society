@@ -503,7 +503,7 @@ resource "aws_api_gateway_integration" "admin_event_get" {
   http_method             = aws_api_gateway_method.admin_event_get.http_method
   integration_http_method = "POST"
   type                    = "AWS_PROXY"
-  uri                     = aws_lambda_function.event_handler.invoke_arn
+  uri                     = aws_lambda_function.admin_handler.invoke_arn
 }
 
 resource "aws_api_gateway_method" "admin_event_post" {
@@ -518,7 +518,7 @@ resource "aws_api_gateway_integration" "admin_event_post" {
   http_method             = aws_api_gateway_method.admin_event_post.http_method
   integration_http_method = "POST"
   type                    = "AWS_PROXY"
-  uri                     = aws_lambda_function.event_handler.invoke_arn
+  uri                     = aws_lambda_function.admin_handler.invoke_arn
 }
 
 # /admin/invite
