@@ -17,27 +17,29 @@ def _members_table():
     return _DDB.Table(os.environ["MEMBERS_TABLE_NAME"])
 
 def _build_reminder(member_name: str, event: dict) -> str:
-    name = (member_name or "").split()[0] or "hey"
-    event_name = event.get("eventSlug") or "the event"
-    start_time = event.get("startTime", "")
-    address = event.get("address", "")
-    date = event.get("date", "")
+    """
+    Use locked reminder_template if admin approved one.
+    Replace {name} with member first name.
+    Fall back to building from event fields.
+    """
+    name = (member_name or "").split()[0] or ""
 
-    # Figure out today vs tomorrow phrasing
-    now = datetime.now(timezone.utc)
-    event_date_str = date  # e.g. "Saturday March 15"
-    # Default to tonight phrasing since EventBridge fires day-of or day-before
-    timing_word = "tonight" if event.get("_is_day_of") else "tomorrow"
+    # Use locked template if available
+    template = (event.get("reminder_template") or "").strip()
+    if template:
+        return template.replace("{name}", name).strip()
 
-    parts = [f"Hey {name}, it's Jade."]
-    parts.append(f"Don't forget —")
+    # Fallback: build from event fields
+    event_label = (event.get("event_label") or event.get("eventSlug") or "the event").strip()
+    start_time  = (event.get("startTime") or "").strip()
+    timing_word = "Tonight" if event.get("_is_day_of") else "Tomorrow"
+
+    parts = []
     if start_time:
-        parts.append(f"{event_name} {timing_word} at {start_time}.")
+        parts.append(f"Doors at {start_time}.")
     else:
-        parts.append(f"{event_name} is {timing_word}.")
-    if address:
-        parts.append(f"{address}.")
-    parts.append("Don't be late.")
+        parts.append(f"{timing_word}.")
+        if event_label: parts.append(f"{event_label}.")
 
     return " ".join(parts)
 

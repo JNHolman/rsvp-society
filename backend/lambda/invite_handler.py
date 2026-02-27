@@ -182,10 +182,21 @@ def _build_invite_list(
 
 
 def _build_sms_message(member: Dict[str, Any], event: Dict[str, Any]) -> str:
-    """Jade invite — uses Jade format with vibe_tag and event_label."""
+    """
+    Use the locked invite_template from the event if available.
+    Replace {name} with the member's first name.
+    Fall back to building the message from event fields if no template is set.
+    """
     import random as _random
 
     name = (member.get("name") or "").split()[0] or ""
+
+    # Use locked template if admin approved one
+    template = (event.get("invite_template") or "").strip()
+    if template:
+        return template.replace("{name}", name).strip()
+
+    # Fallback: build from event fields
     event_label = (event.get("event_label") or event.get("eventSlug") or "").strip()
     vibe_tag    = (event.get("vibe_tag") or "").strip()
     date        = (event.get("date") or "").strip()
@@ -193,33 +204,21 @@ def _build_sms_message(member: Dict[str, Any], event: Dict[str, Any]) -> str:
     reveal      = event.get("revealVenue", False)
     address     = (event.get("address") or "").strip() if reveal else ""
 
-    closings = [
-        "Tap in.", "Lmk.", "Confirm.", "We on?",
-        "Still on?", "Pull up.", "You sliding?", "Say less."
-    ]
-    # closing ~40% of the time
+    closings = ["Tap in.", "Lmk.", "Confirm.", "We on?", "Still on?", "Pull up.", "You sliding?", "Say less."]
     closing = _random.choice(closings) if _random.random() < 0.4 else ""
 
     if not date:
-        # Fallback if no event data
         msg = f"{name}. You're on the list." if name else "You're on the list."
         return f"{msg} {closing}".strip()
 
-    # Build invite parts
     parts = []
-    if name:
-        parts.append(f"{name}.")
-    if event_label:
-        parts.append(f"{event_label}.")
+    if name:        parts.append(f"{name}.")
+    if event_label: parts.append(f"{event_label}.")
     parts.append(f"{date}.")
-    if vibe_tag:
-        parts.append(f"{vibe_tag}.")
-    if time:
-        parts.append(f"{time}.")
-    if address:
-        parts.append(f"{address}.")
-    if closing:
-        parts.append(closing)
+    if vibe_tag:    parts.append(f"{vibe_tag}.")
+    if time:        parts.append(f"{time}.")
+    if address:     parts.append(f"{address}.")
+    if closing:     parts.append(closing)
 
     return " ".join(parts)
 

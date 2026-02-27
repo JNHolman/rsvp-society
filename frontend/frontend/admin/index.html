@@ -995,8 +995,16 @@ main {
           <input type="text" id="ev-id" placeholder="rooftop-may2026" />
         </div>
         <div class="event-field">
+          <label>Event Label <span style="opacity:0.5;font-size:8px;">Short name Jade uses in SMS</span></label>
+          <input type="text" id="ev-label" placeholder="Rooftop Night" maxlength="40" />
+        </div>
+        <div class="event-field">
           <label>Date</label>
           <input type="text" id="ev-date" placeholder="Saturday, May 15, 2026" />
+        </div>
+        <div class="event-field">
+          <label>Start Time</label>
+          <input type="text" id="ev-time" placeholder="9:00 PM" />
         </div>
         <div class="event-field">
           <label>City</label>
@@ -1018,26 +1026,6 @@ main {
           <label>Dress Code</label>
           <input type="text" id="ev-dresscode" placeholder="All Black Preferred" />
         </div>
-        <div class="event-field event-grid-full" style="display:flex;align-items:center;gap:12px;padding:8px 0;">
-          <input type="checkbox" id="ev-reveal-venue" style="width:16px;height:16px;accent-color:#D4B96A;cursor:pointer;" />
-          <label for="ev-reveal-venue" style="font-size:9px;letter-spacing:0.3em;text-transform:uppercase;color:rgba(212,185,106,0.8);cursor:pointer;margin:0;">Reveal venue name in invite SMS</label>
-        </div>
-        <div class="event-field">
-          <label>Vibe Tag <span style="opacity:0.5;font-size:8px;">2–5 words — goes in Jade's invite text</span></label>
-          <input type="text" id="ev-vibe-tag" placeholder="suits + shots" maxlength="40" />
-        </div>
-        <div class="event-field">
-          <label>Event Label <span style="opacity:0.5;font-size:8px;">Short name Jade uses in SMS</span></label>
-          <input type="text" id="ev-label" placeholder="Rooftop Night" maxlength="40" />
-        </div>
-        <div class="event-field event-grid-full">
-          <label>Notes <span style="opacity:0.5;font-size:8px;">(internal only — Jade does not see this)</span></label>
-          <textarea id="ev-notes" rows="2" placeholder="Internal notes, logistics, etc."></textarea>
-        </div>
-        <div class="event-field">
-          <label>Start Time</label>
-          <input type="text" id="ev-time" placeholder="9:00 PM" />
-        </div>
         <div class="event-field">
           <label>Reminder Timing</label>
           <select id="ev-reminder" style="background:#0C0C10;border:none;border-bottom:1px solid rgba(212,185,106,0.2);color:rgba(248,244,236,0.9);font-family:'Montserrat',sans-serif;font-size:11px;padding:8px 0;outline:none;width:100%;cursor:pointer;">
@@ -1046,10 +1034,68 @@ main {
             <option value="day_of">Day of at 4 PM</option>
           </select>
         </div>
+
+        <!-- Event Type + Vibe Tag -->
+        <div class="event-field">
+          <label>Event Type</label>
+          <select id="ev-type" onchange="updateVibeTags()" style="background:#0C0C10;border:none;border-bottom:1px solid rgba(212,185,106,0.2);color:rgba(248,244,236,0.9);font-family:'Montserrat',sans-serif;font-size:11px;padding:8px 0;outline:none;width:100%;cursor:pointer;">
+            <option value="">Select type...</option>
+            <option value="swim">Swim Party</option>
+            <option value="day">Day Party</option>
+            <option value="rooftop">Rooftop Night</option>
+            <option value="elevated">Elevated / Artist Night</option>
+            <option value="bowling">Bowling Night</option>
+            <option value="karaoke">Karaoke Night</option>
+            <option value="regular">Regular Party</option>
+          </select>
+        </div>
+        <div class="event-field">
+          <label>Vibe Tag <span style="opacity:0.5;font-size:8px;">2–5 words — goes in Jade's invite</span></label>
+          <select id="ev-vibe-tag" style="background:#0C0C10;border:none;border-bottom:1px solid rgba(212,185,106,0.2);color:rgba(248,244,236,0.9);font-family:'Montserrat',sans-serif;font-size:11px;padding:8px 0;outline:none;width:100%;cursor:pointer;">
+            <option value="">Select event type first...</option>
+          </select>
+        </div>
+
+        <div class="event-field event-grid-full" style="display:flex;align-items:center;gap:12px;padding:8px 0;">
+          <input type="checkbox" id="ev-reveal-venue" style="width:16px;height:16px;accent-color:#D4B96A;cursor:pointer;" />
+          <label for="ev-reveal-venue" style="font-size:9px;letter-spacing:0.3em;text-transform:uppercase;color:rgba(212,185,106,0.8);cursor:pointer;margin:0;">Reveal venue name in invite SMS</label>
+        </div>
+
+        <div class="event-field event-grid-full">
+          <label>Event Description <span style="opacity:0.5;font-size:8px;">Brief for Jade — context she uses when building messages</span></label>
+          <textarea id="ev-description" rows="3" placeholder="e.g. Rooftop at The Tribe. Open bar first hour. Dress sharp. Capacity is tight." style="background:transparent;border:none;border-bottom:1px solid rgba(212,185,106,0.2);color:rgba(248,244,236,0.9);font-family:'Montserrat',sans-serif;font-size:11px;padding:8px 0;outline:none;width:100%;resize:none;line-height:1.6;"></textarea>
+        </div>
+
+        <div class="event-field event-grid-full">
+          <label>Internal Notes <span style="opacity:0.5;font-size:8px;">Admin only — Jade does not see this</span></label>
+          <textarea id="ev-notes" rows="2" placeholder="Parking situation, photographer, etc." style="background:transparent;border:none;border-bottom:1px solid rgba(212,185,106,0.2);color:rgba(248,244,236,0.9);font-family:'Montserrat',sans-serif;font-size:11px;padding:8px 0;outline:none;width:100%;resize:none;line-height:1.6;"></textarea>
+        </div>
       </div>
       <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
         <button class="event-save-btn" onclick="saveEvent()">Save Event</button>
+        <button class="event-save-btn" onclick="previewJadeMessages()" style="border-color:rgba(76,175,125,0.4);color:rgba(76,175,125,0.9);">Preview Jade's Messages</button>
         <button class="event-save-btn" onclick="goToSection('invite')" style="border-color:rgba(248,244,236,0.15);color:rgba(248,244,236,0.5);">Next: Invite →</button>
+      </div>
+
+      <!-- Jade message preview + lock panel -->
+      <div id="jade-preview-panel" style="display:none;margin-top:32px;border:1px solid rgba(212,185,106,0.2);padding:28px;">
+        <div style="font-size:8px;letter-spacing:0.4em;text-transform:uppercase;color:rgba(212,185,106,0.6);margin-bottom:8px;">Jade Message Preview</div>
+        <div style="font-size:10px;color:rgba(248,244,236,0.35);letter-spacing:0.05em;margin-bottom:24px;">Edit directly. Use <strong style="color:rgba(212,185,106,0.7);">{name}</strong> where the member's first name should appear. Save Event to lock these in.</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;">
+          <div>
+            <div style="font-size:8px;letter-spacing:0.3em;text-transform:uppercase;color:rgba(248,244,236,0.3);margin-bottom:10px;">Invite Text</div>
+            <textarea id="jade-invite-preview" rows="4" style="width:100%;background:rgba(212,185,106,0.04);border:none;border-left:2px solid rgba(212,185,106,0.4);color:#F8F4EC;font-family:'Cormorant Garamond',serif;font-size:16px;line-height:1.7;padding:16px;outline:none;resize:vertical;"></textarea>
+          </div>
+          <div>
+            <div style="font-size:8px;letter-spacing:0.3em;text-transform:uppercase;color:rgba(248,244,236,0.3);margin-bottom:10px;">Reminder Text (Day-Of)</div>
+            <textarea id="jade-reminder-preview" rows="4" style="width:100%;background:rgba(212,185,106,0.04);border:none;border-left:2px solid rgba(212,185,106,0.4);color:#F8F4EC;font-family:'Cormorant Garamond',serif;font-size:16px;line-height:1.7;padding:16px;outline:none;resize:vertical;"></textarea>
+          </div>
+        </div>
+        <div style="margin-top:20px;display:flex;align-items:center;gap:16px;">
+          <button class="event-save-btn" onclick="saveEvent()" style="border-color:rgba(76,175,125,0.5);color:rgba(76,175,125,0.9);">Save Event + Lock Templates</button>
+          <span id="template-lock-status" style="font-size:9px;letter-spacing:0.2em;color:rgba(248,244,236,0.3);"></span>
+        </div>
+        <div style="margin-top:12px;font-size:9px;color:rgba(248,244,236,0.2);letter-spacing:0.05em;">These exact messages will go out. {name} is replaced with each member's first name.</div>
       </div>
     </div>
   </div>
@@ -1768,6 +1814,68 @@ async function updateTier(phone, tier) {
 }
 
 
+// ── Vibe tag library ──
+const VIBE_TAGS = {
+  swim:     ['suits + shots','poolside r&b','sunset + vibes','day party energy','cabanas + cocktails','towels + tequila'],
+  day:      ['day drinks + r&b','patio + sunlight','brunchy vibes','outside early','grown day party'],
+  rooftop:  ['rooftop + r&b','city views','cocktails + slow jams','night air vibes','late night rooftop'],
+  elevated: ['special night','live moment','dress code matters','quiet luxury'],
+  bowling:  ['lanes + drinks','bowling + r&b','link + bowl'],
+  karaoke:  ['r&b karaoke','mic + r&b','late night karaoke','sing your heart out','shots + choruses','r&b classics','90s r&b night'],
+  regular:  ['just vibes','keep it chill','no chaos'],
+};
+
+function updateVibeTags() {
+  const type = document.getElementById('ev-type').value;
+  const sel  = document.getElementById('ev-vibe-tag');
+  const tags = VIBE_TAGS[type] || [];
+  sel.innerHTML = tags.length
+    ? ['<option value="">Select vibe tag...</option>', ...tags.map(t => `<option value="${t}">${t}</option>`)].join('')
+    : '<option value="">Select event type first...</option>';
+}
+
+function previewJadeMessages() {
+  const label   = document.getElementById('ev-label').value.trim();
+  const date    = document.getElementById('ev-date').value.trim();
+  const time    = document.getElementById('ev-time').value.trim();
+  const vibe    = document.getElementById('ev-vibe-tag').value.trim();
+  const address = document.getElementById('ev-address').value.trim();
+  const reveal  = document.getElementById('ev-reveal-venue').checked;
+
+  if (!date) { showToast('Add a date first', 'error'); return; }
+
+  const closings = ['Tap in.', 'Lmk.', 'We on?', 'You sliding?', 'Still on?', 'Pull up.'];
+  const closing  = Math.random() < 0.4 ? closings[Math.floor(Math.random() * closings.length)] : '';
+
+  // Build invite template — {name} is replaced per member at send time
+  const parts = ['{name}.'];
+  if (label) parts.push(label + '.');
+  parts.push(date + '.');
+  if (vibe)  parts.push(vibe + '.');
+  if (time)  parts.push(time + '.');
+  if (reveal && address) parts.push(address + '.');
+  if (closing) parts.push(closing);
+
+  // Build reminder template
+  const reminderClosing = Math.random() < 0.4 ? closings[Math.floor(Math.random() * closings.length)] : '';
+  const reminderParts = [];
+  if (Math.random() > 0.5) {
+    reminderParts.push('Tonight.');
+    if (label) reminderParts.push(label + '.');
+    if (time)  reminderParts.push(time + '.');
+  } else {
+    reminderParts.push(time ? ('Doors at ' + time + '.') : 'Tonight.');
+  }
+  if (reminderClosing) reminderParts.push(reminderClosing);
+
+  document.getElementById('jade-invite-preview').value   = parts.join(' ');
+  document.getElementById('jade-reminder-preview').value = reminderParts.join(' ');
+
+  document.getElementById('jade-preview-panel').style.display = 'block';
+  document.getElementById('template-lock-status').textContent = 'Edit above, then Save Event to lock in.';
+  document.getElementById('template-lock-status').style.color = 'rgba(248,244,236,0.35)';
+  document.getElementById('jade-preview-panel').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
 // ── Event management ──
 async function loadCurrentEvent() {
   try {
@@ -1779,30 +1887,42 @@ async function loadCurrentEvent() {
       const ev = data.event;
       // Populate form
       document.getElementById('ev-id').value          = ev.eventSlug  || ev.eventId || '';
-      document.getElementById('ev-date').value        = ev.date      || '';
-      document.getElementById('ev-city').value        = ev.city      || '';
-      document.getElementById('ev-capacity').value    = ev.capacity  || '';
-      document.getElementById('ev-venue').value       = ev.venue     || '';
-      document.getElementById('ev-address').value     = ev.address   || '';
+      document.getElementById('ev-label').value       = ev.event_label || '';
+      document.getElementById('ev-date').value        = ev.date       || '';
+      document.getElementById('ev-time').value        = ev.startTime  || '';
+      document.getElementById('ev-city').value        = ev.city       || '';
+      document.getElementById('ev-capacity').value    = ev.capacity   || '';
+      document.getElementById('ev-venue').value       = ev.venue      || '';
+      document.getElementById('ev-address').value     = ev.address    || '';
       document.getElementById('ev-dresscode').value   = ev.dresscode  || '';
       document.getElementById('ev-reveal-venue').checked = ev.revealVenue || false;
-      document.getElementById('ev-vibe-tag').value    = ev.vibe_tag   || '';
-      document.getElementById('ev-label').value       = ev.event_label || '';
       document.getElementById('ev-notes').value       = ev.notes      || '';
-      document.getElementById('ev-time').value        = ev.startTime  || '';
+      document.getElementById('ev-description').value = ev.description || '';
+      // Restore event type and vibe tag selectors
+      if (ev.event_type) {
+        document.getElementById('ev-type').value = ev.event_type;
+        updateVibeTags();
+        if (ev.vibe_tag) document.getElementById('ev-vibe-tag').value = ev.vibe_tag;
+      }
+      // Restore locked templates if they exist
+      if (ev.invite_template || ev.reminder_template) {
+        document.getElementById('jade-invite-preview').value   = ev.invite_template  || '';
+        document.getElementById('jade-reminder-preview').value = ev.reminder_template || '';
+        document.getElementById('jade-preview-panel').style.display = 'block';
+        document.getElementById('template-lock-status').textContent = '✓ Templates locked';
+        document.getElementById('template-lock-status').style.color = 'rgba(76,175,125,0.8)';
+      }
       document.getElementById('ev-reminder').value    = ev.reminderTiming || 'manual';
 
       // Show current event display
       const fields = [
         { label: 'Event',     val: ev.eventSlug || ev.eventId },
-        { label: 'Label',     val: ev.event_label },
         { label: 'Date',      val: ev.date },
-        { label: 'Time',      val: ev.startTime },
-        { label: 'Vibe Tag',  val: ev.vibe_tag },
         { label: 'Venue',     val: ev.venue + (ev.revealVenue ? ' ✓ revealed' : ' — hidden') },
         { label: 'Address',   val: ev.address },
         { label: 'Dresscode', val: ev.dresscode },
         { label: 'Capacity',  val: ev.capacity },
+        { label: 'Vibe',      val: ev.notes },
         { label: 'Updated',   val: (ev.updatedAt || '').replace('T', ' ').slice(0, 16) },
       ];
       document.getElementById('event-current-grid').innerHTML = fields.map(f => `
@@ -1821,17 +1941,21 @@ async function loadCurrentEvent() {
 async function saveEvent() {
   const body = {
     eventSlug:      document.getElementById('ev-id').value.trim(),
+    event_label:    document.getElementById('ev-label').value.trim(),
     date:           document.getElementById('ev-date').value.trim(),
+    startTime:      document.getElementById('ev-time').value.trim(),
     city:           document.getElementById('ev-city').value.trim(),
     capacity:       parseInt(document.getElementById('ev-capacity').value) || 0,
     venue:          document.getElementById('ev-venue').value.trim(),
     address:        document.getElementById('ev-address').value.trim(),
     dresscode:      document.getElementById('ev-dresscode').value.trim(),
     revealVenue:    document.getElementById('ev-reveal-venue').checked,
-    vibe_tag:       document.getElementById('ev-vibe-tag').value.trim(),
-    event_label:    document.getElementById('ev-label').value.trim(),
+    event_type:     document.getElementById('ev-type').value,
+    vibe_tag:       document.getElementById('ev-vibe-tag').value,
+    description:    document.getElementById('ev-description').value.trim(),
     notes:          document.getElementById('ev-notes').value.trim(),
-    startTime:      document.getElementById('ev-time').value.trim(),
+    invite_template:  document.getElementById('jade-invite-preview').value.trim(),
+    reminder_template: document.getElementById('jade-reminder-preview').value.trim(),
     reminderTiming: document.getElementById('ev-reminder').value,
   };
 

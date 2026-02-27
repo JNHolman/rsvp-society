@@ -86,8 +86,10 @@ def handler(event, context):
                 "event_label":    body.get("event_label", "").strip(),
                 "notes":          body.get("notes", ""),
                 "startTime":      body.get("startTime", ""),
-                "reminderTiming": body.get("reminderTiming", "manual"),
-                "updatedAt":      datetime.now(timezone.utc).isoformat()
+                "reminderTiming":    body.get("reminderTiming", "manual"),
+                "invite_template":   body.get("invite_template", "").strip(),
+                "reminder_template": body.get("reminder_template", "").strip(),
+                "updatedAt":         datetime.now(timezone.utc).isoformat()
             }
 
             events_table.put_item(Item=item)
