@@ -182,43 +182,46 @@ def _build_invite_list(
 
 
 def _build_sms_message(member: Dict[str, Any], event: Dict[str, Any]) -> str:
-    """Jade invite — short, personal, no extra. Less is more."""
+    """Jade invite — uses Jade format with vibe_tag and event_label."""
+    import random as _random
+
     name = (member.get("name") or "").split()[0] or ""
+    event_label = (event.get("event_label") or event.get("eventSlug") or "").strip()
+    vibe_tag    = (event.get("vibe_tag") or "").strip()
+    date        = (event.get("date") or "").strip()
+    time        = (event.get("startTime") or "").strip()
+    reveal      = event.get("revealVenue", False)
+    address     = (event.get("address") or "").strip() if reveal else ""
 
-    if event and event.get("date"):
-        date = event["date"]
-        time = event.get("startTime", "")
-        reveal_venue = event.get("revealVenue", False)
-        venue = event.get("venue", "") if reveal_venue else ""
+    closings = [
+        "Tap in.", "Lmk.", "Confirm.", "We on?",
+        "Still on?", "Pull up.", "You sliding?", "Say less."
+    ]
+    # closing ~40% of the time
+    closing = _random.choice(closings) if _random.random() < 0.4 else ""
 
-        # First line — name or straight to the point
-        if name:
-            line1 = f"{name}."
-        else:
-            line1 = "Hey."
+    if not date:
+        # Fallback if no event data
+        msg = f"{name}. You're on the list." if name else "You're on the list."
+        return f"{msg} {closing}".strip()
 
-        # Date + time line
-        if time:
-            line2 = f"You're on the list for {date} at {time}."
-        else:
-            line2 = f"You're on the list for {date}."
+    # Build invite parts
+    parts = []
+    if name:
+        parts.append(f"{name}.")
+    if event_label:
+        parts.append(f"{event_label}.")
+    parts.append(f"{date}.")
+    if vibe_tag:
+        parts.append(f"{vibe_tag}.")
+    if time:
+        parts.append(f"{time}.")
+    if address:
+        parts.append(f"{address}.")
+    if closing:
+        parts.append(closing)
 
-        # Venue only if reveal is on
-        line3 = f"{venue}." if venue else ""
-
-        # Closing line — personal, not instructional
-        line4 = "You coming?"
-
-        parts = [line1, line2]
-        if line3:
-            parts.append(line3)
-        parts.append(line4)
-        return " ".join(parts)
-    else:
-        if name:
-            return f"{name}. You're on the list. You coming?"
-        else:
-            return "You're on the list. You coming?"
+    return " ".join(parts)
 
 
 def handle_preview(body: dict, origin: str) -> dict:

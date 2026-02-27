@@ -81,6 +81,18 @@ def send_reminders(event: dict, is_day_of: bool) -> dict:
 
     return {"sent": sent, "failed": failed}
 
+def _cors_headers(origin=None):
+    allowed_raw = os.getenv("ALLOWED_ORIGINS", "")
+    origins = [o.strip() for o in allowed_raw.split(",") if o.strip()]
+    allow_origin = origin if origin in origins else (origins[0] if origins else "*")
+    return {
+        "content-type": "application/json",
+        "access-control-allow-origin": allow_origin,
+        "access-control-allow-headers": "content-type,x-admin-token",
+        "access-control-allow-methods": "POST,OPTIONS",
+    }
+
+
 def handler(event, context):
     """
     Triggered by:
@@ -90,11 +102,19 @@ def handler(event, context):
     try:
         # Check if this is an API Gateway call (manual blast)
         if event.get("httpMethod") or event.get("requestContext"):
+            headers = event.get("headers") or {}
+            origin = headers.get("origin") or headers.get("Origin") or ""
+            method = (event.get("httpMethod") or
+                      event.get("requestContext", {}).get("http", {}).get("method", "")).upper()
+
+            # OPTIONS preflight
+            if method == "OPTIONS":
+                return {"statusCode": 200, "headers": _cors_headers(origin), "body": "{}"}
+
             # Manual blast from admin panel
             body = json.loads(event.get("body") or "{}")
 
             # Auth check
-            headers = event.get("headers") or {}
             token = headers.get("x-admin-token") or headers.get("X-Admin-Token") or ""
             expected = get_secret_string(os.getenv("ADMIN_TOKEN_SECRET_ID", "rsvp/admin-token"))
             try:
@@ -107,7 +127,7 @@ def handler(event, context):
             if not token or token != expected:
                 return {
                     "statusCode": 401,
-                    "headers": {"content-type": "application/json"},
+                    "headers": _cors_headers(origin),
                     "body": json.dumps({"ok": False, "error": "unauthorized"})
                 }
 
@@ -115,18 +135,14 @@ def handler(event, context):
             if not current_event:
                 return {
                     "statusCode": 400,
-                    "headers": {"content-type": "application/json"},
+                    "headers": _cors_headers(origin),
                     "body": json.dumps({"ok": False, "error": "No current event"})
                 }
 
             result = send_reminders(current_event, is_day_of=True)
             return {
                 "statusCode": 200,
-                "headers": {
-                    "content-type": "application/json",
-                    "access-control-allow-origin": "*",
-                    "access-control-allow-headers": "content-type,x-admin-token",
-                },
+                "headers": _cors_headers(origin),
                 "body": json.dumps({"ok": True, **result})
             }
 

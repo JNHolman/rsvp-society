@@ -93,14 +93,21 @@ def get_current_event():
 def set_current_event(data: dict):
     from datetime import datetime, timezone
     item = {
-        "eventId": "current",
-        "updatedAt": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-        "date":      (data.get("date") or "").strip(),
-        "venue":     (data.get("venue") or "").strip(),
-        "dresscode": (data.get("dresscode") or "").strip(),
-        "capacity":  int(data.get("capacity") or 0),
-        "city":      (data.get("city") or "").strip(),
-        "notes":     (data.get("notes") or "").strip(),
+        "eventId":      "current",
+        "updatedAt":    datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "eventSlug":    (data.get("eventSlug") or "").strip(),
+        "date":         (data.get("date") or "").strip(),
+        "venue":        (data.get("venue") or "").strip(),
+        "dresscode":    (data.get("dresscode") or "").strip(),
+        "capacity":     int(data.get("capacity") or 0),
+        "city":         (data.get("city") or "").strip(),
+        "address":      (data.get("address") or "").strip(),
+        "revealVenue":  bool(data.get("revealVenue", False)),
+        "vibe_tag":     (data.get("vibe_tag") or "").strip(),
+        "event_label":  (data.get("event_label") or "").strip(),
+        "startTime":    (data.get("startTime") or "").strip(),
+        "reminderTiming": (data.get("reminderTiming") or "manual").strip(),
+        "notes":        (data.get("notes") or "").strip(),
     }
     _events_table().put_item(Item=item)
     return item

@@ -82,6 +82,8 @@ def handler(event, context):
                 "address":        body.get("address", ""),
                 "dresscode":      body.get("dresscode", ""),
                 "revealVenue":    bool(body.get("revealVenue", False)),
+                "vibe_tag":       body.get("vibe_tag", "").strip(),
+                "event_label":    body.get("event_label", "").strip(),
                 "notes":          body.get("notes", ""),
                 "startTime":      body.get("startTime", ""),
                 "reminderTiming": body.get("reminderTiming", "manual"),
