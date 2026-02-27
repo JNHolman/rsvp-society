@@ -106,8 +106,12 @@ def set_current_event(data: dict):
         "vibe_tag":     (data.get("vibe_tag") or "").strip(),
         "event_label":  (data.get("event_label") or "").strip(),
         "startTime":    (data.get("startTime") or "").strip(),
-        "reminderTiming": (data.get("reminderTiming") or "manual").strip(),
-        "notes":        (data.get("notes") or "").strip(),
+        "reminderTiming":    (data.get("reminderTiming") or "manual").strip(),
+        "notes":             (data.get("notes") or "").strip(),
+        "description":       (data.get("description") or "").strip(),
+        "event_type":        (data.get("event_type") or "").strip(),
+        "invite_template":   (data.get("invite_template") or "").strip(),
+        "reminder_template": (data.get("reminder_template") or "").strip(),
     }
     _events_table().put_item(Item=item)
     return item
