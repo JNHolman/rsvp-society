@@ -1840,6 +1840,7 @@ function previewJadeMessages() {
   const time    = document.getElementById('ev-time').value.trim();
   const vibe    = document.getElementById('ev-vibe-tag').value.trim();
   const address = document.getElementById('ev-address').value.trim();
+  const venue   = document.getElementById('ev-venue').value.trim();
   const reveal  = document.getElementById('ev-reveal-venue').checked;
 
   if (!date) { showToast('Add a date first', 'error'); return; }
@@ -1853,6 +1854,7 @@ function previewJadeMessages() {
   parts.push(date + '.');
   if (vibe)  parts.push(vibe + '.');
   if (time)  parts.push(time + '.');
+  if (reveal && venue)   parts.push(venue + '.');
   if (reveal && address) parts.push(address + '.');
   if (closing) parts.push(closing);
 
