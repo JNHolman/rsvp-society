@@ -182,37 +182,43 @@ def _build_invite_list(
 
 
 def _build_sms_message(member: Dict[str, Any], event: Dict[str, Any]) -> str:
-    """Build a warm personal invite SMS — sounds like a friend, not a promoter."""
-    name = (member.get("name") or "").split()[0] or "hey"
+    """Jade invite — short, personal, no extra. Less is more."""
+    name = (member.get("name") or "").split()[0] or ""
 
     if event and event.get("date"):
-        date = event.get("date", "")
-        venue = event.get("venue", "")
-        notes = event.get("notes", "")
+        date = event["date"]
+        time = event.get("startTime", "")
         reveal_venue = event.get("revealVenue", False)
+        venue = event.get("venue", "") if reveal_venue else ""
 
-        parts = [f"Hey {name}, it's Jade."]
-        parts.append(f"You're on the list for the next RSVP Society —")
+        # First line — name or straight to the point
+        if name:
+            line1 = f"{name}."
+        else:
+            line1 = "Hey."
 
-        if date and reveal_venue and venue:
-            parts.append(f"{date} at {venue}.")
-        elif date:
-            parts.append(f"{date}.")
+        # Date + time line
+        if time:
+            line2 = f"You're on the list for {date} at {time}."
+        else:
+            line2 = f"You're on the list for {date}."
 
-        if notes:
-            parts.append(f"This one's {notes}.")
+        # Venue only if reveal is on
+        line3 = f"{venue}." if venue else ""
 
-        if not reveal_venue and venue:
-            parts.append("Location revealed to confirmed guests.")
+        # Closing line — personal, not instructional
+        line4 = "You coming?"
 
-        parts.append("Reply YES to hold your spot.")
-
+        parts = [line1, line2]
+        if line3:
+            parts.append(line3)
+        parts.append(line4)
         return " ".join(parts)
     else:
-        return (
-            f"Hey {name}, it's Jade. You're on the list for the next RSVP Society experience. "
-            "Reply YES to hold your spot."
-        )
+        if name:
+            return f"{name}. You're on the list. You coming?"
+        else:
+            return "You're on the list. You coming?"
 
 
 def handle_preview(body: dict, origin: str) -> dict:
