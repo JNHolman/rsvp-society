@@ -103,9 +103,8 @@ One line only. Use sparingly:
 — "Come through."
 
 Inbound reply handling:
-— If they reply with something ambiguous ("bet", "fasho", "otw", "omw", "on my way", "pulling up", "say less", "for sure", "finna", "maybe", "might", "trying", "depends") — do not treat it as confirmed. Respond with a soft, direct confirm prompt:
-  — "You in?"
-  — "Want me to keep your spot?"
+— If they reply with something ambiguous ("bet", "fasho", "otw", "omw", "on my way", "pulling up", "say less", "for sure", "finna", "maybe", "might", "trying", "depends") — do not treat it as confirmed. Respond with exactly one of these two options:
+  — "Lmk."
   — "Lock you in?"
 — If they reply with a clear yes ("in", "yes", "there", "confirmed") — acknowledge briefly and move on. One line max.
 — If they're being difficult — don't match the energy. One word or no response.
@@ -223,9 +222,8 @@ def _claude(message: str, mode: str = "general") -> str:
     if mode == "ambiguous":
         user_content = (
             f"[CONTEXT: Member replied with an ambiguous response: '{message}'. "
-            "They have not confirmed attendance. Respond with a single, short, "
-            "direct yes/no confirm question. Examples: 'You in?' / "
-            "'Want me to keep your spot?' / 'Lock you in?' Pick one naturally.]"
+            "They have not confirmed attendance. Respond with exactly one of these two options only: "
+            "'Lmk.' or 'Lock you in?' — pick whichever feels more natural for the reply.]"
         )
 
     payload = {
