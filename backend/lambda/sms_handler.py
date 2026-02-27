@@ -158,7 +158,7 @@ def handler(event, context):
                         ExpressionAttributeValues={":d": "DECLINED", ":now": now},
                     )
                     if sms_enabled:
-                        send_sms(from_phone, "No worries — we'll catch you next time.")
+                        send_sms(from_phone, "No worries. I'll keep you in mind.")
                     return {"statusCode": 200, "body": json.dumps({"ok": True})}
             except Exception:
                 pass
