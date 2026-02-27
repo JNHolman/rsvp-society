@@ -317,32 +317,6 @@ resource "aws_lambda_function" "invite_handler" {
   }
 }
 
-resource "aws_lambda_function" "reminder_handler" {
-  function_name = "rsvp-reminder-handler"
-  role          = aws_iam_role.lambda_role.arn
-  handler       = "reminder_handler.handler"
-  runtime       = "python3.11"
-
-  filename         = data.archive_file.lambda_bundle.output_path
-  source_code_hash = data.archive_file.lambda_bundle.output_base64sha256
-
-  timeout = 60
-
-  environment {
-    variables = {
-      ENVIRONMENT           = "prod"
-      MEMBERS_TABLE_NAME    = aws_dynamodb_table.members.name
-      EVENTS_TABLE_NAME     = aws_dynamodb_table.events.name
-      INVITES_TABLE_NAME    = aws_dynamodb_table.event_invites.name
-      ALLOWED_ORIGINS       = local.allowed_origins_csv
-      SEND_WELCOME_SMS      = "false"
-      SMS_PROVIDER          = "quo"
-      QUO_API_KEY_SECRET_ID = var.quo_api_key_secret_id
-      ADMIN_TOKEN_SECRET_ID = var.admin_token_secret_id
-    }
-  }
-}
-
 # -----------------------------
 # API Gateway REST API (v1)
 # -----------------------------
@@ -568,13 +542,6 @@ resource "aws_api_gateway_resource" "admin_invite_send" {
   path_part   = "send"
 }
 
-# /admin/invite/reminder
-resource "aws_api_gateway_resource" "admin_invite_reminder" {
-  rest_api_id = aws_api_gateway_rest_api.api.id
-  parent_id   = aws_api_gateway_resource.admin_invite.id
-  path_part   = "reminder"
-}
-
 # /admin/members/gender
 resource "aws_api_gateway_resource" "admin_members_gender" {
   rest_api_id = aws_api_gateway_rest_api.api.id
@@ -632,74 +599,6 @@ resource "aws_api_gateway_integration" "admin_invite_send_post" {
   integration_http_method = "POST"
   type                    = "AWS_PROXY"
   uri                     = aws_lambda_function.invite_handler.invoke_arn
-}
-
-# /admin/invite/reminder POST
-resource "aws_api_gateway_method" "admin_invite_reminder_post" {
-  rest_api_id   = aws_api_gateway_rest_api.api.id
-  resource_id   = aws_api_gateway_resource.admin_invite_reminder.id
-  http_method   = "POST"
-  authorization = "NONE"
-}
-resource "aws_api_gateway_integration" "admin_invite_reminder_post" {
-  rest_api_id             = aws_api_gateway_rest_api.api.id
-  resource_id             = aws_api_gateway_resource.admin_invite_reminder.id
-  http_method             = aws_api_gateway_method.admin_invite_reminder_post.http_method
-  integration_http_method = "POST"
-  type                    = "AWS_PROXY"
-  uri                     = aws_lambda_function.reminder_handler.invoke_arn
-}
-
-# /admin/invite/reminder OPTIONS (CORS preflight)
-resource "aws_api_gateway_method" "admin_invite_reminder_options" {
-  rest_api_id   = aws_api_gateway_rest_api.api.id
-  resource_id   = aws_api_gateway_resource.admin_invite_reminder.id
-  http_method   = "OPTIONS"
-  authorization = "NONE"
-}
-resource "aws_api_gateway_integration" "admin_invite_reminder_options" {
-  rest_api_id = aws_api_gateway_rest_api.api.id
-  resource_id = aws_api_gateway_resource.admin_invite_reminder.id
-  http_method = aws_api_gateway_method.admin_invite_reminder_options.http_method
-  type        = "MOCK"
-  request_templates = {
-    "application/json" = "{"statusCode": 200}"
-  }
-}
-resource "aws_api_gateway_method_response" "admin_invite_reminder_options_200" {
-  rest_api_id = aws_api_gateway_rest_api.api.id
-  resource_id = aws_api_gateway_resource.admin_invite_reminder.id
-  http_method = aws_api_gateway_method.admin_invite_reminder_options.http_method
-  status_code = "200"
-  response_parameters = {
-    "method.response.header.Access-Control-Allow-Origin"  = true
-    "method.response.header.Access-Control-Allow-Methods" = true
-    "method.response.header.Access-Control-Allow-Headers" = true
-  }
-}
-resource "aws_api_gateway_integration_response" "admin_invite_reminder_options_200" {
-  rest_api_id = aws_api_gateway_rest_api.api.id
-  resource_id = aws_api_gateway_resource.admin_invite_reminder.id
-  http_method = aws_api_gateway_method.admin_invite_reminder_options.http_method
-  status_code = aws_api_gateway_method_response.admin_invite_reminder_options_200.status_code
-  response_parameters = {
-    "method.response.header.Access-Control-Allow-Origin"  = "'${var.allowed_origins[0]}'"
-    "method.response.header.Access-Control-Allow-Methods" = "'POST,OPTIONS'"
-    "method.response.header.Access-Control-Allow-Headers" = "'content-type,x-admin-token'"
-  }
-  depends_on = [
-    aws_api_gateway_integration.admin_invite_reminder_options,
-    aws_api_gateway_method_response.admin_invite_reminder_options_200,
-  ]
-}
-
-# Lambda permission for reminder handler via API Gateway
-resource "aws_lambda_permission" "allow_apigw_reminder" {
-  statement_id  = "AllowApiGwInvokeReminder"
-  action        = "lambda:InvokeFunction"
-  function_name = aws_lambda_function.reminder_handler.function_name
-  principal     = "apigateway.amazonaws.com"
-  source_arn    = "${aws_api_gateway_rest_api.api.execution_arn}/*/*"
 }
 
 resource "aws_api_gateway_method" "admin_members_gender_post" {
@@ -1094,7 +993,8 @@ resource "aws_api_gateway_deployment" "deploy" {
   triggers = {
     redeploy = sha1(join("", [
     filesha1("${path.module}/main.tf"),
-    filesha1("${path.module}/cloudwatch_dashboard.tf")
+    filesha1("${path.module}/cloudwatch_dashboard.tf"),
+    filesha1("${path.module}/eventbridge.tf")
   ]))
   }
   depends_on = [
