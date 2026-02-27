@@ -525,22 +525,6 @@ main {
   margin-top: -16px;
   margin-bottom: 24px;
 }
-.settings-btn {
-  background: none;
-  border: 1px solid rgba(212,185,106,0.15);
-  color: var(--white-dim);
-  font-family: 'Montserrat', sans-serif;
-  font-size: 9px;
-  letter-spacing: 0.3em;
-  text-transform: uppercase;
-  padding: 8px 16px;
-  cursor: pointer;
-  transition: all .2s;
-}
-.settings-btn:hover { border-color: rgba(212,185,106,0.8); color: var(--gold); }
-
-/* Invite section */
-#invite-section { display: none; }
 .invite-form {
   background: var(--black-2);
   border: 1px solid rgba(212,185,106,0.08);
@@ -873,7 +857,6 @@ main {
       <button class="tab-btn" id="tab-event" onclick="setTab('event'); showSection('event'); loadCurrentEvent()">Event</button>
       <button class="tab-btn" id="tab-invite" onclick="setTab('invite'); showSection('invite'); loadEventIntoInviteForm()">Invite</button>
       <div class="nav-divider"></div>
-      <button class="settings-btn" onclick="openSettings()">Settings</button>
       <button class="logout-btn" onclick="doLogout()">Sign Out</button>
     </div>
   </nav>
@@ -1068,17 +1051,6 @@ main {
   </main>
 </div>
 
-<div class="settings-overlay" id="settings-overlay" onclick="closeSettings()"></div>
-<div class="settings-panel" id="settings-panel">
-    <div class="settings-title">Settings</div>
-
-    <label class="settings-label" for="api-input">API Base URL</label>
-    <input type="text" id="api-input" class="settings-input" placeholder="https://xxx.execute-api.us-east-1.amazonaws.com/prod" />
-    <p class="settings-hint">From Terraform output: api_base_url. Saved to localStorage — only set this once.</p>
-
-    <button class="settings-save" onclick="saveSettings()">Save</button>
-    <button class="settings-close" onclick="closeSettings()">Cancel</button>
-  </div>
 <div class="toast" id="toast"></div>
 <script>
 const API_DEFAULT = 'https://api.rsvpsociety.com';
@@ -1869,20 +1841,27 @@ async function saveEvent() {
 // ── Manual reminder blast ──
 async function sendReminderBlast() {
   const btn = document.getElementById('reminder-blast-btn');
-  
-  // Get current event for message preview
-  let eventName = document.getElementById('inv-event-id').value || 'the event';
-  
-  if (!confirm(`Send reminder to all confirmed members for "${eventName}"?`)) return;
-  
+
+  // Fetch current event to show in confirm dialog
+  let eventLabel = 'current event';
+  try {
+    const evRes = await fetch(`${API}/admin/event`, { headers: { 'x-admin-token': adminToken } });
+    const evData = await evRes.json();
+    if (evData.ok && evData.event && evData.event.date) {
+      eventLabel = evData.event.eventSlug || evData.event.date;
+    }
+  } catch(e) {}
+
+  if (!confirm(`Send reminder blast to all confirmed members for "${eventLabel}"?`)) return;
+
   btn.textContent = 'Sending...';
   btn.disabled = true;
-  
+
   try {
     const res = await fetch(`${API}/admin/invite/reminder`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', 'x-admin-token': adminToken },
-      body: JSON.stringify({ eventId: eventName, manual: true })
+      body: JSON.stringify({ manual: true })
     });
     const data = await res.json();
     if (!data.ok) throw new Error(data.error);
@@ -2114,27 +2093,7 @@ async function confirmImport() {
   }
 }
 
-// ── Settings panel ──
-function openSettings() {
-  const saved = localStorage.getItem('rsvp_api_base') || API_DEFAULT;
-  document.getElementById('api-input').value = saved;
-  document.getElementById('settings-panel').classList.add('open');
-  document.getElementById('settings-overlay').classList.add('open');
-}
 
-function closeSettings() {
-  document.getElementById('settings-panel').classList.remove('open');
-  document.getElementById('settings-overlay').classList.remove('open');
-}
-
-function saveSettings() {
-  const val = document.getElementById('api-input').value.trim();
-  if (!val) return;
-  localStorage.setItem('rsvp_api_base', val);
-  API = val.replace(/\/+$/, '');
-  showToast('API URL saved', 'success');
-  closeSettings();
-}
 </script>
 </body>
 </html>

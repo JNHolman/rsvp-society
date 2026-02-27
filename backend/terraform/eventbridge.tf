@@ -108,7 +108,7 @@ resource "aws_cloudwatch_event_rule" "reminder_day_before" {
 resource "aws_cloudwatch_event_rule" "reminder_day_of" {
   name                = "rsvp-reminder-day-of"
   description         = "Fires daily at 4PM EST to send day-of reminders"
-  schedule_expression = "cron(0 21 * * ? *)"
+  schedule_expression = "cron(0 16 * * ? *)"
 }
 
 resource "aws_cloudwatch_event_target" "reminder_day_before" {
