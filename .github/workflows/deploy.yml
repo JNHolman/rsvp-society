@@ -58,16 +58,12 @@ jobs:
             --zip-file fileb://lambda_bundle.zip \
             --no-cli-pager
 
-      - name: Deploy rsvp-event-handler
-        run: |
-          aws lambda update-function-code \
-            --function-name rsvp-event-handler \
-            --zip-file fileb://lambda_bundle.zip \
-            --no-cli-pager
-
       - name: Deploy rsvp-reminder-handler
         run: |
-          aws lambda update-function-code             --function-name rsvp-reminder-handler             --zip-file fileb://lambda_bundle.zip             --no-cli-pager
+          aws lambda update-function-code \
+            --function-name rsvp-reminder-handler \
+            --zip-file fileb://lambda_bundle.zip \
+            --no-cli-pager
 
       - name: Deploy rsvp-invite-handler
         run: |
@@ -78,7 +74,7 @@ jobs:
 
       - name: Wait for all functions to finish updating
         run: |
-          for fn in rsvp-access-request rsvp-admin-handler rsvp-sms-handler rsvp-event-handler rsvp-invite-handler; do
+          for fn in rsvp-access-request rsvp-admin-handler rsvp-sms-handler rsvp-reminder-handler rsvp-invite-handler; do
             echo "Waiting on $fn..."
             aws lambda wait function-updated --function-name $fn
           done
