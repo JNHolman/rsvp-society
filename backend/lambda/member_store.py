@@ -1,11 +1,13 @@
+import logging
 import os
 import re
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 import boto3
-from boto3.dynamodb.conditions import Attr
+from boto3.dynamodb.conditions import Key as DKey
 
+logger = logging.getLogger()
 _DDB = boto3.resource("dynamodb")
 
 
@@ -116,17 +118,21 @@ def set_status(phone: str, status: str) -> None:
 
 def list_members_by_status(status: str = "PENDING", limit: int = 200) -> List[Dict[str, Any]]:
     """
-    Full paginated scan - DynamoDB Limit caps items SCANNED not returned,
-    so we must paginate through all pages to get every matching record.
+    Query the status-index GSI — O(matching members) not O(all members).
+    The GSI has projection_type = ALL so all fields are available without
+    a second GetItem per row.
     """
     st = (status or "PENDING").upper().strip()
     t = _table()
 
     items: List[Dict[str, Any]] = []
-    kwargs: Dict[str, Any] = {"FilterExpression": Attr("status").eq(st)}
+    kwargs: Dict[str, Any] = {
+        "IndexName": "status-index",
+        "KeyConditionExpression": DKey("status").eq(st),
+    }
 
     while True:
-        resp = t.scan(**kwargs)
+        resp = t.query(**kwargs)
         items.extend(resp.get("Items", []))
         last = resp.get("LastEvaluatedKey")
         if not last:
@@ -207,8 +213,55 @@ def set_tier_override(phone: str, tier: int) -> None:
         )
 
 
-def record_attendance(phone: str, attended: bool) -> None:
+def _checkins_table():
+    name = os.getenv("CHECKINS_TABLE_NAME")
+    if not name:
+        # Hard fail — if this env var is missing the conditional write guard
+        # cannot function and we would silently allow double-counting.
+        # Prefer a loud Lambda startup error over silent data corruption.
+        raise RuntimeError(
+            "CHECKINS_TABLE_NAME env var is not set. "
+            "Deploy checkins.tf and add it to the Lambda environment."
+        )
+    return boto3.resource("dynamodb").Table(name)
+
+
+def _invites_table():
+    name = os.getenv("INVITES_TABLE_NAME", "rsvp-event-invites")
+    return boto3.resource("dynamodb").Table(name)
+
+
+def record_attendance(phone: str, attended: bool, event_id: str = "current") -> bool:
+    """
+    Record attendance for a member at a specific event.
+
+    Uses rsvp-checkins as an idempotent write guard keyed on (eventId, phone):
+    - First check-in → writes member counters, returns True
+    - Repeat tap     → ConditionalCheckFailedException, no counter change, returns False
+
+    Raises RuntimeError if CHECKINS_TABLE_NAME is not configured so the
+    misconfiguration is caught at call time, not silently swallowed.
+    """
+    from botocore.exceptions import ClientError
+
     phone_e164 = normalize_phone(phone)
+    ct = _checkins_table()  # raises if env var missing
+
+    try:
+        ct.put_item(
+            Item={
+                "eventId":     event_id,
+                "phone":       phone_e164,
+                "checkedInAt": _now_iso(),
+            },
+            ConditionExpression="attribute_not_exists(phone)",
+        )
+    except ClientError as e:
+        if e.response["Error"]["Code"] == "ConditionalCheckFailedException":
+            return False  # already checked in — skip counter update
+        raise
+
+    # New check-in — update member record counters
     t = _table()
     if attended:
         t.update_item(
@@ -220,6 +273,17 @@ def record_attendance(phone: str, attended: bool) -> None:
             ),
             ExpressionAttributeValues={":zero": 0, ":one": 1, ":ls": _now_iso()},
         )
+        # Write attendedAt back to the invite record so post-event analytics
+        # can compare confirmed vs actually attended without scanning member counters.
+        try:
+            _invites_table().update_item(
+                Key={"eventId": event_id, "phone": phone_e164},
+                UpdateExpression="SET attendedAt = :now",
+                ExpressionAttributeValues={":now": _now_iso()},
+            )
+        except Exception:
+            logger.exception("attend invite update failed phone=...%s", phone_e164[-4:])
+            # Non-fatal — member counter already written
     else:
         t.update_item(
             Key={"phone": phone_e164},
@@ -229,6 +293,7 @@ def record_attendance(phone: str, attended: bool) -> None:
             ),
             ExpressionAttributeValues={":zero": 0, ":one": 1, ":ls": _now_iso()},
         )
+    return True
 
 
 def get_member(phone: str) -> Optional[Dict[str, Any]]:
@@ -239,7 +304,7 @@ def get_member(phone: str) -> Optional[Dict[str, Any]]:
 
 
 def delete_member(phone: str) -> None:
-    phone = (phone or "").strip()
+    phone = normalize_phone((phone or "").strip())
     if not phone:
         raise ValueError("phone required")
     _table().delete_item(Key={"phone": phone})

@@ -30,8 +30,9 @@ resource "aws_cloudwatch_dashboard" "rsvp_operations" {
             ["AWS/Lambda", "Invocations", "FunctionName", "rsvp-access-request", { label = "access_request" }],
             ["AWS/Lambda", "Invocations", "FunctionName", "rsvp-sms-handler", { label = "sms_handler" }],
             ["AWS/Lambda", "Invocations", "FunctionName", "rsvp-admin-handler", { label = "admin_handler" }],
-            ["AWS/Lambda", "Invocations", "FunctionName", "rsvp-event-handler", { label = "event_handler" }],
-            ["AWS/Lambda", "Invocations", "FunctionName", "rsvp-invite-handler", { label = "invite_handler" }]
+            ["AWS/Lambda", "Invocations", "FunctionName", "rsvp-reminder-handler", { label = "reminder_handler" }],
+            ["AWS/Lambda", "Invocations", "FunctionName", "rsvp-invite-handler", { label = "invite_handler" }],
+            ["AWS/Lambda", "Invocations", "FunctionName", "rsvp-reminder-handler", { label = "reminder_handler" }]
           ]
           yAxis = { left = { min = 0 } }
         }
@@ -53,8 +54,9 @@ resource "aws_cloudwatch_dashboard" "rsvp_operations" {
             ["AWS/Lambda", "Errors", "FunctionName", "rsvp-access-request", { label = "access_request", color = "#d62728" }],
             ["AWS/Lambda", "Errors", "FunctionName", "rsvp-sms-handler", { label = "sms_handler", color = "#ff7f0e" }],
             ["AWS/Lambda", "Errors", "FunctionName", "rsvp-admin-handler", { label = "admin_handler", color = "#9467bd" }],
-            ["AWS/Lambda", "Errors", "FunctionName", "rsvp-event-handler", { label = "event_handler", color = "#8c564b" }],
-            ["AWS/Lambda", "Errors", "FunctionName", "rsvp-invite-handler", { label = "invite_handler", color = "#e377c2" }]
+            ["AWS/Lambda", "Errors", "FunctionName", "rsvp-reminder-handler", { label = "reminder_handler", color = "#8c564b" }],
+            ["AWS/Lambda", "Errors", "FunctionName", "rsvp-invite-handler", { label = "invite_handler", color = "#e377c2" }],
+            ["AWS/Lambda", "Errors", "FunctionName", "rsvp-reminder-handler", { label = "reminder_handler", color = "#2ca02c" }]
           ]
           yAxis = { left = { min = 0 } }
         }
@@ -76,8 +78,9 @@ resource "aws_cloudwatch_dashboard" "rsvp_operations" {
             ["AWS/Lambda", "Duration", "FunctionName", "rsvp-access-request", { label = "access_request" }],
             ["AWS/Lambda", "Duration", "FunctionName", "rsvp-sms-handler", { label = "sms_handler" }],
             ["AWS/Lambda", "Duration", "FunctionName", "rsvp-admin-handler", { label = "admin_handler" }],
-            ["AWS/Lambda", "Duration", "FunctionName", "rsvp-event-handler", { label = "event_handler" }],
-            ["AWS/Lambda", "Duration", "FunctionName", "rsvp-invite-handler", { label = "invite_handler" }]
+            ["AWS/Lambda", "Duration", "FunctionName", "rsvp-reminder-handler", { label = "reminder_handler" }],
+            ["AWS/Lambda", "Duration", "FunctionName", "rsvp-invite-handler", { label = "invite_handler" }],
+            ["AWS/Lambda", "Duration", "FunctionName", "rsvp-reminder-handler", { label = "reminder_handler" }]
           ]
         }
       },
@@ -98,8 +101,9 @@ resource "aws_cloudwatch_dashboard" "rsvp_operations" {
             ["AWS/Lambda", "Throttles", "FunctionName", "rsvp-access-request", { label = "access_request", color = "#d62728" }],
             ["AWS/Lambda", "Throttles", "FunctionName", "rsvp-sms-handler", { label = "sms_handler", color = "#ff7f0e" }],
             ["AWS/Lambda", "Throttles", "FunctionName", "rsvp-admin-handler", { label = "admin_handler", color = "#9467bd" }],
-            ["AWS/Lambda", "Throttles", "FunctionName", "rsvp-event-handler", { label = "event_handler", color = "#8c564b" }],
-            ["AWS/Lambda", "Throttles", "FunctionName", "rsvp-invite-handler", { label = "invite_handler", color = "#e377c2" }]
+            ["AWS/Lambda", "Throttles", "FunctionName", "rsvp-reminder-handler", { label = "reminder_handler", color = "#8c564b" }],
+            ["AWS/Lambda", "Throttles", "FunctionName", "rsvp-invite-handler", { label = "invite_handler", color = "#e377c2" }],
+            ["AWS/Lambda", "Throttles", "FunctionName", "rsvp-reminder-handler", { label = "reminder_handler", color = "#2ca02c" }]
           ]
           yAxis = { left = { min = 0 } }
         }
@@ -119,7 +123,9 @@ resource "aws_cloudwatch_dashboard" "rsvp_operations" {
           metrics = [
             ["AWS/DynamoDB", "ConsumedReadCapacityUnits", "TableName", "rsvp-members", { label = "members" }],
             ["AWS/DynamoDB", "ConsumedReadCapacityUnits", "TableName", "rsvp-events", { label = "events" }],
-            ["AWS/DynamoDB", "ConsumedReadCapacityUnits", "TableName", "rsvp-event-invites", { label = "event-invites" }]
+            ["AWS/DynamoDB", "ConsumedReadCapacityUnits", "TableName", "rsvp-event-invites", { label = "event-invites" }],
+            ["AWS/DynamoDB", "ConsumedReadCapacityUnits", "TableName", "rsvp-checkins", { label = "checkins" }],
+            ["AWS/DynamoDB", "ConsumedReadCapacityUnits", "TableName", "rsvp-audit-log", { label = "audit-log" }]
           ]
           yAxis = { left = { min = 0 } }
         }
@@ -139,7 +145,9 @@ resource "aws_cloudwatch_dashboard" "rsvp_operations" {
           metrics = [
             ["AWS/DynamoDB", "ConsumedWriteCapacityUnits", "TableName", "rsvp-members", { label = "members" }],
             ["AWS/DynamoDB", "ConsumedWriteCapacityUnits", "TableName", "rsvp-events", { label = "events" }],
-            ["AWS/DynamoDB", "ConsumedWriteCapacityUnits", "TableName", "rsvp-event-invites", { label = "event-invites" }]
+            ["AWS/DynamoDB", "ConsumedWriteCapacityUnits", "TableName", "rsvp-event-invites", { label = "event-invites" }],
+            ["AWS/DynamoDB", "ConsumedWriteCapacityUnits", "TableName", "rsvp-checkins", { label = "checkins" }],
+            ["AWS/DynamoDB", "ConsumedWriteCapacityUnits", "TableName", "rsvp-audit-log", { label = "audit-log" }]
           ]
           yAxis = { left = { min = 0 } }
         }
@@ -160,6 +168,8 @@ resource "aws_cloudwatch_dashboard" "rsvp_operations" {
             ["AWS/DynamoDB", "SystemErrors", "TableName", "rsvp-members", "Operation", "GetItem", { label = "members GetItem", color = "#d62728" }],
             ["AWS/DynamoDB", "SystemErrors", "TableName", "rsvp-members", "Operation", "PutItem", { label = "members PutItem", color = "#ff7f0e" }],
             ["AWS/DynamoDB", "SystemErrors", "TableName", "rsvp-event-invites", "Operation", "Query", { label = "invites Query", color = "#9467bd" }],
+            ["AWS/DynamoDB", "SystemErrors", "TableName", "rsvp-checkins", "Operation", "PutItem", { label = "checkins PutItem", color = "#e377c2" }],
+            ["AWS/DynamoDB", "SystemErrors", "TableName", "rsvp-audit-log", "Operation", "PutItem", { label = "audit-log PutItem", color = "#bcbd22" }],
             ["AWS/DynamoDB", "SystemErrors", "TableName", "rsvp-events", "Operation", "UpdateItem", { label = "events UpdateItem", color = "#8c564b" }]
           ]
           yAxis = { left = { min = 0 } }
@@ -263,13 +273,28 @@ resource "aws_sns_topic" "rsvp_alerts" {
   name = "rsvp-society-alerts"
 }
 
+# Email alerts → info@rsvpsociety.com
+resource "aws_sns_topic_subscription" "alerts_email" {
+  topic_arn = aws_sns_topic.rsvp_alerts.arn
+  protocol  = "email"
+  endpoint  = "info@rsvpsociety.com"
+}
+
+# SMS alerts → Quo number (update when number is confirmed)
+# resource "aws_sns_topic_subscription" "alerts_sms" {
+#   topic_arn = aws_sns_topic.rsvp_alerts.arn
+#   protocol  = "sms"
+#   endpoint  = "+1XXXXXXXXXX"  # replace with Quo alert number once approved
+# }
+
 resource "aws_cloudwatch_metric_alarm" "lambda_errors" {
   for_each = toset([
     "rsvp-access-request",
     "rsvp-sms-handler",
     "rsvp-admin-handler",
-    "rsvp-event-handler",
-    "rsvp-invite-handler"
+    "rsvp-reminder-handler",
+    "rsvp-invite-handler",
+    "rsvp-reminder-handler"
   ])
 
   alarm_name          = "rsvp-lambda-errors-${each.key}"
@@ -311,3 +336,168 @@ resource "aws_cloudwatch_metric_alarm" "api_5xx" {
   alarm_actions = [aws_sns_topic.rsvp_alerts.arn]
   ok_actions    = [aws_sns_topic.rsvp_alerts.arn]
 }
+
+# =============================================================================
+# Additional alarms — throttles, latency, DynamoDB, reminder pipeline
+# =============================================================================
+
+# Lambda throttles — any throttle on any function is actionable
+resource "aws_cloudwatch_metric_alarm" "lambda_throttles" {
+  for_each = toset([
+    "rsvp-access-request",
+    "rsvp-sms-handler",
+    "rsvp-admin-handler",
+    "rsvp-reminder-handler",
+    "rsvp-invite-handler",
+    "rsvp-reminder-handler"
+  ])
+
+  alarm_name          = "rsvp-lambda-throttles-${each.key}"
+  comparison_operator = "GreaterThanThreshold"
+  evaluation_periods  = 1
+  metric_name         = "Throttles"
+  namespace           = "AWS/Lambda"
+  period              = 60
+  statistic           = "Sum"
+  threshold           = 0
+  alarm_description   = "Lambda ${each.key} is being throttled"
+  treat_missing_data  = "notBreaching"
+
+  dimensions = {
+    FunctionName = each.key
+  }
+
+  alarm_actions = [aws_sns_topic.rsvp_alerts.arn]
+  ok_actions    = [aws_sns_topic.rsvp_alerts.arn]
+}
+
+# Lambda p99 latency — alert when any function runs slow (invite blast excluded,
+# it legitimately runs long during large waves)
+resource "aws_cloudwatch_metric_alarm" "lambda_latency" {
+  for_each = toset([
+    "rsvp-access-request",
+    "rsvp-sms-handler",
+    "rsvp-admin-handler",
+    "rsvp-reminder-handler",
+    "rsvp-reminder-handler"
+  ])
+
+  alarm_name          = "rsvp-lambda-latency-${each.key}"
+  comparison_operator = "GreaterThanThreshold"
+  evaluation_periods  = 3
+  metric_name         = "Duration"
+  namespace           = "AWS/Lambda"
+  period              = 300
+  extended_statistic  = "p99"
+  threshold           = 5000
+  alarm_description   = "Lambda ${each.key} p99 latency exceeded 5s"
+  treat_missing_data  = "notBreaching"
+
+  dimensions = {
+    FunctionName = each.key
+  }
+
+  alarm_actions = [aws_sns_topic.rsvp_alerts.arn]
+}
+
+# DynamoDB system errors — covers members, events, invites, checkins, audit-log
+resource "aws_cloudwatch_metric_alarm" "dynamodb_errors" {
+  for_each = toset([
+    "rsvp-members",
+    "rsvp-events",
+    "rsvp-event-invites",
+    "rsvp-checkins",
+    "rsvp-audit-log"
+  ])
+
+  alarm_name          = "rsvp-dynamodb-errors-${each.key}"
+  comparison_operator = "GreaterThanThreshold"
+  evaluation_periods  = 2
+  metric_name         = "SystemErrors"
+  namespace           = "AWS/DynamoDB"
+  period              = 300
+  statistic           = "Sum"
+  threshold           = 5
+  alarm_description   = "DynamoDB table ${each.key} system errors exceeded 5 in 10 min"
+  treat_missing_data  = "notBreaching"
+
+  dimensions = {
+    TableName = each.key
+  }
+
+  alarm_actions = [aws_sns_topic.rsvp_alerts.arn]
+  ok_actions    = [aws_sns_topic.rsvp_alerts.arn]
+}
+
+# DynamoDB throttled requests — PAY_PER_REQUEST tables shouldn't throttle,
+# but burst capacity can still be exceeded
+resource "aws_cloudwatch_metric_alarm" "dynamodb_throttles" {
+  for_each = toset([
+    "rsvp-members",
+    "rsvp-event-invites"
+  ])
+
+  alarm_name          = "rsvp-dynamodb-throttles-${each.key}"
+  comparison_operator = "GreaterThanThreshold"
+  evaluation_periods  = 1
+  metric_name         = "ThrottledRequests"
+  namespace           = "AWS/DynamoDB"
+  period              = 60
+  statistic           = "Sum"
+  threshold           = 0
+  alarm_description   = "DynamoDB table ${each.key} is being throttled"
+  treat_missing_data  = "notBreaching"
+
+  dimensions = {
+    TableName = each.key
+  }
+
+  alarm_actions = [aws_sns_topic.rsvp_alerts.arn]
+}
+
+# Reminder pipeline — alarm if reminder Lambda errors during the two
+# scheduled windows (6 PM day-before, 4 PM day-of). Uses the same
+# lambda_errors for_each but with a tighter threshold since reminder
+# failures are high-visibility business impact.
+resource "aws_cloudwatch_metric_alarm" "reminder_errors" {
+  alarm_name          = "rsvp-reminder-handler-errors"
+  comparison_operator = "GreaterThanThreshold"
+  evaluation_periods  = 1
+  metric_name         = "Errors"
+  namespace           = "AWS/Lambda"
+  period              = 300
+  statistic           = "Sum"
+  threshold           = 0
+  alarm_description   = "rsvp-reminder-handler errored — reminder SMS may not have gone out"
+  treat_missing_data  = "notBreaching"
+
+  dimensions = {
+    FunctionName = "rsvp-reminder-handler"
+  }
+
+  alarm_actions = [aws_sns_topic.rsvp_alerts.arn]
+  ok_actions    = [aws_sns_topic.rsvp_alerts.arn]
+}
+
+# API Gateway latency p99 — catch slow backend responses before users notice
+resource "aws_cloudwatch_metric_alarm" "api_latency" {
+  alarm_name          = "rsvp-api-latency-high"
+  comparison_operator = "GreaterThanThreshold"
+  evaluation_periods  = 3
+  metric_name         = "Latency"
+  namespace           = "AWS/ApiGateway"
+  period              = 300
+  extended_statistic  = "p99"
+  threshold           = 3000
+  alarm_description   = "API Gateway p99 latency exceeded 3s"
+  treat_missing_data  = "notBreaching"
+
+  dimensions = {
+    ApiName = "rsvp-api"
+    Stage   = "prod"
+  }
+
+  alarm_actions = [aws_sns_topic.rsvp_alerts.arn]
+}
+
+# =============================================================================
