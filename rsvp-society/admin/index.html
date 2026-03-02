@@ -1,0 +1,2245 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RSVP Society — Admin</title>
+<meta name="robots" content="noindex, nofollow">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;1,300;1,400&family=Montserrat:wght@200;300;400;500&display=swap" rel="stylesheet">
+<style>
+*, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+:root {
+  --gold: #D4B96A;
+  --gold-dim: rgba(212,185,106,0.5);
+  --gold-faint: rgba(212,185,106,0.08);
+  --black: #060608;
+  --black-2: #0C0C10;
+  --black-3: #111116;
+  --white: #F8F4EC;
+  --white-dim: rgba(248,244,236,0.82);
+  --white-faint: rgba(248,244,236,0.12);
+  --green: #4CAF7D;
+  --red: #C0474A;
+  --pending: rgba(212,185,106,0.15);
+}
+
+body {
+  background: var(--black);
+  color: var(--white);
+  font-family: 'Montserrat', sans-serif;
+  font-weight: 300;
+  min-height: 100vh;
+}
+
+
+
+/* Login Screen */
+#login-screen {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 0;
+}
+
+.login-wordmark {
+  font-family: 'Cormorant Garamond', serif;
+  font-size: 11px;
+  letter-spacing: 0.5em;
+  color: var(--gold);
+  text-transform: uppercase;
+  margin-bottom: 48px;
+  opacity: 0.7;
+}
+
+.login-box {
+  width: 340px;
+  border: 1px solid rgba(212,185,106,0.12);
+  background: var(--black-2);
+  padding: 40px 36px;
+}
+
+.login-label {
+  font-size: 9px;
+  letter-spacing: 0.4em;
+  text-transform: uppercase;
+  color: rgba(212,185,106,0.8);
+  display: block;
+  margin-bottom: 12px;
+}
+
+.login-input {
+  width: 100%;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid rgba(212,185,106,0.2);
+  color: var(--white);
+  font-family: 'Montserrat', sans-serif;
+  font-weight: 300;
+  font-size: 13px;
+  letter-spacing: 0.15em;
+  padding: 10px 0;
+  outline: none;
+  transition: border-color .2s;
+  margin-bottom: 32px;
+}
+.login-input:focus { border-color: var(--gold); }
+
+.login-btn {
+  width: 100%;
+  background: transparent;
+  border: 1px solid rgba(212,185,106,0.3);
+  color: var(--gold);
+  font-family: 'Montserrat', sans-serif;
+  font-size: 9px;
+  letter-spacing: 0.4em;
+  text-transform: uppercase;
+  padding: 14px;
+  cursor: pointer;
+  transition: background .2s, border-color .2s;
+}
+.login-btn:hover { background: var(--gold-faint); border-color: var(--gold); }
+
+.login-error {
+  font-size: 10px;
+  color: #C0474A;
+  letter-spacing: 0.1em;
+  text-align: center;
+  margin-top: 16px;
+  min-height: 16px;
+}
+
+/* Main App */
+#app { display: none; min-height: 100vh; }
+
+/* Nav */
+nav {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  background: rgba(6,6,8,0.97);
+  border-bottom: 1px solid rgba(212,185,106,0.07);
+  padding: 20px 48px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.nav-left {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+}
+
+.nav-wordmark {
+  font-family: 'Cormorant Garamond', serif;
+  font-size: 13px;
+  letter-spacing: 0.38em;
+  color: var(--gold);
+}
+
+.nav-divider {
+  width: 1px;
+  height: 16px;
+  background: rgba(212,185,106,0.15);
+}
+
+.nav-title {
+  font-size: 9px;
+  letter-spacing: 0.35em;
+  text-transform: uppercase;
+  color: rgba(248,244,236,0.85);
+}
+
+.nav-right {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+
+.tab-btn {
+  background: none;
+  border: none;
+  font-family: 'Montserrat', sans-serif;
+  font-size: 9px;
+  letter-spacing: 0.35em;
+  text-transform: uppercase;
+  color: rgba(248,244,236,0.55);
+  cursor: pointer;
+  padding: 6px 0;
+  border-bottom: 1px solid transparent;
+  transition: color .2s, border-color .2s;
+}
+.tab-btn:hover { color: rgba(248,244,236,0.9); }
+.tab-btn.active {
+  color: var(--gold);
+  border-bottom-color: var(--gold);
+}
+
+.logout-btn {
+  background: none;
+  border: 1px solid rgba(212,185,106,0.15);
+  color: var(--white-dim);
+  font-family: 'Montserrat', sans-serif;
+  font-size: 9px;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  padding: 8px 16px;
+  cursor: pointer;
+  transition: all .2s;
+}
+.logout-btn:hover { border-color: rgba(212,185,106,0.8); color: var(--gold); }
+
+/* Main content */
+main {
+  padding: 48px;
+  max-width: 1100px;
+  margin: 0 auto;
+}
+
+/* Stats row */
+.stats-row {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1px;
+  background: rgba(212,185,106,0.07);
+  border: 1px solid rgba(212,185,106,0.07);
+  margin-bottom: 48px;
+}
+
+.stat-card {
+  background: var(--black-2);
+  padding: 28px 32px;
+  text-align: center;
+}
+
+.stat-number {
+  font-family: 'Cormorant Garamond', serif;
+  font-size: 48px;
+  font-weight: 300;
+  color: rgba(248,244,236,0.95);
+  line-height: 1;
+  margin-bottom: 8px;
+}
+.stat-number.gold { color: var(--gold); }
+.stat-number.green { color: var(--green); }
+.stat-number.red { color: #C0474A; opacity: 0.7; }
+
+.stat-label {
+  font-size: 8px;
+  letter-spacing: 0.4em;
+  text-transform: uppercase;
+  color: rgba(248,244,236,0.7);
+  opacity: 1;
+}
+
+/* Section header */
+.section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 24px;
+}
+
+.section-title {
+  font-family: 'Cormorant Garamond', serif;
+  font-size: 22px;
+  font-weight: 300;
+  color: var(--white);
+}
+
+.section-count {
+  font-size: 9px;
+  letter-spacing: 0.3em;
+  color: rgba(212,185,106,0.8);
+}
+
+/* Filter bar */
+.filter-bar {
+  display: flex;
+  gap: 2px;
+  margin-bottom: 24px;
+}
+
+.filter-btn {
+  background: none;
+  border: 1px solid rgba(212,185,106,0.1);
+  color: var(--white-dim);
+  font-family: 'Montserrat', sans-serif;
+  font-size: 8px;
+  letter-spacing: 0.35em;
+  text-transform: uppercase;
+  padding: 9px 18px;
+  cursor: pointer;
+  transition: all .2s;
+}
+.filter-btn:hover { border-color: rgba(212,185,106,0.8); color: var(--gold); }
+.filter-btn.active { background: var(--gold-faint); border-color: var(--gold); color: var(--gold); }
+
+/* Member table */
+.member-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.member-table th {
+  font-size: 7px;
+  letter-spacing: 0.4em;
+  text-transform: uppercase;
+  color: rgba(248,244,236,0.55);
+  text-align: left;
+  padding: 12px 16px;
+  border-bottom: 1px solid rgba(212,185,106,0.07);
+  font-weight: 400;
+}
+
+.member-table td {
+  padding: 16px 16px;
+  border-bottom: 1px solid rgba(212,185,106,0.04);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  color: rgba(248,244,236,0.85);
+  vertical-align: middle;
+}
+
+.member-table tr:hover td {
+  background: rgba(212,185,106,0.02);
+}
+
+.member-name {
+  color: var(--white);
+  font-weight: 400;
+  font-size: 12px;
+}
+
+.member-phone {
+  font-family: 'Cormorant Garamond', serif;
+  font-size: 13px;
+  color: rgba(248,244,236,0.88);
+  letter-spacing: 0.05em;
+}
+
+.member-date {
+  font-size: 10px;
+  color: rgba(248,244,236,0.6);
+}
+
+.member-source {
+  font-size: 8px;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  color: rgba(212,185,106,0.75);
+}
+
+/* Status badge */
+.status-badge {
+  display: inline-block;
+  font-size: 7px;
+  letter-spacing: 0.35em;
+  text-transform: uppercase;
+  padding: 4px 10px;
+  border-radius: 2px;
+}
+.status-badge.PENDING { background: rgba(212,185,106,0.1); color: var(--gold); border: 1px solid rgba(212,185,106,0.2); }
+.status-badge.APPROVED { background: rgba(76,175,125,0.1); color: var(--green); border: 1px solid rgba(76,175,125,0.2); }
+.status-badge.DENIED { background: rgba(192,71,74,0.1); color: #C0474A; border: 1px solid rgba(192,71,74,0.2); }
+
+/* Action buttons */
+.action-btns {
+  display: flex;
+  gap: 6px;
+}
+
+.action-btn {
+  background: none;
+  border: 1px solid;
+  font-family: 'Montserrat', sans-serif;
+  font-size: 7px;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  padding: 6px 12px;
+  cursor: pointer;
+  transition: all .18s;
+}
+.action-btn.approve { border-color: rgba(76,175,125,0.3); color: var(--green); }
+.action-btn.approve:hover { background: rgba(76,175,125,0.1); border-color: var(--green); }
+.action-btn.deny { border-color: rgba(192,71,74,0.2); color: rgba(192,71,74,0.6); }
+.action-btn.deny:hover { background: rgba(192,71,74,0.08); border-color: #C0474A; color: #C0474A; }
+.action-btn.pending { border-color: rgba(212,185,106,0.2); color: rgba(212,185,106,0.8); }
+.action-btn.pending:hover { background: var(--gold-faint); border-color: var(--gold); color: var(--gold); }
+.action-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+
+/* Empty / loading states */
+.empty-state {
+  text-align: center;
+  padding: 80px 0;
+  color: rgba(248,244,236,0.45);
+  font-family: 'Cormorant Garamond', serif;
+  font-style: italic;
+  font-size: 18px;
+}
+
+.loading-state {
+  text-align: center;
+  padding: 60px 0;
+  font-size: 9px;
+  letter-spacing: 0.4em;
+  text-transform: uppercase;
+  color: rgba(212,185,106,0.6);
+}
+
+/* Toast */
+.toast {
+  position: fixed;
+  bottom: 40px;
+  left: 50%;
+  transform: translateX(-50%) translateY(20px);
+  background: var(--black-3);
+  border: 1px solid rgba(212,185,106,0.2);
+  color: var(--white-dim);
+  font-size: 10px;
+  letter-spacing: 0.2em;
+  padding: 12px 24px;
+  opacity: 0;
+  transition: opacity .3s, transform .3s;
+  z-index: 500;
+  pointer-events: none;
+}
+.toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+.toast.success { border-color: rgba(76,175,125,0.4); color: var(--green); }
+.toast.error { border-color: rgba(192,71,74,0.4); color: #C0474A; }
+
+/* Opt-in indicator */
+.optin-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--green);
+  opacity: 0.7;
+}
+.optin-dot.no { background: rgba(248,244,236,0.15); }
+
+/* Responsive */
+@media (max-width: 768px) {
+  nav { padding: 16px 20px; }
+  main { padding: 24px 20px; }
+  .stats-row { grid-template-columns: repeat(3,1fr); gap: 1px; }
+  .member-table th:nth-child(4),
+  .member-table td:nth-child(4),
+  .member-table th:nth-child(5),
+  .member-table td:nth-child(5) { display: none; }
+}
+
+/* Settings panel */
+.settings-panel {
+  display: none;
+  position: fixed;
+  top: 0; right: 0; bottom: 0;
+  width: 380px;
+  background: var(--black-2);
+  border-left: 1px solid rgba(212,185,106,0.12);
+  z-index: 300;
+  padding: 48px 36px;
+  flex-direction: column;
+  gap: 0;
+}
+.settings-panel.open { display: flex; }
+.settings-title {
+  font-family: 'Cormorant Garamond', serif;
+  font-size: 22px;
+  font-weight: 300;
+  color: var(--white);
+  margin-bottom: 32px;
+}
+.settings-label {
+  font-size: 8px;
+  letter-spacing: 0.4em;
+  text-transform: uppercase;
+  color: rgba(212,185,106,0.8);
+  display: block;
+  margin-bottom: 10px;
+}
+.settings-input {
+  width: 100%;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid rgba(212,185,106,0.2);
+  color: var(--white);
+  font-family: 'Montserrat', sans-serif;
+  font-weight: 300;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  padding: 10px 0;
+  outline: none;
+  transition: border-color .2s;
+  margin-bottom: 24px;
+}
+.settings-input:focus { border-color: var(--gold); }
+.settings-save {
+  background: transparent;
+  border: 1px solid rgba(212,185,106,0.3);
+  color: var(--gold);
+  font-family: 'Montserrat', sans-serif;
+  font-size: 9px;
+  letter-spacing: 0.4em;
+  text-transform: uppercase;
+  padding: 12px;
+  cursor: pointer;
+  width: 100%;
+  transition: background .2s, border-color .2s;
+  margin-bottom: 12px;
+}
+.settings-save:hover { background: var(--gold-faint); border-color: var(--gold); }
+.settings-close {
+  background: none;
+  border: none;
+  color: var(--white-dim);
+  font-family: 'Montserrat', sans-serif;
+  font-size: 9px;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  padding: 10px;
+  cursor: pointer;
+  transition: color .2s;
+  text-align: center;
+}
+.settings-close:hover { color: var(--white); }
+.settings-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(6,6,8,0.6);
+  z-index: 299;
+}
+.settings-overlay.open { display: block; }
+.settings-hint {
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  color: rgba(248,244,236,0.45);
+  line-height: 1.8;
+  margin-top: -16px;
+  margin-bottom: 24px;
+}
+.invite-form {
+  background: var(--black-2);
+  border: 1px solid rgba(212,185,106,0.08);
+  padding: 36px;
+  margin-bottom: 32px;
+}
+.invite-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 24px;
+  margin-bottom: 28px;
+}
+.invite-field label {
+  font-size: 8px;
+  letter-spacing: 0.4em;
+  text-transform: uppercase;
+  color: rgba(212,185,106,0.8);
+  display: block;
+  margin-bottom: 10px;
+}
+.invite-field input {
+  width: 100%;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid rgba(212,185,106,0.2);
+  color: var(--white);
+  font-family: 'Montserrat', sans-serif;
+  font-weight: 300;
+  font-size: 13px;
+  padding: 8px 0;
+  outline: none;
+  transition: border-color .2s;
+}
+.invite-field input:focus { border-color: var(--gold); }
+.invite-actions { display: flex; gap: 12px; }
+.invite-btn-preview {
+  background: transparent;
+  border: 1px solid rgba(212,185,106,0.3);
+  color: var(--gold);
+  font-family: 'Montserrat', sans-serif;
+  font-size: 9px;
+  letter-spacing: 0.4em;
+  text-transform: uppercase;
+  padding: 14px 28px;
+  cursor: pointer;
+  transition: background .2s;
+}
+.invite-btn-preview:hover { background: var(--gold-faint); }
+.invite-btn-send {
+  background: rgba(76,175,125,0.1);
+  border: 1px solid rgba(76,175,125,0.3);
+  color: var(--green);
+  font-family: 'Montserrat', sans-serif;
+  font-size: 9px;
+  letter-spacing: 0.4em;
+  text-transform: uppercase;
+  padding: 14px 28px;
+  cursor: pointer;
+  transition: background .2s;
+  opacity: 0.4;
+}
+.invite-btn-send.ready { opacity: 1; }
+.invite-btn-send.ready:hover { background: rgba(76,175,125,0.2); }
+.preview-box {
+  border: 1px solid rgba(212,185,106,0.08);
+  background: var(--black-2);
+  padding: 28px 32px;
+  margin-bottom: 24px;
+  display: none;
+}
+.preview-box.visible { display: block; }
+.preview-stats {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 1px;
+  background: rgba(212,185,106,0.07);
+  margin-bottom: 24px;
+}
+.preview-stat {
+  background: var(--black-3);
+  padding: 20px;
+  text-align: center;
+}
+.preview-stat-num {
+  font-family: 'Cormorant Garamond', serif;
+  font-size: 32px;
+  font-weight: 300;
+  color: var(--gold);
+  line-height: 1;
+  margin-bottom: 6px;
+}
+.preview-stat-label {
+  font-size: 7px;
+  letter-spacing: 0.35em;
+  text-transform: uppercase;
+  color: rgba(248,244,236,0.6);
+}
+/* Gender/tier inline controls on member rows */
+.inline-select {
+  background: transparent;
+  border: 1px solid rgba(212,185,106,0.15);
+  color: var(--white-dim);
+  font-family: 'Montserrat', sans-serif;
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  padding: 5px 8px;
+  cursor: pointer;
+  outline: none;
+  transition: border-color .2s;
+}
+.inline-select:hover, .inline-select:focus { border-color: rgba(212,185,106,0.8); color: var(--gold); }
+
+
+/* Event section */
+#event-section { display: none; }
+.event-form {
+  background: var(--black-2);
+  border: 1px solid rgba(212,185,106,0.08);
+  padding: 36px;
+  max-width: 640px;
+}
+.event-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+  margin-bottom: 28px;
+}
+.event-field { display: flex; flex-direction: column; gap: 10px; }
+.event-field label {
+  font-size: 8px;
+  letter-spacing: 0.4em;
+  text-transform: uppercase;
+  color: rgba(212,185,106,0.85);
+}
+.event-field input, .event-field textarea {
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid rgba(212,185,106,0.2);
+  color: rgba(248,244,236,0.9);
+  font-family: 'Montserrat', sans-serif;
+  font-weight: 300;
+  font-size: 13px;
+  padding: 8px 0;
+  outline: none;
+  transition: border-color .2s;
+  resize: none;
+}
+.event-field input:focus, .event-field textarea:focus { border-color: var(--gold); }
+.event-field.full { grid-column: 1 / -1; }
+.event-save {
+  background: transparent;
+  border: 1px solid rgba(212,185,106,0.3);
+  color: var(--gold);
+  font-family: 'Montserrat', sans-serif;
+  font-size: 9px;
+  letter-spacing: 0.4em;
+  text-transform: uppercase;
+  padding: 14px 28px;
+  cursor: pointer;
+  transition: background .2s;
+}
+.event-save:hover { background: var(--gold-faint); }
+.event-current {
+  margin-bottom: 32px;
+  padding: 20px 24px;
+  border: 1px solid rgba(212,185,106,0.08);
+  background: var(--black-3);
+  font-size: 11px;
+  color: rgba(248,244,236,0.7);
+  letter-spacing: 0.05em;
+  line-height: 2;
+}
+.event-current strong { color: var(--gold); font-weight: 400; }
+
+/* Attendance section */
+.attendance-filter { display: flex; gap: 12px; margin-bottom: 24px; align-items: center; }
+.attendance-filter input {
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid rgba(212,185,106,0.2);
+  color: rgba(248,244,236,0.9);
+  font-family: 'Montserrat', sans-serif;
+  font-size: 11px;
+  padding: 8px 0;
+  outline: none;
+  min-width: 260px;
+}
+.attendance-filter input::placeholder { color: rgba(248,244,236,0.3); }
+.att-btn-yes {
+  background: rgba(76,175,125,0.1);
+  border: 1px solid rgba(76,175,125,0.3);
+  color: var(--green);
+  font-family: 'Montserrat', sans-serif;
+  font-size: 8px;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  padding: 8px 16px;
+  cursor: pointer;
+  transition: background .2s;
+}
+.att-btn-yes:hover { background: rgba(76,175,125,0.2); }
+.att-btn-no {
+  background: rgba(192,71,74,0.08);
+  border: 1px solid rgba(192,71,74,0.2);
+  color: #C0474A;
+  font-family: 'Montserrat', sans-serif;
+  font-size: 8px;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  padding: 8px 16px;
+  cursor: pointer;
+  transition: background .2s;
+}
+.att-btn-no:hover { background: rgba(192,71,74,0.15); }
+
+
+/* Event editor */
+#event-section { display: none; }
+.event-form { background: var(--black-2); border: 1px solid rgba(212,185,106,0.08); padding: 36px; margin-bottom: 32px; }
+.event-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; margin-bottom: 28px; }
+.event-grid-full { grid-column: 1 / -1; }
+.event-field label { font-size: 8px; letter-spacing: 0.4em; text-transform: uppercase; color: var(--gold-dim); display: block; margin-bottom: 10px; }
+.event-field input, .event-field textarea {
+  width: 100%; background: transparent; border: none;
+  border-bottom: 1px solid rgba(212,185,106,0.2); color: var(--white);
+  font-family: 'Montserrat', sans-serif; font-weight: 300; font-size: 13px;
+  padding: 8px 0; outline: none; transition: border-color .2s; resize: none;
+}
+.event-field input:focus, .event-field textarea:focus { border-color: var(--gold); }
+.event-save-btn {
+  background: transparent; border: 1px solid rgba(212,185,106,0.3); color: var(--gold);
+  font-family: 'Montserrat', sans-serif; font-size: 9px; letter-spacing: 0.4em;
+  text-transform: uppercase; padding: 14px 36px; cursor: pointer; transition: background .2s;
+}
+.event-save-btn:hover { background: var(--gold-faint); }
+.event-current {
+  background: var(--black-2); border: 1px solid rgba(212,185,106,0.08);
+  padding: 28px 32px; margin-bottom: 32px; display: none;
+}
+.event-current.visible { display: block; }
+.event-current-label { font-size: 7px; letter-spacing: 0.4em; text-transform: uppercase; color: var(--gold-dim); margin-bottom: 16px; }
+.event-current-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
+.event-current-item label { font-size: 7px; letter-spacing: 0.3em; text-transform: uppercase; color: rgba(248,244,236,0.3); display: block; margin-bottom: 6px; }
+.event-current-item span { font-family: 'Cormorant Garamond', serif; font-size: 16px; color: var(--white); }
+/* Attendance */
+.att-filter-row { display: flex; gap: 8px; align-items: center; margin-bottom: 24px; flex-wrap: wrap; }
+.att-event-input {
+  background: transparent; border: none; border-bottom: 1px solid rgba(212,185,106,0.2);
+  color: var(--white); font-family: 'Montserrat', sans-serif; font-size: 11px;
+  letter-spacing: 0.1em; padding: 8px 0; outline: none; width: 220px;
+}
+.att-load-btn {
+  background: none; border: 1px solid rgba(212,185,106,0.2); color: var(--gold-dim);
+  font-family: 'Montserrat', sans-serif; font-size: 8px; letter-spacing: 0.3em;
+  text-transform: uppercase; padding: 9px 18px; cursor: pointer; transition: all .2s;
+}
+.att-load-btn:hover { border-color: var(--gold); color: var(--gold); }
+.att-btn-yes { border-color: rgba(76,175,125,0.3); color: var(--green); }
+.att-btn-yes:hover { background: rgba(76,175,125,0.1); }
+.att-btn-no { border-color: rgba(192,71,74,0.2); color: rgba(192,71,74,0.6); }
+.att-btn-no:hover { background: rgba(192,71,74,0.08); color: #C0474A; }
+
+
+.import-btn {
+  margin-left: auto;
+  border-color: rgba(212,185,106,0.3);
+  color: rgba(212,185,106,0.8);
+}
+.import-btn:hover {
+  background: rgba(212,185,106,0.06);
+  border-color: rgba(212,185,106,0.5);
+  color: #D4B96A;
+}
+
+.action-btn.delete {
+  border-color: rgba(192,71,74,0.2);
+  color: rgba(192,71,74,0.5);
+  font-size: 8px;
+}
+.action-btn.delete:hover {
+  background: rgba(192,71,74,0.08);
+  border-color: rgba(192,71,74,0.4);
+  color: #C0474A;
+}
+
+
+  /* Pagination */
+  .page-btn {
+    background: transparent;
+    border: 1px solid rgba(212,185,106,0.15);
+    color: rgba(248,244,236,0.6);
+    font-family: 'Montserrat', sans-serif;
+    font-size: 10px;
+    letter-spacing: 0.15em;
+    padding: 7px 12px;
+    cursor: pointer;
+    transition: all .2s;
+    min-width: 36px;
+  }
+  .page-btn:hover:not(:disabled) { border-color: rgba(212,185,106,0.5); color: var(--gold); }
+  .page-btn.active { border-color: var(--gold); color: var(--gold); background: rgba(212,185,106,0.08); }
+  .page-btn:disabled { opacity: 0.25; cursor: not-allowed; }
+  .page-ellipsis { color: rgba(248,244,236,0.3); font-size: 12px; padding: 0 4px; }
+</style>
+</head>
+<body>
+
+<!-- Login -->
+<div id="login-screen">
+  <div class="login-wordmark">[RSVP] Society</div>
+  <div class="login-box">
+    <label class="login-label" for="token-input">Admin Token</label>
+    <input type="password" id="token-input" class="login-input" placeholder="••••••••••••" autocomplete="off" />
+    <button class="login-btn" id="login-btn" onclick="doLogin()">Enter</button>
+    <div class="login-error" id="login-error"></div>
+  </div>
+</div>
+
+<!-- App -->
+<div id="app">
+  
+  <nav class="nav">
+    <div class="nav-left">
+      <span class="nav-wordmark">[RSVP]</span>
+      <div class="nav-divider"></div>
+      <span class="nav-title">Member Console</span>
+    </div>
+    <div class="nav-right">
+      <button class="tab-btn active" id="tab-members" onclick="setTab('members'); showSection('members')">Members</button>
+      <button class="tab-btn" id="tab-event" onclick="setTab('event'); showSection('event'); loadCurrentEvent()">Event</button>
+      <button class="tab-btn" id="tab-invite" onclick="setTab('invite'); showSection('invite'); loadEventIntoInviteForm()">Invite</button>
+      <div class="nav-divider"></div>
+      <button class="logout-btn" onclick="doLogout()">Sign Out</button>
+    </div>
+  </nav>
+
+  <main>
+<div id="members-section">
+    <!-- Stats -->
+    <div class="stats-row" id="stats-row">
+      <div class="stat-card">
+        <div class="stat-number gold" id="stat-pending">—</div>
+        <div class="stat-label">Pending</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-number green" id="stat-approved">—</div>
+        <div class="stat-label">Approved</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-number red" id="stat-denied">—</div>
+        <div class="stat-label">Denied</div>
+      </div>
+    </div>
+
+    <!-- Members section -->
+    <div class="section-header">
+      <div class="section-title" id="section-title">Pending Review</div>
+      <div class="section-count" id="section-count"></div>
+    </div>
+
+    <div class="filter-bar" style="flex-wrap:wrap;gap:8px;">
+      <button class="filter-btn active" onclick="loadMembers('PENDING')" id="filter-PENDING">Pending</button>
+      <button class="filter-btn" onclick="loadMembers('APPROVED')" id="filter-APPROVED">Approved</button>
+      <button class="filter-btn" onclick="loadMembers('DENIED')" id="filter-DENIED">Denied</button>
+      <button class="filter-btn import-btn" onclick="openImport()">↑ Import CSV</button>
+      <div style="margin-left:auto;position:relative;">
+        <input type="text" id="member-search" placeholder="Search name or phone..." 
+          oninput="filterMembers(this.value)"
+          style="background:transparent;border:none;border-bottom:1px solid rgba(212,185,106,0.2);color:rgba(248,244,236,0.9);font-family:'Montserrat',sans-serif;font-size:11px;padding:8px 24px 8px 0;outline:none;width:220px;transition:border-color .2s;"
+          onfocus="this.style.borderColor='rgba(212,185,106,0.8)'"
+          onblur="this.style.borderColor='rgba(212,185,106,0.2)'"
+        />
+        <span style="position:absolute;right:0;top:50%;transform:translateY(-50%);color:rgba(212,185,106,0.4);font-size:11px;">⌕</span>
+      </div>
+    </div>
+
+    <!-- CSV Import Modal -->
+    <div id="import-modal" onclick="if(event.target===this)closeImport()" style="display:none;position:fixed;inset:0;z-index:500;background:rgba(6,6,8,0.92);display:none;align-items:center;justify-content:center;">
+      <div style="background:#0C0C10;border:1px solid rgba(212,185,106,0.15);padding:48px;max-width:520px;width:90%;position:relative;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+          <p style="font-size:9px;letter-spacing:0.4em;text-transform:uppercase;color:rgba(212,185,106,0.7);margin:0;">Import Members</p>
+          <button onclick="closeImport()" style="background:none;border:none;color:rgba(248,244,236,0.4);font-size:18px;cursor:pointer;padding:0;line-height:1;transition:color .2s;" onmouseover="this.style.color='#F8F4EC'" onmouseout="this.style.color='rgba(248,244,236,0.4)'">✕</button>
+        </div>
+        <h3 style="font-family:'Cormorant Garamond',serif;font-size:28px;font-weight:300;color:#F8F4EC;margin-bottom:8px;">CSV Import</h3>
+        <p style="font-size:11px;color:rgba(248,244,236,0.5);letter-spacing:0.04em;line-height:1.8;margin-bottom:32px;">Supports Posh (name, phone, email, instagram) and Eventbrite (name, phone, email) exports. All imported members are set to <strong style="color:#F8F4EC;">Approved</strong>. Rows without a phone number are skipped.</p>
+        <div id="import-drop" style="border:1px dashed rgba(212,185,106,0.2);padding:40px;text-align:center;cursor:pointer;transition:border-color .2s;margin-bottom:24px;" onclick="document.getElementById('csv-file-input').click()" ondragover="event.preventDefault();this.style.borderColor='rgba(212,185,106,0.5)'" ondragleave="this.style.borderColor='rgba(212,185,106,0.2)'" ondrop="handleDrop(event)">
+          <p style="font-size:10px;letter-spacing:0.3em;text-transform:uppercase;color:rgba(248,244,236,0.4);">Drop CSV here or click to browse</p>
+          <input type="file" id="csv-file-input" accept=".csv" style="display:none;" onchange="handleFileSelect(event)">
+        </div>
+        <div id="import-preview" style="display:none;margin-bottom:24px;">
+          <p id="import-preview-text" style="font-size:12px;color:rgba(248,244,236,0.7);line-height:2;"></p>
+        </div>
+        <div style="display:flex;gap:12px;justify-content:flex-end;">
+          <button onclick="closeImport()" style="background:none;border:1px solid rgba(248,244,236,0.15);color:rgba(248,244,236,0.5);font-family:'Montserrat',sans-serif;font-size:9px;letter-spacing:0.3em;text-transform:uppercase;padding:12px 24px;cursor:pointer;">Cancel</button>
+          <button id="import-confirm-btn" onclick="confirmImport()" disabled style="background:none;border:1px solid rgba(212,185,106,0.4);color:#D4B96A;font-family:'Montserrat',sans-serif;font-size:9px;letter-spacing:0.3em;text-transform:uppercase;padding:12px 24px;cursor:pointer;opacity:0.4;">Import</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="members-container">
+      <div class="loading-state">Loading members...</div>
+    </div>
+    <div id="pagination" style="display:flex;align-items:center;justify-content:center;gap:6px;padding:24px 0 40px;flex-wrap:wrap;"></div>
+  
+
+  </div>
+
+<div id="invite-section" style="display:none">
+    <div class="section-header">
+      <div class="section-title">Invite Blast</div>
+    </div>
+
+    <!-- Event summary pulled from Event tab -->
+    <div id="invite-event-summary" style="display:none;margin-bottom:24px;"></div>
+
+    <div class="invite-form">
+      <div class="invite-grid">
+        <div class="invite-field">
+          <label for="inv-event-id">Event ID</label>
+          <input type="text" id="inv-event-id" placeholder="2026-03-march" />
+        </div>
+        <div class="invite-field">
+          <label for="inv-capacity">Capacity</label>
+          <input type="number" id="inv-capacity" placeholder="200" min="1" />
+        </div>
+        <div class="invite-field">
+          <label for="inv-female-pct">Female % (0–100)</label>
+          <input type="number" id="inv-female-pct" placeholder="60" min="0" max="100" value="60" />
+        </div>
+        <div class="invite-field">
+          <label for="inv-buffer">Tier 2 Ghost Buffer %</label>
+          <input type="number" id="inv-buffer" placeholder="30" min="0" max="100" value="30" />
+        </div>
+      </div>
+      <div class="invite-actions">
+        <button class="invite-btn-preview" onclick="runPreview()">Preview Invite List</button>
+        <button class="invite-btn-send" id="send-btn" onclick="sendInvites()" disabled>Send Invites</button>
+        <button class="invite-btn-preview" id="reminder-blast-btn" onclick="sendReminderBlast()" style="border-color:rgba(248,244,236,0.15);color:rgba(248,244,236,0.5);margin-left:auto;">Send Reminder Blast</button>
+      </div>
+      <div style="margin-top:12px;">
+        <button onclick="goToSection('event')" style="background:none;border:none;color:rgba(248,244,236,0.3);font-family:'Montserrat',sans-serif;font-size:9px;letter-spacing:0.2em;cursor:pointer;padding:0;">← Back to Event</button>
+      </div>
+    </div>
+
+    <!-- Preview results -->
+    <div class="preview-box" id="preview-box">
+      <div class="preview-stats" id="preview-stats"></div>
+      <div id="preview-table-container"></div>
+    </div>
+  </div>
+
+<div id="event-section" style="display:none">
+    <div class="section-header">
+      <div class="section-title">Current Event</div>
+    </div>
+
+    <!-- Current event display -->
+    <div class="event-current" id="event-current-display">
+      <div class="event-current-label">Live Event Details</div>
+      <div class="event-current-grid" id="event-current-grid"></div>
+    </div>
+
+    <!-- Event editor -->
+    <div class="event-form">
+      <div class="event-grid">
+        <div class="event-field">
+          <label>Event ID</label>
+          <input type="text" id="ev-id" placeholder="rooftop-may2026" />
+        </div>
+        <div class="event-field">
+          <label>Event Label <span style="opacity:0.5;font-size:8px;">Short name Jade uses in SMS</span></label>
+          <input type="text" id="ev-label" placeholder="Rooftop Night" maxlength="40" />
+        </div>
+        <div class="event-field">
+          <label>Date</label>
+          <input type="text" id="ev-date" placeholder="Saturday, May 15, 2026" />
+        </div>
+        <div class="event-field">
+          <label>Start Time</label>
+          <input type="text" id="ev-time" placeholder="9:00 PM" />
+        </div>
+        <div class="event-field">
+          <label>City</label>
+          <input type="text" id="ev-city" placeholder="Louisville, KY" />
+        </div>
+        <div class="event-field">
+          <label>Capacity</label>
+          <input type="number" id="ev-capacity" placeholder="150" />
+        </div>
+        <div class="event-field">
+          <label>Venue Name</label>
+          <input type="text" id="ev-venue" placeholder="Venue name" />
+        </div>
+        <div class="event-field">
+          <label>Address</label>
+          <input type="text" id="ev-address" placeholder="123 Main St, Louisville KY" />
+        </div>
+        <div class="event-field">
+          <label>Dress Code</label>
+          <input type="text" id="ev-dresscode" placeholder="All Black Preferred" />
+        </div>
+        <div class="event-field">
+          <label>Reminder Timing</label>
+          <select id="ev-reminder" style="background:#0C0C10;border:none;border-bottom:1px solid rgba(212,185,106,0.2);color:rgba(248,244,236,0.9);font-family:'Montserrat',sans-serif;font-size:11px;padding:8px 0;outline:none;width:100%;cursor:pointer;">
+            <option value="manual">Manual only</option>
+            <option value="day_before">Day before at 6 PM</option>
+            <option value="day_of">Day of at 4 PM</option>
+          </select>
+        </div>
+
+        <!-- Event Type + Vibe Tag -->
+        <div class="event-field">
+          <label>Event Type</label>
+          <select id="ev-type" onchange="updateVibeTags()" style="background:#0C0C10;border:none;border-bottom:1px solid rgba(212,185,106,0.2);color:rgba(248,244,236,0.9);font-family:'Montserrat',sans-serif;font-size:11px;padding:8px 0;outline:none;width:100%;cursor:pointer;">
+            <option value="">Select type...</option>
+            <option value="swim">Swim Party</option>
+            <option value="day">Day Party</option>
+            <option value="rooftop">Rooftop Night</option>
+            <option value="elevated">Elevated / Artist Night</option>
+            <option value="bowling">Bowling Night</option>
+            <option value="karaoke">Karaoke Night</option>
+            <option value="regular">Regular Party</option>
+          </select>
+        </div>
+        <div class="event-field">
+          <label>Vibe Tag <span style="opacity:0.5;font-size:8px;">2–5 words — goes in Jade's invite</span></label>
+          <select id="ev-vibe-tag" style="background:#0C0C10;border:none;border-bottom:1px solid rgba(212,185,106,0.2);color:rgba(248,244,236,0.9);font-family:'Montserrat',sans-serif;font-size:11px;padding:8px 0;outline:none;width:100%;cursor:pointer;">
+            <option value="">Select event type first...</option>
+          </select>
+        </div>
+
+        <div class="event-field event-grid-full" style="display:flex;align-items:center;gap:12px;padding:8px 0;">
+          <input type="checkbox" id="ev-reveal-venue" style="width:16px;height:16px;accent-color:#D4B96A;cursor:pointer;" />
+          <label for="ev-reveal-venue" style="font-size:9px;letter-spacing:0.3em;text-transform:uppercase;color:rgba(212,185,106,0.8);cursor:pointer;margin:0;">Reveal venue name in invite SMS</label>
+        </div>
+
+        <div class="event-field event-grid-full">
+          <label>Event Description <span style="opacity:0.5;font-size:8px;">Brief for Jade — context she uses when building messages</span></label>
+          <textarea id="ev-description" rows="3" placeholder="e.g. Rooftop at The Tribe. Open bar first hour. Dress sharp. Capacity is tight." style="background:transparent;border:none;border-bottom:1px solid rgba(212,185,106,0.2);color:rgba(248,244,236,0.9);font-family:'Montserrat',sans-serif;font-size:11px;padding:8px 0;outline:none;width:100%;resize:none;line-height:1.6;"></textarea>
+        </div>
+
+        <div class="event-field event-grid-full">
+          <label>Internal Notes <span style="opacity:0.5;font-size:8px;">Admin only — Jade does not see this</span></label>
+          <textarea id="ev-notes" rows="2" placeholder="Parking situation, photographer, etc." style="background:transparent;border:none;border-bottom:1px solid rgba(212,185,106,0.2);color:rgba(248,244,236,0.9);font-family:'Montserrat',sans-serif;font-size:11px;padding:8px 0;outline:none;width:100%;resize:none;line-height:1.6;"></textarea>
+        </div>
+      </div>
+      <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
+        <button class="event-save-btn" onclick="saveEvent()">Save Event</button>
+        <button class="event-save-btn" onclick="previewJadeMessages()" style="border-color:rgba(76,175,125,0.4);color:rgba(76,175,125,0.9);">Preview Jade's Messages</button>
+        <button class="event-save-btn" onclick="goToSection('invite')" style="border-color:rgba(248,244,236,0.15);color:rgba(248,244,236,0.5);">Next: Invite →</button>
+      </div>
+
+      <!-- Jade message preview + lock panel -->
+      <div id="jade-preview-panel" style="display:none;margin-top:32px;border:1px solid rgba(212,185,106,0.2);padding:28px;">
+        <div style="font-size:8px;letter-spacing:0.4em;text-transform:uppercase;color:rgba(212,185,106,0.6);margin-bottom:8px;">Jade Message Preview</div>
+        <div style="font-size:10px;color:rgba(248,244,236,0.35);letter-spacing:0.05em;margin-bottom:24px;">Edit directly. Use <strong style="color:rgba(212,185,106,0.7);">{name}</strong> where the member's first name should appear. Save Event to lock these in.</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;">
+          <div>
+            <div style="font-size:8px;letter-spacing:0.3em;text-transform:uppercase;color:rgba(248,244,236,0.3);margin-bottom:10px;">Invite Text</div>
+            <textarea id="jade-invite-preview" rows="4" style="width:100%;background:rgba(212,185,106,0.04);border:none;border-left:2px solid rgba(212,185,106,0.4);color:#F8F4EC;font-family:'Cormorant Garamond',serif;font-size:16px;line-height:1.7;padding:16px;outline:none;resize:vertical;"></textarea>
+          </div>
+          <div>
+            <div style="font-size:8px;letter-spacing:0.3em;text-transform:uppercase;color:rgba(248,244,236,0.3);margin-bottom:10px;">Reminder Text (Day-Of)</div>
+            <textarea id="jade-reminder-preview" rows="4" style="width:100%;background:rgba(212,185,106,0.04);border:none;border-left:2px solid rgba(212,185,106,0.4);color:#F8F4EC;font-family:'Cormorant Garamond',serif;font-size:16px;line-height:1.7;padding:16px;outline:none;resize:vertical;"></textarea>
+          </div>
+        </div>
+        <div style="margin-top:20px;display:flex;align-items:center;gap:16px;">
+          <button class="event-save-btn" onclick="saveEvent()" style="border-color:rgba(76,175,125,0.5);color:rgba(76,175,125,0.9);">Save Event + Lock Templates</button>
+          <span id="template-lock-status" style="font-size:9px;letter-spacing:0.2em;color:rgba(248,244,236,0.3);"></span>
+        </div>
+        <div style="margin-top:12px;font-size:9px;color:rgba(248,244,236,0.2);letter-spacing:0.05em;">These exact messages will go out. {name} is replaced with each member's first name.</div>
+      </div>
+    </div>
+  </div>
+
+
+
+  </main>
+</div>
+
+<div class="toast" id="toast"></div>
+<script>
+const API_DEFAULT = 'https://api.rsvpsociety.com';
+let API = (localStorage.getItem('rsvp_api_base') || API_DEFAULT).replace(/\/+$/, '');
+let adminToken = '';
+let currentStatus = 'PENDING';
+let allMembers = [];
+let currentPage = 1;
+const PAGE_SIZE = 50;
+
+// Custom cursor removed
+
+// ── Toast ──
+function showToast(msg, type = '') {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = 'toast show ' + type;
+  setTimeout(() => { t.className = 'toast'; }, 3000);
+}
+
+// ── Login ──
+document.getElementById('token-input').addEventListener('keydown', e => {
+  if (e.key === 'Enter') doLogin();
+});
+
+async function doLogin() {
+  const val = document.getElementById('token-input').value.trim();
+  const errEl = document.getElementById('login-error');
+  if (!val) return;
+
+  const btn = document.getElementById('login-btn');
+  btn.textContent = 'Checking...';
+  errEl.textContent = '';
+
+  try {
+    const res = await fetch(`${API}/admin/members?status=PENDING`, {
+      headers: { 'x-admin-token': val }
+    });
+
+    if (res.status === 401 || res.status === 403) {
+      errEl.textContent = 'Invalid token.';
+      btn.textContent = 'Enter';
+      return;
+    }
+
+    if (!res.ok) {
+      errEl.textContent = `Error ${res.status}. Check API URL.`;
+      btn.textContent = 'Enter';
+      return;
+    }
+
+    adminToken = val;
+    sessionStorage.setItem('rsvp_admin_token', val);
+    sessionStorage.setItem('rsvp_token_exp', Date.now() + 8 * 60 * 60 * 1000);
+    document.getElementById('login-screen').style.display = 'none';
+    document.getElementById('app').style.display = 'block';
+    btn.textContent = 'Enter';
+
+    const data = await res.json();
+    allMembers = data.members || [];
+    renderMembers(allMembers);
+    loadStats();
+
+  } catch(err) {
+    errEl.textContent = 'Network error — check API URL in settings.';
+    btn.textContent = 'Enter';
+    console.error('Login error:', err);
+  }
+}
+
+function doLogout() {
+  adminToken = '';
+  sessionStorage.removeItem('rsvp_admin_token');
+  sessionStorage.removeItem('rsvp_token_exp');
+  document.getElementById('app').style.display = 'none';
+  document.getElementById('login-screen').style.display = 'flex';
+  document.getElementById('token-input').value = '';
+  document.getElementById('login-error').textContent = '';
+}
+
+// Auto-login from session — respects 8-hour TTL so stale tokens don't persist
+window.addEventListener('DOMContentLoaded', () => {
+  const saved = sessionStorage.getItem('rsvp_admin_token');
+  const exp   = parseInt(sessionStorage.getItem('rsvp_token_exp') || '0', 10);
+  if (saved && Date.now() < exp) {
+    document.getElementById('token-input').value = saved;
+    doLogin();
+  } else {
+    sessionStorage.removeItem('rsvp_admin_token');
+    sessionStorage.removeItem('rsvp_token_exp');
+  }
+});
+
+// ── Tab management ──
+function setTab(tab) {
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('tab-' + tab).classList.add('active');
+}
+
+// ── Load members by status ──
+async function loadMembers(status) {
+  currentStatus = status;
+
+  // Clear search box
+  const searchEl = document.getElementById('member-search');
+  if (searchEl) searchEl.value = '';
+
+  // Update filter buttons
+  document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('filter-' + status).classList.add('active');
+
+  // Update section title
+  const titles = { PENDING: 'Pending Review', APPROVED: 'Approved Members', DENIED: 'Denied Requests' };
+  document.getElementById('section-title').textContent = titles[status];
+
+  document.getElementById('members-container').innerHTML = '<div class="loading-state">Loading...</div>';
+
+  try {
+    const res = await fetch(`${API}/admin/members?status=${status}`, {
+      headers: { 'x-admin-token': adminToken }
+    });
+    const data = await res.json();
+    allMembers = data.members || [];
+    renderMembers(allMembers);
+  } catch (err) {
+    document.getElementById('members-container').innerHTML = '<div class="empty-state">Failed to load members.</div>';
+  }
+}
+
+// ── Load stats (all 3 counts) ──
+async function loadStats() {
+  const statuses = ['PENDING', 'APPROVED', 'DENIED'];
+  for (const s of statuses) {
+    fetch(`${API}/admin/members?status=${s}`, { headers: { 'x-admin-token': adminToken } })
+      .then(r => r.json())
+      .then(data => {
+        document.getElementById('stat-' + s.toLowerCase()).textContent = (data.members || []).length;
+      });
+  }
+}
+
+// ── Render members table ──
+function renderMembers(members, page) {
+  // Sort alphabetically by lastName then firstName
+  members = [...members].sort((a, b) => {
+    const aLast  = (a.lastName || a.name || '').toLowerCase();
+    const bLast  = (b.lastName || b.name || '').toLowerCase();
+    const aFirst = (a.name || '').toLowerCase();
+    const bFirst = (b.name || '').toLowerCase();
+    return aLast < bLast ? -1 : aLast > bLast ? 1 : aFirst < bFirst ? -1 : aFirst > bFirst ? 1 : 0;
+  });
+
+  currentPage = page || 1;
+  const totalPages = Math.ceil(members.length / PAGE_SIZE) || 1;
+  currentPage = Math.min(Math.max(currentPage, 1), totalPages);
+
+  const paginated = members.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
+
+  const container = document.getElementById('members-container');
+  document.getElementById('section-count').textContent = members.length ? `${members.length} member${members.length !== 1 ? 's' : ''}` : '';
+
+  if (!members.length) {
+    container.innerHTML = `<div class="empty-state">No ${currentStatus.toLowerCase()} members.</div>`;
+    return;
+  }
+
+  const rows = paginated.map(m => {
+    const date = m.createdAt ? new Date(m.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: '2-digit' }) : '—';
+    const optIn = m.smsOptIn ? '<span class="optin-dot" title="SMS opted in"></span>' : '<span class="optin-dot no" title="No SMS opt-in"></span>';
+    const source = m.source || 'web';
+
+    const genderVal = m.gender || '';
+    const tierVal   = m.tierOverride || '';
+    const genderSelect = `
+      <select class="inline-select" onchange="updateGender('${m.phone}', this.value)">
+        <option value="" ${!genderVal ? 'selected' : ''}>—</option>
+        <option value="F" ${genderVal==='F' ? 'selected' : ''}>F</option>
+        <option value="M" ${genderVal==='M' ? 'selected' : ''}>M</option>
+        <option value="O" ${genderVal==='O' ? 'selected' : ''}>O</option>
+      </select>`;
+    const tierSelect = `
+      <select class="inline-select" onchange="updateTier('${m.phone}', this.value)">
+        <option value="0" ${!tierVal ? 'selected' : ''}>Auto</option>
+        <option value="1" ${tierVal==1 ? 'selected' : ''}>T1</option>
+        <option value="2" ${tierVal==2 ? 'selected' : ''}>T2</option>
+        <option value="3" ${tierVal==3 ? 'selected' : ''}>T3</option>
+      </select>`;
+
+    let actions = '';
+    if (currentStatus === 'PENDING') {
+      actions = `
+        <button class="action-btn approve" onclick="setStatus('${m.phone}', 'APPROVED')">Approve</button>
+        <button class="action-btn deny" onclick="setStatus('${m.phone}', 'DENIED')">Deny</button>
+      `;
+    } else if (currentStatus === 'APPROVED') {
+      actions = `<button class="action-btn pending" onclick="setStatus('${m.phone}', 'PENDING')">Move to Pending</button>`;
+    } else {
+      actions = `<button class="action-btn pending" onclick="setStatus('${m.phone}', 'PENDING')">Restore</button>`;
+    }
+    actions += `<button class="action-btn delete" onclick="deleteMember('${m.phone}')">Delete</button>`;
+
+    return `
+      <tr id="row-${m.phone.replace(/\+/g,'').replace(/\s/g,'')}">
+        <td><span class="member-name">${escHtml(m.name || '')}${m.lastName ? ' ' + escHtml(m.lastName) : ''}</span></td>
+        <td><span class="member-phone">${m.phone}</span></td>
+
+        <td>${optIn}</td>
+        <td>${genderSelect}</td>
+        <td>${tierSelect}</td>
+        <td><span class="member-date">${date}</span></td>
+        <td><span class="status-badge ${m.status}">${m.status}</span></td>
+        <td><div class="action-btns">${actions}</div></td>
+      </tr>
+    `;
+  }).join('');
+
+  container.innerHTML = `
+    <table class="member-table">
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Phone</th>
+          
+          <th>SMS</th>
+          <th>Gender</th>
+              <th>Tier</th>
+          <th>Requested</th>
+          <th>Status</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>
+  `;
+
+  // Pagination controls
+  const paginationEl = document.getElementById('pagination');
+  if (totalPages <= 1) {
+    paginationEl.innerHTML = '';
+    return;
+  }
+
+  let pages = '';
+  // Prev button
+  pages += `<button class="page-btn" onclick="goPage(${currentPage - 1})" ${currentPage === 1 ? 'disabled' : ''}>‹</button>`;
+
+  // Page numbers — show first, last, current ±2
+  const pageNums = new Set([1, totalPages]);
+  for (let p = Math.max(1, currentPage - 2); p <= Math.min(totalPages, currentPage + 2); p++) pageNums.add(p);
+  const sorted = [...pageNums].sort((a,b) => a - b);
+
+  let prev = 0;
+  for (const p of sorted) {
+    if (prev && p - prev > 1) pages += `<span class="page-ellipsis">…</span>`;
+    pages += `<button class="page-btn ${p === currentPage ? 'active' : ''}" onclick="goPage(${p})">${p}</button>`;
+    prev = p;
+  }
+
+  // Next button
+  pages += `<button class="page-btn" onclick="goPage(${currentPage + 1})" ${currentPage === totalPages ? 'disabled' : ''}>›</button>`;
+
+  paginationEl.innerHTML = pages;
+
+  // Store members ref for page switching
+  paginationEl._members = members;
+}
+
+function goPage(p) {
+  const paginationEl = document.getElementById('pagination');
+  renderMembers(paginationEl._members, p);
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+
+// ── Filter visible members by search ──
+function filterMembers(query) {
+  const q = (query || '').toLowerCase().trim();
+  if (!q) {
+    renderMembers(allMembers);
+    return;
+  }
+  const filtered = allMembers.filter(m => {
+    const first = (m.name || '').toLowerCase();
+    const last  = (m.lastName || '').toLowerCase();
+    const phone = (m.phone || '').toLowerCase();
+    return first.includes(q) || last.includes(q) || (first + ' ' + last).includes(q) || phone.includes(q);
+  });
+  renderMembers(filtered);
+}
+
+// ── Set member status ──
+async function setStatus(phone, newStatus) {
+  const rowId = 'row-' + phone.replace(/\+/g,'').replace(/\s/g,'');
+  const row = document.getElementById(rowId);
+  if (row) row.style.opacity = '0.4';
+
+  try {
+    const res = await fetch(`${API}/admin/members/status`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-admin-token': adminToken
+      },
+      body: JSON.stringify({ phone, status: newStatus })
+    });
+
+    if (!res.ok) throw new Error('Failed');
+
+    showToast(`${newStatus === 'APPROVED' ? 'Approved' : newStatus === 'DENIED' ? 'Denied' : 'Updated'} successfully`, newStatus === 'APPROVED' ? 'success' : '');
+
+    // Remove row from current view and refresh stats
+    if (row) row.remove();
+    allMembers = allMembers.filter(m => m.phone !== phone);
+
+    const countEl = document.getElementById('section-count');
+    const remaining = allMembers.length;
+    countEl.textContent = remaining ? `${remaining} member${remaining !== 1 ? 's' : ''}` : '';
+
+    if (!remaining) {
+      document.getElementById('members-container').querySelector('tbody').innerHTML =
+        `<tr><td colspan="7"><div class="empty-state" style="padding:40px 0">No ${currentStatus.toLowerCase()} members.</div></td></tr>`;
+    }
+
+    // Refresh stats
+    loadStats();
+
+  } catch (err) {
+    if (row) row.style.opacity = '1';
+    showToast('Action failed. Try again.', 'error');
+  }
+}
+
+// ── Utils ──
+function escHtml(str) {
+  return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+
+// ── Section switching ──
+function showSection(section) {
+  document.getElementById('members-section').style.display   = section === 'members'    ? 'block' : 'none';
+  document.getElementById('invite-section').style.display    = section === 'invite'     ? 'block' : 'none';
+  document.getElementById('event-section').style.display     = section === 'event'      ? 'block' : 'none';
+  if (section === 'event') loadCurrentEvent();
+}
+
+function goToSection(section) {
+  setTab(section);
+  showSection(section);
+  if (section === 'invite') loadEventIntoInviteForm();
+  if (section === 'event') loadCurrentEvent();
+}
+
+// ── Invite preview ──
+let lastPreview = null;
+let allPreviewMembers = [];
+let removedPhones = new Set();
+let activeMarketFilter = 'All';
+
+// Area code → state mapping (auto-expands as new markets join)
+const AREA_TO_STATE = {
+  // Alabama
+  '205':'Alabama','251':'Alabama','256':'Alabama','334':'Alabama','938':'Alabama',
+  // Alaska
+  '907':'Alaska',
+  // Arizona
+  '480':'Arizona','520':'Arizona','602':'Arizona','623':'Arizona','928':'Arizona',
+  // Arkansas
+  '479':'Arkansas','501':'Arkansas','870':'Arkansas',
+  // California
+  '209':'California','213':'California','310':'California','323':'California','408':'California',
+  '415':'California','424':'California','442':'California','510':'California','530':'California',
+  '559':'California','562':'California','619':'California','626':'California','628':'California',
+  '650':'California','657':'California','661':'California','669':'California','707':'California',
+  '714':'California','747':'California','760':'California','805':'California','818':'California',
+  '831':'California','858':'California','909':'California','916':'California','925':'California',
+  '949':'California','951':'California',
+  // Colorado
+  '303':'Colorado','719':'Colorado','720':'Colorado','970':'Colorado',
+  // Connecticut
+  '203':'Connecticut','475':'Connecticut','860':'Connecticut','959':'Connecticut',
+  // Delaware
+  '302':'Delaware',
+  // Florida
+  '239':'Florida','305':'Florida','321':'Florida','352':'Florida','386':'Florida',
+  '407':'Florida','448':'Florida','561':'Florida','689':'Florida','727':'Florida',
+  '754':'Florida','772':'Florida','786':'Florida','813':'Florida','850':'Florida',
+  '863':'Florida','904':'Florida','941':'Florida','954':'Florida',
+  // Georgia
+  '229':'Georgia','404':'Georgia','470':'Georgia','478':'Georgia','678':'Georgia',
+  '706':'Georgia','762':'Georgia','770':'Georgia','912':'Georgia',
+  // Hawaii
+  '808':'Hawaii',
+  // Idaho
+  '208':'Idaho','986':'Idaho',
+  // Illinois
+  '217':'Illinois','224':'Illinois','309':'Illinois','312':'Illinois','331':'Illinois',
+  '447':'Illinois','464':'Illinois','618':'Illinois','630':'Illinois','708':'Illinois',
+  '730':'Illinois','773':'Illinois','779':'Illinois','815':'Illinois','847':'Illinois','872':'Illinois',
+  // Indiana
+  '219':'Indiana','260':'Indiana','317':'Indiana','463':'Indiana','574':'Indiana',
+  '765':'Indiana','812':'Indiana','930':'Indiana',
+  // Iowa
+  '319':'Iowa','515':'Iowa','563':'Iowa','641':'Iowa','712':'Iowa',
+  // Kansas
+  '316':'Kansas','620':'Kansas','785':'Kansas','913':'Kansas',
+  // Kentucky
+  '270':'Kentucky','364':'Kentucky','502':'Kentucky','606':'Kentucky','859':'Kentucky',
+  // Louisiana
+  '225':'Louisiana','318':'Louisiana','337':'Louisiana','504':'Louisiana','985':'Louisiana',
+  // Maine
+  '207':'Maine',
+  // Maryland
+  '240':'Maryland','301':'Maryland','410':'Maryland','443':'Maryland','667':'Maryland',
+  // Massachusetts
+  '339':'Massachusetts','351':'Massachusetts','413':'Massachusetts','508':'Massachusetts',
+  '617':'Massachusetts','774':'Massachusetts','781':'Massachusetts','857':'Massachusetts','978':'Massachusetts',
+  // Michigan
+  '231':'Michigan','248':'Michigan','269':'Michigan','313':'Michigan','517':'Michigan',
+  '586':'Michigan','616':'Michigan','734':'Michigan','810':'Michigan','906':'Michigan',
+  '947':'Michigan','989':'Michigan',
+  // Minnesota
+  '218':'Minnesota','320':'Minnesota','507':'Minnesota','612':'Minnesota','651':'Minnesota',
+  '763':'Minnesota','952':'Minnesota',
+  // Mississippi
+  '228':'Mississippi','601':'Mississippi','662':'Mississippi','769':'Mississippi',
+  // Missouri
+  '314':'Missouri','417':'Missouri','573':'Missouri','636':'Missouri','660':'Missouri','816':'Missouri',
+  // Montana
+  '406':'Montana',
+  // Nebraska
+  '308':'Nebraska','402':'Nebraska','531':'Nebraska',
+  // Nevada
+  '702':'Nevada','725':'Nevada','775':'Nevada',
+  // New Hampshire
+  '603':'New Hampshire',
+  // New Jersey
+  '201':'New Jersey','551':'New Jersey','609':'New Jersey','640':'New Jersey',
+  '732':'New Jersey','848':'New Jersey','856':'New Jersey','862':'New Jersey','908':'New Jersey','973':'New Jersey',
+  // New Mexico
+  '505':'New Mexico','575':'New Mexico',
+  // New York
+  '212':'New York','315':'New York','332':'New York','347':'New York','516':'New York',
+  '518':'New York','585':'New York','607':'New York','631':'New York','646':'New York',
+  '680':'New York','716':'New York','718':'New York','838':'New York','845':'New York',
+  '914':'New York','917':'New York','929':'New York','934':'New York',
+  // North Carolina
+  '252':'North Carolina','336':'North Carolina','704':'North Carolina','743':'North Carolina',
+  '828':'North Carolina','910':'North Carolina','919':'North Carolina','980':'North Carolina','984':'North Carolina',
+  // North Dakota
+  '701':'North Dakota',
+  // Ohio
+  '216':'Ohio','220':'Ohio','234':'Ohio','283':'Ohio','326':'Ohio','330':'Ohio',
+  '380':'Ohio','419':'Ohio','440':'Ohio','513':'Ohio','567':'Ohio','614':'Ohio',
+  '740':'Ohio','937':'Ohio',
+  // Oklahoma
+  '405':'Oklahoma','539':'Oklahoma','572':'Oklahoma','580':'Oklahoma','918':'Oklahoma',
+  // Oregon
+  '458':'Oregon','503':'Oregon','541':'Oregon','971':'Oregon',
+  // Pennsylvania
+  '215':'Pennsylvania','223':'Pennsylvania','267':'Pennsylvania','272':'Pennsylvania',
+  '412':'Pennsylvania','445':'Pennsylvania','484':'Pennsylvania','570':'Pennsylvania',
+  '610':'Pennsylvania','717':'Pennsylvania','724':'Pennsylvania','814':'Pennsylvania',
+  '835':'Pennsylvania','878':'Pennsylvania',
+  // Rhode Island
+  '401':'Rhode Island',
+  // South Carolina
+  '803':'South Carolina','839':'South Carolina','843':'South Carolina','854':'South Carolina','864':'South Carolina',
+  // South Dakota
+  '605':'South Dakota',
+  // Tennessee
+  '423':'Tennessee','615':'Tennessee','629':'Tennessee','731':'Tennessee',
+  '865':'Tennessee','901':'Tennessee','931':'Tennessee',
+  // Texas
+  '210':'Texas','214':'Texas','254':'Texas','281':'Texas','325':'Texas','346':'Texas',
+  '361':'Texas','409':'Texas','430':'Texas','432':'Texas','469':'Texas','512':'Texas',
+  '682':'Texas','713':'Texas','726':'Texas','737':'Texas','806':'Texas','817':'Texas',
+  '830':'Texas','832':'Texas','903':'Texas','915':'Texas','936':'Texas','940':'Texas',
+  '945':'Texas','956':'Texas','972':'Texas','979':'Texas',
+  // Utah
+  '385':'Utah','435':'Utah','801':'Utah',
+  // Vermont
+  '802':'Vermont',
+  // Virginia
+  '276':'Virginia','434':'Virginia','540':'Virginia','571':'Virginia',
+  '703':'Virginia','757':'Virginia','804':'Virginia',
+  // Washington
+  '206':'Washington','253':'Washington','360':'Washington','425':'Washington','509':'Washington','564':'Washington',
+  // West Virginia
+  '304':'West Virginia','681':'West Virginia',
+  // Wisconsin
+  '262':'Wisconsin','414':'Wisconsin','534':'Wisconsin','608':'Wisconsin','715':'Wisconsin','920':'Wisconsin',
+  // Wyoming
+  '307':'Wyoming',
+  // DC
+  '202':'DC',
+};
+
+function getState(phone) {
+  const digits = (phone || '').replace(/\D/g,'');
+  const area = digits.length >= 10 ? digits.slice(digits.length - 10, digits.length - 7) : '???';
+  return AREA_TO_STATE[area] || `+${area}`;
+}
+
+function removeFromPreview(phone) {
+  removedPhones.add(phone);
+  const rowId = 'preview-row-' + phone.replace(/\D/g,'');
+  const row = document.getElementById(rowId);
+  if (row) row.remove();
+  updatePreviewCount();
+}
+
+function updatePreviewCount() {
+  const remaining = document.querySelectorAll('#preview-table-container tbody tr:not([style*="display: none"])').length;
+  const countEl = document.getElementById('preview-remaining-count');
+  if (countEl) countEl.textContent = remaining;
+}
+
+function filterByMarket(state) {
+  activeMarketFilter = state;
+  // Update pill styles
+  document.querySelectorAll('.market-pill').forEach(p => {
+    p.style.borderColor = p.dataset.market === state ? 'rgba(212,185,106,0.8)' : 'rgba(212,185,106,0.15)';
+    p.style.color = p.dataset.market === state ? '#D4B96A' : 'rgba(248,244,236,0.5)';
+  });
+  // Show/hide rows
+  document.querySelectorAll('#preview-table-container tbody tr').forEach(row => {
+    if (state === 'All') {
+      row.style.display = removedPhones.has(row.dataset.phone) ? 'none' : '';
+    } else {
+      const rowState = row.dataset.state;
+      row.style.display = (rowState === state && !removedPhones.has(row.dataset.phone)) ? '' : 'none';
+    }
+  });
+  updatePreviewCount();
+}
+
+async function loadEventIntoInviteForm() {
+  try {
+    const res = await fetch(`${API}/admin/event`, {
+      headers: { 'x-admin-token': adminToken }
+    });
+    const data = await res.json();
+    if (data.ok && data.event && data.event.date) {
+      const ev = data.event;
+      const invEventId = document.getElementById('inv-event-id');
+      if (!invEventId.value) invEventId.value = ev.eventSlug || ev.eventId || '';
+      const invCapacity = document.getElementById('inv-capacity');
+      if (!invCapacity.value && ev.capacity) invCapacity.value = ev.capacity;
+      const summaryEl = document.getElementById('invite-event-summary');
+      if (summaryEl) {
+        summaryEl.innerHTML = `
+          <div style="border:1px solid rgba(212,185,106,0.12);padding:20px 24px;margin-bottom:8px;">
+            <div style="font-size:8px;letter-spacing:0.4em;text-transform:uppercase;color:rgba(212,185,106,0.6);margin-bottom:12px;">Current Event</div>
+            <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px;">
+              ${ev.date ? `<div><div style="font-size:8px;letter-spacing:0.2em;color:rgba(248,244,236,0.4);margin-bottom:4px;">DATE</div><div style="font-size:12px;color:#F8F4EC;">${ev.date}</div></div>` : ''}
+              ${ev.venue ? `<div><div style="font-size:8px;letter-spacing:0.2em;color:rgba(248,244,236,0.4);margin-bottom:4px;">VENUE</div><div style="font-size:12px;color:#F8F4EC;">${ev.venue}${ev.revealVenue ? ' <span style="color:rgba(76,175,125,0.8);font-size:9px;">revealed</span>' : ' <span style="color:rgba(212,185,106,0.5);font-size:9px;">hidden</span>'}</div></div>` : ''}
+              ${ev.notes ? `<div><div style="font-size:8px;letter-spacing:0.2em;color:rgba(248,244,236,0.4);margin-bottom:4px;">VIBE</div><div style="font-size:12px;color:#F8F4EC;">${ev.notes}</div></div>` : ''}
+              ${ev.capacity ? `<div><div style="font-size:8px;letter-spacing:0.2em;color:rgba(248,244,236,0.4);margin-bottom:4px;">CAPACITY</div><div style="font-size:12px;color:#F8F4EC;">${ev.capacity}</div></div>` : ''}
+            </div>
+          </div>`;
+        summaryEl.style.display = 'block';
+      }
+    }
+  } catch(e) { /* silent */ }
+}
+
+async function runPreview() {
+  const eventId  = document.getElementById('inv-event-id').value.trim();
+  const capacity = parseInt(document.getElementById('inv-capacity').value) || 0;
+  const femalePct = parseInt(document.getElementById('inv-female-pct').value) || 60;
+  const buffer   = parseInt(document.getElementById('inv-buffer').value) || 30;
+
+  if (!eventId || !capacity) { showToast('Event ID and capacity required', 'error'); return; }
+
+  showToast('Calculating...');
+  try {
+    const res = await fetch(`${API}/admin/invite/preview`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-admin-token': adminToken },
+      body: JSON.stringify({ eventId, capacity, femalePercent: femalePct, tier2BufferPct: buffer })
+    });
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.error);
+
+    lastPreview = { eventId, capacity, femalePercent: femalePct, tier2BufferPct: buffer };
+    allPreviewMembers = data.members;
+    removedPhones = new Set();
+    activeMarketFilter = 'All';
+    renderPreview(data);
+
+    const sendBtn = document.getElementById('send-btn');
+    sendBtn.disabled = false;
+    sendBtn.classList.add('ready');
+    showToast('Preview ready — review before sending', '');
+  } catch (err) {
+    showToast('Preview failed: ' + err.message, 'error');
+  }
+}
+
+function renderPreview(data) {
+  const s = data.summary;
+  const box = document.getElementById('preview-box');
+  box.classList.add('visible');
+
+  // Build state → count map
+  const stateCounts = {};
+  data.members.forEach(m => {
+    const st = getState(m.phone);
+    stateCounts[st] = (stateCounts[st] || 0) + 1;
+  });
+
+  // Market pill buttons
+  const pills = ['All', ...Object.keys(stateCounts).sort()].map(st => {
+    const count = st === 'All' ? data.members.length : stateCounts[st];
+    const active = st === 'All';
+    return `<button class="market-pill" data-market="${st}" onclick="filterByMarket('${st}')" style="background:none;border:1px solid rgba(212,185,106,${active ? '0.8' : '0.15'});color:${active ? '#D4B96A' : 'rgba(248,244,236,0.5)'};font-family:'Montserrat',sans-serif;font-size:9px;letter-spacing:0.2em;text-transform:uppercase;padding:6px 14px;cursor:pointer;transition:all .2s;">${st} <span style="opacity:0.6;">${count}</span></button>`;
+  }).join('');
+
+  document.getElementById('preview-stats').innerHTML = `
+    <div class="preview-stat"><div class="preview-stat-num" id="preview-remaining-count">${s.totalInvites}</div><div class="preview-stat-label">Selected</div></div>
+    <div class="preview-stat"><div class="preview-stat-num gold">${s.breakdown.femTier1 + s.breakdown.femTier2}</div><div class="preview-stat-label">Female (${s.femalePercent}%)</div></div>
+    <div class="preview-stat"><div class="preview-stat-num">${s.breakdown.maleTier1 + s.breakdown.maleTier2}</div><div class="preview-stat-label">Male (${s.malePercent}%)</div></div>
+    <div class="preview-stat"><div class="preview-stat-num red">${s.breakdown.tier3Skipped}</div><div class="preview-stat-label">Tier 3 Skipped</div></div>
+    <div style="width:100%;margin-top:16px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+      <span style="font-size:8px;letter-spacing:0.3em;text-transform:uppercase;color:rgba(248,244,236,0.3);margin-right:4px;">Filter</span>
+      ${pills}
+    </div>
+  `;
+
+  const rows = data.members.map(m => {
+    const state = getState(m.phone);
+    const rowId = 'preview-row-' + m.phone.replace(/\D/g,'');
+    return `<tr id="${rowId}" data-phone="${m.phone}" data-state="${state}">
+      <td><span class="member-name">${escHtml(m.name || '—')}</span></td>
+      <td><span class="member-phone">${m.phone}</span></td>
+      <td><span class="member-source">${m.gender || '?'}</span></td>
+      <td><span class="status-badge PENDING">Tier ${m.tier}</span></td>
+      <td><span class="member-date">${m.attendedCount}/${m.invitedCount} attended</span></td>
+      <td><span style="font-size:9px;color:rgba(248,244,236,0.3);">${state}</span></td>
+      <td><button class="action-btn delete" onclick="removeFromPreview('${m.phone}')">Remove</button></td>
+    </tr>`;
+  }).join('');
+
+  document.getElementById('preview-table-container').innerHTML = `
+    <table class="member-table">
+      <thead><tr>
+        <th>Name</th><th>Phone</th><th>Gender</th><th>Tier</th><th>Attendance</th><th>Market</th><th></th>
+      </tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+  `;
+}
+
+async function sendInvites() {
+  if (!lastPreview) return;
+  const visibleRows = document.querySelectorAll('#preview-table-container tbody tr:not([style*="display: none"])');
+  const remaining = visibleRows.length;
+  if (!confirm(`Send invites to ${remaining} member${remaining !== 1 ? 's' : ''}?`)) return;
+
+  // Collect phones of visible (non-removed, non-filtered-out) rows
+  const phonesToSend = Array.from(visibleRows).map(r => r.dataset.phone).filter(Boolean);
+
+  const sendBtn = document.getElementById('send-btn');
+  sendBtn.disabled = true;
+  sendBtn.textContent = 'Sending...';
+
+  try {
+    const res = await fetch(`${API}/admin/invite/send`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-admin-token': adminToken },
+      body: JSON.stringify({ ...lastPreview, confirmSend: true, removedPhones: Array.from(removedPhones) })
+    });
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.error);
+
+    showToast(`Done — ${data.invitesWritten} invites written, ${data.smsSent} SMS sent`, 'success');
+    lastPreview = null;
+    removedPhones = new Set();
+    document.getElementById('preview-box').classList.remove('visible');
+    sendBtn.classList.remove('ready');
+  } catch (err) {
+    showToast('Send failed: ' + err.message, 'error');
+    sendBtn.disabled = false;
+  }
+}
+
+// ── Gender / Tier inline updates ──
+async function updateGender(phone, gender) {
+  try {
+    await fetch(`${API}/admin/members/gender`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-admin-token': adminToken },
+      body: JSON.stringify({ phone, gender })
+    });
+    showToast('Gender updated', 'success');
+  } catch (err) {
+    showToast('Update failed', 'error');
+  }
+}
+
+async function updateTier(phone, tier) {
+  try {
+    await fetch(`${API}/admin/members/tier`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-admin-token': adminToken },
+      body: JSON.stringify({ phone, tier: parseInt(tier) })
+    });
+    showToast('Tier updated', 'success');
+  } catch (err) {
+    showToast('Update failed', 'error');
+  }
+}
+
+
+// ── Vibe tag library ──
+const VIBE_TAGS = {
+  swim:     ['suits + shots','poolside r&b','sunset + vibes','day party energy','cabanas + cocktails','towels + tequila'],
+  day:      ['day drinks + r&b','patio + sunlight','brunchy vibes','outside early','grown day party'],
+  rooftop:  ['rooftop + r&b','city views','cocktails + slow jams','night air vibes','late night rooftop'],
+  elevated: ['special night','live moment','dress code matters','quiet luxury'],
+  bowling:  ['lanes + drinks','bowling + r&b','link + bowl'],
+  karaoke:  ['r&b karaoke','mic + r&b','late night karaoke','sing your heart out','shots + choruses','r&b classics','90s r&b night'],
+  regular:  ['just vibes','keep it chill','no chaos'],
+};
+
+function updateVibeTags() {
+  const type = document.getElementById('ev-type').value;
+  const sel  = document.getElementById('ev-vibe-tag');
+  const tags = VIBE_TAGS[type] || [];
+  sel.innerHTML = tags.length
+    ? ['<option value="">Select vibe tag...</option>', ...tags.map(t => `<option value="${t}">${t}</option>`)].join('')
+    : '<option value="">Select event type first...</option>';
+}
+
+function previewJadeMessages() {
+  const label   = document.getElementById('ev-label').value.trim();
+  const date    = document.getElementById('ev-date').value.trim();
+  const time    = document.getElementById('ev-time').value.trim();
+  const vibe    = document.getElementById('ev-vibe-tag').value.trim();
+  const address = document.getElementById('ev-address').value.trim();
+  const venue   = document.getElementById('ev-venue').value.trim();
+  const reveal  = document.getElementById('ev-reveal-venue').checked;
+
+  if (!date) { showToast('Add a date first', 'error'); return; }
+
+  const closings = ['Tap in.', 'Lmk.', 'We on?', 'You sliding?', 'Still on?', 'Pull up.'];
+  const closing  = Math.random() < 0.4 ? closings[Math.floor(Math.random() * closings.length)] : '';
+
+  // Build invite template — {name} is replaced per member at send time
+  const parts = ['{name}.'];
+  if (label) parts.push(label + '.');
+  parts.push(date + '.');
+  if (vibe)  parts.push(vibe + '.');
+  if (time)  parts.push(time + '.');
+  if (reveal && venue) parts.push(venue + '.');
+  if (reveal && address) parts.push(address + '.');
+  if (closing) parts.push(closing);
+
+  // Build reminder template
+  const reminderClosing = Math.random() < 0.4 ? closings[Math.floor(Math.random() * closings.length)] : '';
+  const reminderParts = [];
+  if (Math.random() > 0.5) {
+    reminderParts.push('Tonight.');
+    if (label) reminderParts.push(label + '.');
+    if (time)  reminderParts.push(time + '.');
+  } else {
+    reminderParts.push(time ? ('Doors at ' + time + '.') : 'Tonight.');
+  }
+  if (reminderClosing) reminderParts.push(reminderClosing);
+
+  document.getElementById('jade-invite-preview').value   = parts.join(' ');
+  document.getElementById('jade-reminder-preview').value = reminderParts.join(' ');
+
+  document.getElementById('jade-preview-panel').style.display = 'block';
+  document.getElementById('template-lock-status').textContent = 'Edit above, then Save Event to lock in.';
+  document.getElementById('template-lock-status').style.color = 'rgba(248,244,236,0.35)';
+  document.getElementById('jade-preview-panel').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+// ── Event management ──
+async function loadCurrentEvent() {
+  try {
+    const res = await fetch(`${API}/admin/event`, {
+      headers: { 'x-admin-token': adminToken }
+    });
+    const data = await res.json();
+    if (data.ok && data.event && data.event.date) {
+      const ev = data.event;
+      // Populate form
+      document.getElementById('ev-id').value          = ev.eventSlug  || ev.eventId || '';
+      document.getElementById('ev-label').value       = ev.event_label || '';
+      document.getElementById('ev-date').value        = ev.date       || '';
+      document.getElementById('ev-time').value        = ev.startTime  || '';
+      document.getElementById('ev-city').value        = ev.city       || '';
+      document.getElementById('ev-capacity').value    = ev.capacity   || '';
+      document.getElementById('ev-venue').value       = ev.venue      || '';
+      document.getElementById('ev-address').value     = ev.address    || '';
+      document.getElementById('ev-dresscode').value   = ev.dresscode  || '';
+      document.getElementById('ev-reveal-venue').checked = ev.revealVenue || false;
+      document.getElementById('ev-notes').value       = ev.notes      || '';
+      document.getElementById('ev-description').value = ev.description || '';
+      // Restore event type and vibe tag selectors
+      if (ev.event_type) {
+        document.getElementById('ev-type').value = ev.event_type;
+        updateVibeTags();
+        if (ev.vibe_tag) document.getElementById('ev-vibe-tag').value = ev.vibe_tag;
+      }
+      // Restore locked templates if they exist
+      if (ev.invite_template || ev.reminder_template) {
+        document.getElementById('jade-invite-preview').value   = ev.invite_template  || '';
+        document.getElementById('jade-reminder-preview').value = ev.reminder_template || '';
+        document.getElementById('jade-preview-panel').style.display = 'block';
+        document.getElementById('template-lock-status').textContent = '✓ Templates locked';
+        document.getElementById('template-lock-status').style.color = 'rgba(76,175,125,0.8)';
+      }
+      document.getElementById('ev-reminder').value    = ev.reminderTiming || 'manual';
+
+      // Show current event display
+      const fields = [
+        { label: 'Event',     val: ev.eventSlug || ev.eventId },
+        { label: 'Date',      val: ev.date },
+        { label: 'Venue',     val: ev.venue + (ev.revealVenue ? ' ✓ revealed' : ' — hidden') },
+        { label: 'Address',   val: ev.address },
+        { label: 'Dresscode', val: ev.dresscode },
+        { label: 'Capacity',  val: ev.capacity },
+        { label: 'Vibe',      val: ev.notes },
+        { label: 'Updated',   val: (ev.updatedAt || '').replace('T', ' ').slice(0, 16) },
+      ];
+      document.getElementById('event-current-grid').innerHTML = fields.map(f => `
+        <div class="event-current-item">
+          <label>${f.label}</label>
+          <span>${f.val || '—'}</span>
+        </div>
+      `).join('');
+      document.getElementById('event-current-display').classList.add('visible');
+    }
+  } catch (err) {
+    console.error('loadCurrentEvent:', err);
+  }
+}
+
+async function saveEvent() {
+  const body = {
+    eventSlug:      document.getElementById('ev-id').value.trim(),
+    event_label:    document.getElementById('ev-label').value.trim(),
+    date:           document.getElementById('ev-date').value.trim(),
+    startTime:      document.getElementById('ev-time').value.trim(),
+    city:           document.getElementById('ev-city').value.trim(),
+    capacity:       parseInt(document.getElementById('ev-capacity').value) || 0,
+    venue:          document.getElementById('ev-venue').value.trim(),
+    address:        document.getElementById('ev-address').value.trim(),
+    dresscode:      document.getElementById('ev-dresscode').value.trim(),
+    revealVenue:    document.getElementById('ev-reveal-venue').checked,
+    event_type:     document.getElementById('ev-type').value,
+    vibe_tag:       document.getElementById('ev-vibe-tag').value,
+    description:    document.getElementById('ev-description').value.trim(),
+    notes:          document.getElementById('ev-notes').value.trim(),
+    invite_template:  document.getElementById('jade-invite-preview').value.trim(),
+    reminder_template: document.getElementById('jade-reminder-preview').value.trim(),
+    reminderTiming: document.getElementById('ev-reminder').value,
+  };
+
+  if (!body.date) { showToast('Date is required', 'error'); return; }
+
+  try {
+    const res = await fetch(`${API}/admin/event`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-admin-token': adminToken },
+      body: JSON.stringify(body)
+    });
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.error);
+    showToast('Event saved — Jade is updated', 'success');
+    loadCurrentEvent();
+  } catch (err) {
+    showToast('Save failed: ' + err.message, 'error');
+  }
+}
+
+// ── Manual reminder blast ──
+async function sendReminderBlast() {
+  const btn = document.getElementById('reminder-blast-btn');
+
+  // Fetch current event to show in confirm dialog
+  let eventLabel = 'current event';
+  try {
+    const evRes = await fetch(`${API}/admin/event`, { headers: { 'x-admin-token': adminToken } });
+    const evData = await evRes.json();
+    if (evData.ok && evData.event && evData.event.date) {
+      eventLabel = evData.event.eventSlug || evData.event.date;
+    }
+  } catch(e) {}
+
+  if (!confirm(`Send reminder blast to all confirmed members for "${eventLabel}"?`)) return;
+
+  btn.textContent = 'Sending...';
+  btn.disabled = true;
+
+  try {
+    const res = await fetch(`${API}/admin/invite/reminder`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-admin-token': adminToken },
+      body: JSON.stringify({ manual: true })
+    });
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.error);
+    showToast(`Reminder sent to ${data.sent} confirmed members`, 'success');
+  } catch (err) {
+    showToast('Blast failed: ' + err.message, 'error');
+  } finally {
+    btn.textContent = 'Send Reminder Blast';
+    btn.disabled = false;
+  }
+}
+
+// ── Attendance ──
+async function loadAttendance() {
+  const eventId = document.getElementById('att-event-id').value.trim();
+  if (!eventId) { showToast('Enter an event ID', 'error'); return; }
+
+  document.getElementById('attendance-container').innerHTML = '<div class="loading-state">Loading invitees...</div>';
+
+  try {
+    const res = await fetch(`${API}/admin/members?status=APPROVED`, {
+      headers: { 'x-admin-token': adminToken }
+    });
+    const data = await res.json();
+    const members = data.members || [];
+
+    if (!members.length) {
+      document.getElementById('attendance-container').innerHTML = '<div class="empty-state">No approved members found.</div>';
+      return;
+    }
+
+    const rows = members.map(m => `
+      <tr id="att-row-${m.phone.replace(/\+/g,'').replace(/\s/g,'')}">
+        <td><span class="member-name">${escHtml(m.name || '')}${m.lastName ? ' ' + escHtml(m.lastName) : ''}</span></td>
+        <td><span class="member-phone">${m.phone}</span></td>
+
+        <td><span class="member-date">Attended: ${m.attendedCount || 0} / Invited: ${m.invitedCount || 0}</span></td>
+        <td>
+          <div class="action-btns">
+            <button class="action-btn approve att-btn-yes" onclick="markAttendance('${m.phone}', true, '${eventId}')">Attended</button>
+            <button class="action-btn deny att-btn-no" onclick="markAttendance('${m.phone}', false, '${eventId}')">No Show</button>
+          </div>
+        </td>
+      </tr>
+    `).join('');
+
+    document.getElementById('attendance-container').innerHTML = `
+      <table class="member-table">
+        <thead><tr>
+          <th>Name</th><th>Phone</th><th>History</th><th>Mark</th>
+        </tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    `;
+  } catch (err) {
+    document.getElementById('attendance-container').innerHTML = '<div class="empty-state">Failed to load members.</div>';
+  }
+}
+
+async function markAttendance(phone, attended, eventId) {
+  const rowId = 'att-row-' + phone.replace(/\+/g,'').replace(/\s/g,'');
+  const row = document.getElementById(rowId);
+  if (row) row.style.opacity = '0.4';
+
+  try {
+    await fetch(`${API}/admin/members/attendance`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-admin-token': adminToken },
+      body: JSON.stringify({ phone, attended, eventId })
+    });
+    showToast(`Marked ${attended ? 'attended' : 'no show'}`, attended ? 'success' : '');
+    if (row) row.remove();
+  } catch (err) {
+    if (row) row.style.opacity = '1';
+    showToast('Failed to mark attendance', 'error');
+  }
+}
+
+
+async function deleteMember(phone) {
+  if (!confirm(`Permanently delete ${phone} from the database? This cannot be undone.`)) return;
+
+  try {
+    const res = await fetch(`${API}/admin/members`, {
+      method: 'DELETE',
+      headers: { 'content-type': 'application/json', 'x-admin-token': adminToken },
+      body: JSON.stringify({ phone })
+    });
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.error);
+    showToast('Member deleted', 'success');
+    loadMembers(currentStatus);
+  } catch (err) {
+    showToast('Delete failed: ' + err.message, 'error');
+  }
+}
+
+
+// ── CSV Import ──
+let importRows = [];
+
+function openImport() {
+  document.getElementById('import-modal').style.display = 'flex';
+  importRows = [];
+  document.getElementById('import-preview').style.display = 'none';
+  document.getElementById('import-confirm-btn').disabled = true;
+  document.getElementById('import-confirm-btn').style.opacity = '0.4';
+  document.getElementById('csv-file-input').value = '';
+}
+
+function closeImport() {
+  document.getElementById('import-modal').style.display = 'none';
+}
+
+function handleDrop(e) {
+  e.preventDefault();
+  document.getElementById('import-drop').style.borderColor = 'rgba(212,185,106,0.2)';
+  const file = e.dataTransfer.files[0];
+  if (file && file.name.endsWith('.csv')) parseCSV(file);
+}
+
+function handleFileSelect(e) {
+  const file = e.target.files[0];
+  if (file) parseCSV(file);
+}
+
+function parseCSV(file) {
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    const lines = e.target.result.split('\n').map(l => l.trim()).filter(Boolean);
+    if (!lines.length) return;
+
+    // Parse headers — normalize to lowercase, strip quotes
+    const headers = lines[0].split(',').map(h => h.replace(/["\']/g, '').toLowerCase().trim());
+
+    // Map common column name variants
+    const col = (names) => {
+      for (const n of names) {
+        const idx = headers.findIndex(h => h.includes(n));
+        if (idx !== -1) return idx;
+      }
+      return -1;
+    };
+
+    const phoneIdx    = col(['phone', 'mobile', 'cell', 'number', 'tel']);
+    const nameIdx     = col(['first name', 'name', 'full name', 'attendee']);
+    const lastNameIdx = col(['last name', 'lastname', 'surname']);
+    const emailIdx    = col(['email', 'e-mail', 'mail']);
+    const igIdx       = col(['instagram', 'ig', 'insta', '@']);
+    const tagsIdx     = col(['tags', 'tag', 'list']);
+
+    if (phoneIdx === -1) {
+      showToast('No phone column found in CSV', 'error');
+      return;
+    }
+
+    importRows = [];
+    let skipped = 0;
+
+    for (let i = 1; i < lines.length; i++) {
+      // Parse CSV row — handles empty fields like "","" correctly
+      const cells = [];
+      let cur = '', inQ = false;
+      for (let ci = 0; ci < lines[i].length; ci++) {
+        const ch = lines[i][ci];
+        if (ch === '"') { inQ = !inQ; }
+        else if (ch === ',' && !inQ) { cells.push(cur); cur = ''; }
+        else { cur += ch; }
+      }
+      cells.push(cur);
+      const clean = cells.map(c => c.trim());
+
+      const phone = clean[phoneIdx] || '';
+      if (!phone || phone.length < 7) { skipped++; continue; }
+
+      const row = { phone };
+      if (nameIdx !== -1 && clean[nameIdx])              row.name      = clean[nameIdx];
+      if (lastNameIdx !== -1 && clean[lastNameIdx])      row.lastName  = clean[lastNameIdx];
+      if (emailIdx !== -1 && clean[emailIdx])            row.email     = clean[emailIdx];
+      if (igIdx !== -1 && clean[igIdx])                  row.instagram = clean[igIdx].replace(/^@/, '');
+      if (tagsIdx !== -1 && clean[tagsIdx])              row.tags      = clean[tagsIdx];
+
+      importRows.push(row);
+    }
+
+    const preview = document.getElementById('import-preview');
+    const previewText = document.getElementById('import-preview-text');
+    preview.style.display = 'block';
+
+    if (!importRows.length) {
+      previewText.innerHTML = `<span style="color:#C0474A;">No valid rows found. ${skipped} row${skipped !== 1 ? 's' : ''} skipped (missing phone).</span>`;
+      document.getElementById('import-confirm-btn').disabled = true;
+      document.getElementById('import-confirm-btn').style.opacity = '0.4';
+    } else {
+      const hasIG = importRows.some(r => r.instagram);
+      const source = hasIG ? 'Posh' : 'Eventbrite';
+      previewText.innerHTML = `
+        <strong style="color:#F8F4EC;">${importRows.length} member${importRows.length !== 1 ? 's' : ''}</strong> ready to import as <strong style="color:#F8F4EC;">Approved</strong><br>
+        Detected source: <strong style="color:#D4B96A;">${source}</strong>${skipped ? `<br><span style="color:rgba(248,244,236,0.4);">${skipped} row${skipped !== 1 ? 's' : ''} skipped (no phone)</span>` : ''}
+      `;
+      document.getElementById('import-confirm-btn').disabled = false;
+      document.getElementById('import-confirm-btn').style.opacity = '1';
+    }
+  };
+  reader.readAsText(file);
+}
+
+async function confirmImport() {
+  if (!importRows.length) return;
+  const btn = document.getElementById('import-confirm-btn');
+  btn.textContent = 'Importing...';
+  btn.disabled = true;
+
+  try {
+    const res = await fetch(`${API}/admin/members/import`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-admin-token': adminToken },
+      body: JSON.stringify({ members: importRows })
+    });
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.error || 'Import failed');
+    showToast(`Imported ${data.imported} member${data.imported !== 1 ? 's' : ''}${data.skipped ? `, ${data.skipped} skipped (duplicate phone)` : ''}`, 'success');
+    closeImport();
+    loadMembers('APPROVED');
+  } catch(err) {
+    showToast('Import failed: ' + err.message, 'error');
+    btn.textContent = 'Import';
+    btn.disabled = false;
+  }
+}
+
+
+</script>
+</body>
+</html>

@@ -1,0 +1,465 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<!-- Primary Meta -->
+<title>RSVP Society — Private R&B Rooms. Invite Only.</title>
+<meta name="description" content="RSVP Society is a private, invitation-only R&B experience. No flyers. No open doors. Just rooms with the right energy, the right music, and the right people. Get on the list.">
+<meta name="keywords" content="RSVP Society, private R&B rooms, invite-only R&B nights, invitation only nightlife, exclusive R&B events, private party Louisville, grown and sexy R&B, invite only events">
+<meta name="author" content="RSVP Society">
+<meta name="robots" content="index, follow">
+<link rel="canonical" href="https://rsvpsociety.com">
+
+<!-- Open Graph -->
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://rsvpsociety.com">
+<meta property="og:title" content="RSVP Society — Private R&B Rooms. Invite Only.">
+<meta property="og:description" content="The list you didn't know existed. Private R&B rooms, grown energy, no flyers. Get access when the next room opens.">
+<meta property="og:site_name" content="RSVP Society">
+
+<!-- Twitter -->
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:url" content="https://rsvpsociety.com">
+<meta name="twitter:title" content="RSVP Society — Private R&B Rooms. Invite Only.">
+<meta name="twitter:description" content="The list you didn't know existed. Private R&B rooms, grown energy, no flyers. Get access when the next room opens.">
+
+<!-- Favicon -->
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='15' fill='%23060608' stroke='%23C9A84C' stroke-width='1.5'/%3E%3Ctext x='16' y='21' font-family='Georgia,serif' font-size='14' font-weight='bold' fill='%23E8D08A' text-anchor='middle'%3ER%3C/text%3E%3C/svg%3E">
+<link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='15' fill='%23060608' stroke='%23C9A84C' stroke-width='1.5'/%3E%3Ctext x='16' y='21' font-family='Georgia,serif' font-size='14' font-weight='bold' fill='%23E8D08A' text-anchor='middle'%3ER%3C/text%3E%3C/svg%3E">
+
+<meta name="theme-color" content="#060608">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,300;1,400;1,600&family=Montserrat:wght@200;300;400;500&display=swap" rel="stylesheet">
+
+<style>
+*, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; cursor: none; }
+
+:root {
+  --gold: #D4B96A;
+  --gold-light: #EDD98A;
+  --gold-warm: #D4A847;
+  --gold-dim: #9A7A40;
+  --black: #060608;
+  --black-2: #0C0C10;
+  --black-3: #111116;
+  --white: #F8F4EC;
+  --white-dim: rgba(248,244,236,0.88);
+}
+
+html { scroll-behavior: smooth; }
+body { background: var(--black); color: var(--white); font-family: 'Montserrat', sans-serif; font-weight: 300; overflow-x: hidden; cursor: none; }
+
+/* ── CURSOR ── */
+.cursor { position: fixed; width: 6px; height: 6px; background: var(--gold-light); border-radius: 50%; pointer-events: none; z-index: 9999; transform: translate(-50%,-50%); }
+.cursor-trail { position: fixed; width: 28px; height: 28px; border: 1px solid rgba(201,168,76,0.35); border-radius: 50%; pointer-events: none; z-index: 9998; transform: translate(-50%,-50%); transition: width .3s ease, height .3s ease, border-color .3s ease; }
+
+/* ── NAV ── */
+nav {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 200;
+  padding: 0 60px; height: 64px;
+  display: flex; justify-content: space-between; align-items: center;
+  background: var(--black);
+  border-bottom: 1px solid rgba(201,168,76,0.07);
+  opacity: 0; animation: fadeIn 1s ease 1.8s forwards;
+}
+.nav-left { display: flex; align-items: center; }
+.nav-wordmark {
+  font-family: 'Cormorant Garamond', serif;
+  font-weight: 400; font-size: 12px;
+  letter-spacing: 0.5em; text-transform: uppercase;
+  color: var(--gold); text-decoration: none;
+}
+.nav-divider { display: none; }
+.nav-sub { display: none; }
+.nav-links { list-style: none; display: flex; gap: 36px; }
+.nav-links a {
+  font-family: 'Montserrat', sans-serif;
+  font-size: 10px; letter-spacing: 0.35em;
+  text-transform: uppercase; font-weight: 300;
+  color: rgba(248,244,236,0.9);
+  text-decoration: none; transition: color .3s;
+}
+.nav-links a:hover { color: var(--gold); }
+
+/* ── HERO ── */
+.hero { min-height: 100vh; position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; overflow: hidden; }
+.hero-bg { position: absolute; inset: 0; background: radial-gradient(ellipse 80% 60% at 50% 40%, rgba(180,120,20,0.07) 0%, transparent 65%), radial-gradient(ellipse 40% 40% at 20% 80%, rgba(150,80,10,0.05) 0%, transparent 60%), radial-gradient(ellipse 30% 50% at 80% 20%, rgba(160,100,15,0.04) 0%, transparent 60%), var(--black); }
+.orb { position: absolute; border-radius: 50%; filter: blur(80px); pointer-events: none; animation: breathe 8s ease-in-out infinite; }
+.orb-1 { width: 500px; height: 500px; background: radial-gradient(circle, rgba(201,148,40,0.06) 0%, transparent 70%); top: -10%; left: 30%; }
+.orb-2 { width: 350px; height: 350px; background: radial-gradient(circle, rgba(180,100,20,0.05) 0%, transparent 70%); bottom: 10%; right: 10%; animation-delay: -3s; }
+.orb-3 { width: 300px; height: 300px; background: radial-gradient(circle, rgba(201,168,76,0.04) 0%, transparent 70%); top: 40%; left: 5%; animation-delay: -5s; }
+@keyframes breathe { 0%, 100% { transform: scale(1) translateY(0); } 50% { transform: scale(1.08) translateY(-12px); } }
+.hero::after { content: ''; position: absolute; inset: 0; background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.035'/%3E%3C/svg%3E"); pointer-events: none; z-index: 1; opacity: 0.5; }
+.hero-rule-top { position: absolute; left: 60px; right: 60px; height: 1px; background: linear-gradient(to right, transparent, rgba(201,168,76,0.12) 20%, rgba(201,168,76,0.12) 80%, transparent); top: 14%; }
+.hero-center { position: relative; z-index: 10; display: flex; flex-direction: column; align-items: center; padding-top: 60px; width: 100%; text-align: center; }
+.logo-wrap { opacity: 0; animation: logoIn 1.8s cubic-bezier(0.16,1,0.3,1) 0.2s forwards; display: flex; flex-direction: column; align-items: center; width: 100%; }
+@keyframes logoIn { from { opacity: 0; transform: scale(0.92); } to { opacity: 1; transform: scale(1); } }
+.logo-ring-container { position: relative; width: 210px; height: 210px; display: flex; align-items: center; justify-content: center; }
+.ring-glow { position: absolute; inset: -12px; border-radius: 50%; border: 1px solid rgba(201,168,76,0.08); }
+.ring-outer { position: absolute; inset: 0; border-radius: 50%; border: 1.5px solid var(--gold); box-shadow: 0 0 24px rgba(201,168,76,0.08), inset 0 0 24px rgba(201,168,76,0.03); }
+.ring-inner { position: absolute; inset: 9px; border-radius: 50%; border: 0.5px solid rgba(201,168,76,0.2); }
+.ring-fill { position: absolute; inset: 0; border-radius: 50%; background: var(--black); }
+.logo-inner { position: relative; z-index: 2; display: flex; flex-direction: column; align-items: center; gap: 5px; }
+.logo-main { display: flex; align-items: baseline; gap: 1px; }
+.logo-bracket { font-family: 'Cormorant Garamond', serif; font-weight: 300; font-size: 44px; color: var(--gold); line-height: 1; opacity: 0.6; }
+.logo-letters { font-family: 'Cormorant Garamond', serif; font-weight: 600; font-size: 42px; letter-spacing: 0.06em; color: var(--gold-light); line-height: 1; }
+.logo-sub { font-family: 'Montserrat', sans-serif; font-weight: 300; font-size: 10px; letter-spacing: 0.65em; color: var(--gold-light); text-transform: uppercase; padding-left: 0.65em; opacity: 0.9; }
+.logo-pillars { display: flex; align-items: center; gap: 14px; margin-top: 28px; justify-content: center; opacity: 0; animation: fadeUp 1s ease 0.7s forwards; width: 100%; }
+.pillar { font-size: 7.5px; letter-spacing: 0.36em; text-transform: uppercase; color: var(--gold); opacity: 0.9; font-weight: 500; }
+.pillar-dot { width: 2px; height: 2px; border-radius: 50%; background: var(--gold-dim); opacity: 0.7; }
+.hero-headline-wrap { margin-top: 44px; text-align: center; opacity: 0; animation: fadeUp 1.2s ease 0.9s forwards; }
+.hero-headline { font-family: 'Cormorant Garamond', serif; font-weight: 300; font-style: italic; font-size: 76px; line-height: 1.05; color: var(--white); letter-spacing: -0.01em; }
+.hero-headline strong { font-style: normal; font-weight: 500; color: var(--gold-light); display: block; }
+.hero-sub { margin-top: 18px; font-size: 11px; letter-spacing: 0.4em; text-transform: uppercase; color: rgba(248,244,236,0.82); }
+.hero-actions { margin-top: 48px; display: flex; flex-direction: column; align-items: center; gap: 0; opacity: 0; animation: fadeUp 1s ease 1.3s forwards; padding-bottom: 0; }
+
+/* ── BUTTONS ── */
+.btn-primary { display: inline-block; padding: 18px 64px; background: transparent; border: 1px solid rgba(201,168,76,0.55); color: var(--gold-light); font-family: 'Montserrat', sans-serif; font-size: 10px; font-weight: 400; letter-spacing: 0.42em; text-transform: uppercase; text-decoration: none; position: relative; overflow: hidden; transition: color .4s, border-color .4s; cursor: none; }
+.btn-primary::before { content: ''; position: absolute; inset: 0; background: linear-gradient(135deg, var(--gold-dim), var(--gold)); transform: translateX(-101%); transition: transform .45s cubic-bezier(0.16,1,0.3,1); }
+.btn-primary:hover { color: var(--black); border-color: var(--gold); }
+.btn-primary:hover::before { transform: translateX(0); }
+.btn-primary span { position: relative; z-index: 1; }
+
+.hero-status { display: flex; align-items: center; justify-content: center; gap: 9px; margin-top: 32px; padding-top: 0; border-top: none; width: 240px; }
+.hero-status-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--gold); flex-shrink: 0; animation: statusPulse 2.8s ease-in-out infinite; }
+@keyframes statusPulse { 0%, 100% { opacity: 1; transform: scale(1); box-shadow: 0 0 0 0 rgba(212,185,106,0.4); } 50% { opacity: 0.45; transform: scale(0.8); box-shadow: 0 0 0 3px rgba(212,185,106,0); } }
+.hero-status-text { font-size: 9px; letter-spacing: 0.34em; text-transform: uppercase; color: rgba(212,185,106,0.75); font-family: 'Montserrat', sans-serif; font-weight: 300; }
+
+
+
+/* ── STATEMENT ── */
+.statement { position: relative; padding: 120px 60px; background: var(--black-2); border-top: 1px solid rgba(201,168,76,0.07); border-bottom: 1px solid rgba(201,168,76,0.07); overflow: hidden; }
+.statement-bg-text { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-family: 'Cormorant Garamond', serif; font-size: 220px; font-weight: 600; color: rgba(201,168,76,0.02); white-space: nowrap; pointer-events: none; letter-spacing: -0.05em; line-height: 1; }
+.statement-grid { position: relative; z-index: 2; display: grid; grid-template-columns: 1fr 1.2fr; gap: 100px; align-items: center; max-width: 1100px; margin: 0 auto; }
+.statement-label { font-size: 10px; letter-spacing: 0.48em; text-transform: uppercase; color: var(--gold); opacity: 0.9; margin-bottom: 28px; }
+.statement-headline { font-family: 'Cormorant Garamond', serif; font-weight: 300; font-size: 50px; line-height: 1.1; color: var(--white); }
+.statement-headline em { font-style: italic; color: var(--gold); }
+.statement-rule { width: 40px; height: 1px; background: var(--gold); opacity: 0.6; margin: 32px 0; }
+.statement-body p { font-size: 13px; line-height: 2.1; color: rgba(248,244,236,0.88); letter-spacing: 0.04em; }
+.statement-body strong { font-weight: 500; color: var(--white); }
+
+/* ── EXPERIENCE ── */
+.experience { padding: 100px 60px; max-width: 1200px; margin: 0 auto; text-align: center; }
+.section-label { font-size: 10px; letter-spacing: 0.48em; text-transform: uppercase; color: var(--gold); opacity: 0.9; margin-bottom: 60px; display: flex; align-items: center; justify-content: center; gap: 20px; }
+.section-label::before, .section-label::after { content: ''; flex: 1; max-width: 80px; height: 1px; background: rgba(201,168,76,0.25); }
+.exp-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 2px; }
+.exp-card { background: var(--black-2); padding: 52px 40px; position: relative; overflow: hidden; transition: background .4s; text-align: left; }
+.exp-card:hover { background: #0e0e12; }
+.exp-card::after { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 1px; background: linear-gradient(to right, transparent, rgba(201,168,76,0.25), transparent); transform: scaleX(0); transition: transform .5s ease; }
+.exp-card:hover::after { transform: scaleX(1); }
+.exp-number { font-family: 'Cormorant Garamond', serif; font-size: 64px; font-weight: 300; color: rgba(201,168,76,0.05); line-height: 1; margin-bottom: 24px; transition: color .4s; }
+.exp-card:hover .exp-number { color: rgba(201,168,76,0.1); }
+.exp-title { font-family: 'Cormorant Garamond', serif; font-size: 24px; font-weight: 400; color: var(--white); margin-bottom: 16px; letter-spacing: 0.03em; }
+.exp-desc { font-size: 12.5px; line-height: 2; color: var(--white-dim); letter-spacing: 0.03em; }
+
+/* ── STATEMENT BREAK ── */
+.statement-break { padding: 80px 60px; text-align: center; background: var(--black); position: relative; overflow: hidden; }
+.statement-break-line { font-family: 'Cormorant Garamond', serif; font-weight: 300; font-style: italic; font-size: 42px; color: var(--white); line-height: 1.3; position: relative; z-index: 1; }
+.statement-break-line em { font-style: normal; color: var(--gold); }
+
+/* ── ACCESS ── */
+.access-section { padding: 100px 60px 160px; text-align: center; position: relative; background: var(--black-2); border-top: 1px solid rgba(201,168,76,0.07); border-bottom: 1px solid rgba(201,168,76,0.07); overflow: visible; }
+.access-eyebrow { font-size: 10px; letter-spacing: 0.5em; text-transform: uppercase; color: var(--gold); opacity: 0.9; margin-bottom: 20px; position: relative; z-index: 1; }
+.access-headline { font-family: 'Cormorant Garamond', serif; font-weight: 300; font-size: 52px; color: var(--white); line-height: 1.1; margin-bottom: 16px; position: relative; z-index: 1; }
+.access-sub { font-size: 11px; letter-spacing: 0.28em; text-transform: uppercase; color: rgba(248,244,236,0.72); margin-bottom: 48px; position: relative; z-index: 1; }
+.phone-form { max-width: 380px; margin: 0 auto; display: flex; flex-direction: column; position: relative; z-index: 1; }
+.phone-input { width: 100%; padding: 20px 24px; background: rgba(245,239,224,0.03); border: 1px solid rgba(201,168,76,0.15); color: var(--white); font-family: 'Montserrat', sans-serif; font-size: 13px; font-weight: 300; letter-spacing: 0.18em; outline: none; text-align: center; transition: background .3s, border-color .3s; -webkit-appearance: none; border-radius: 0; margin-bottom: 2px; }
+.phone-input::placeholder { color: rgba(248,244,236,0.5); }
+.phone-input:focus { background: rgba(201,168,76,0.04); border-color: rgba(201,168,76,0.3); }
+.phone-submit { width: 100%; padding: 17px; margin-top: 24px; }
+.phone-submit:disabled { opacity: 0.35; cursor: not-allowed; }
+.sms-opt-in-label { display: flex; align-items: flex-start; gap: 12px; margin-top: 16px; cursor: pointer; padding: 14px 16px; border: 1px solid rgba(201,168,76,0.15); border-radius: 6px; background: rgba(201,168,76,0.03); transition: border-color .25s, background .25s; }
+.sms-opt-in-label:hover { border-color: rgba(201,168,76,0.3); background: rgba(201,168,76,0.06); }
+.sms-opt-in-checkbox { position: absolute; opacity: 0; width: 0; height: 0; }
+.sms-opt-in-box { flex-shrink: 0; width: 18px; height: 18px; border: 1px solid rgba(201,168,76,0.4); border-radius: 3px; background: transparent; display: flex; align-items: center; justify-content: center; transition: border-color .2s, background .2s; margin-top: 1px; }
+.sms-opt-in-checkbox:checked ~ .sms-opt-in-box { border-color: #D4B96A; background: rgba(201,168,76,0.12); }
+.sms-check-icon { width: 12px; height: 10px; opacity: 0; transition: opacity .15s; }
+.sms-opt-in-checkbox:checked ~ .sms-opt-in-box .sms-check-icon { opacity: 1; }
+.sms-opt-in-text { font-size: 11px; letter-spacing: 0.08em; color: rgba(248,244,236,0.88); line-height: 1.7; }
+.form-disclaimer { margin-top: 12px; font-size: 11px; letter-spacing: 0.06em; color: rgba(248,244,236,0.62); line-height: 1.9; text-align: left; padding: 0 2px; }
+.form-disclaimer strong { color: rgba(248,244,236,0.88); }
+.disclaimer-link { color: rgba(212,185,106,0.85); text-decoration: none; transition: color .3s; }
+.disclaimer-link:hover { color: #D4B96A; }
+
+/* ── FOOTER ── */
+footer { padding: 36px 60px; display: flex; align-items: center; justify-content: space-between; border-top: 1px solid rgba(201,168,76,0.07); background: var(--black); }
+.footer-brand { font-family: 'Cormorant Garamond', serif; font-weight: 400; font-size: 11px; letter-spacing: 0.5em; text-transform: uppercase; color: var(--gold); }
+.footer-copy { font-size: 10px; letter-spacing: 0.12em; color: rgba(248,244,236,0.85); }
+.footer-nav { list-style: none; display: flex; gap: 28px; }
+.footer-nav a { font-size: 10px; letter-spacing: 0.22em; text-transform: uppercase; color: rgba(248,244,236,0.85); text-decoration: none; transition: color .3s; }
+.footer-nav a:hover { color: var(--gold); }
+
+/* ── ANIMATIONS ── */
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+@keyframes fadeUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+
+/* ── DESKTOP ── */
+@media (min-width: 769px) {
+  nav { padding: 0 80px; }
+  .statement-label { font-size: 11px; letter-spacing: 0.5em; }
+  .section-label { font-size: 11px; letter-spacing: 0.5em; }
+  .access-eyebrow { font-size: 11px; letter-spacing: 0.52em; }
+  .scroll-indicator span { font-size: 9px; }
+  .pillar { font-size: 8.5px; letter-spacing: 0.4em; }
+  .nav-links a { font-size: 11px; }
+  .footer-copy { font-size: 11px; }
+  .footer-nav a { font-size: 11px; }
+}
+
+/* ── MOBILE ── */
+@media (max-width: 768px) {
+  .cursor, .cursor-trail { display: none !important; }
+  * { cursor: auto !important; }
+  body { cursor: auto; }
+  nav { padding: 0 24px; height: 56px; }
+  .nav-links { gap: 24px; }
+  .hero { padding-top: 28px; }
+  .hero-rule-top { left: 24px; right: 24px; }
+  .hero-headline { font-size: 44px; }
+  .hero-sub { font-size: 9px; letter-spacing: 0.3em; }
+  .logo-pillars { gap: 10px; }
+  .pillar { font-size: 7px; letter-spacing: 0.28em; }
+  .statement { padding: 72px 24px; }
+  .statement-grid { grid-template-columns: 1fr; gap: 40px; }
+  .statement-headline { font-size: 36px; }
+  .statement-bg-text { font-size: 100px; }
+  .statement-body p { font-size: 12px; }
+  .experience { padding: 60px 24px; }
+  .exp-grid { grid-template-columns: 1fr; gap: 2px; }
+  .statement-break { padding: 60px 24px; }
+  .statement-break-line { font-size: 28px; }
+  .access-section { padding: 72px 24px 120px; }
+  .access-headline { font-size: 36px; }
+  .phone-form { max-width: 100%; }
+  footer { flex-direction: column; gap: 20px; text-align: center; padding: 36px 24px; }
+}
+</style>
+</head>
+<body>
+
+<div class="cursor" id="cursor"></div>
+<div class="cursor-trail" id="trail"></div>
+
+<nav>
+  <div class="nav-left">
+    <a href="/" class="nav-wordmark">[RSVP] Society</a>
+  </div>
+  <ul class="nav-links">
+    <li><a href="/pics.html">Gallery</a></li>
+  </ul>
+</nav>
+
+<!-- HERO -->
+<section class="hero">
+  <div class="hero-bg"></div>
+  <div class="orb orb-1"></div>
+  <div class="orb orb-2"></div>
+  <div class="orb orb-3"></div>
+  <div class="hero-rule-top"></div>
+  <div class="hero-center">
+    <div class="logo-wrap">
+      <div class="logo-ring-container">
+        <div class="ring-fill"></div>
+        <div class="ring-glow"></div>
+        <div class="ring-outer"></div>
+        <div class="ring-inner"></div>
+        <div class="logo-inner">
+          <div class="logo-main">
+            <span class="logo-bracket">[</span>
+            <span class="logo-letters">RSVP</span>
+            <span class="logo-bracket">]</span>
+          </div>
+          <span class="logo-sub">Society</span>
+        </div>
+      </div>
+      <div class="logo-pillars">
+        <span class="pillar">Rhythm</span>
+        <span class="pillar-dot"></span>
+        <span class="pillar">Style</span>
+        <span class="pillar-dot"></span>
+        <span class="pillar">Vibe</span>
+        <span class="pillar-dot"></span>
+        <span class="pillar">Presence</span>
+      </div>
+    </div>
+    <div class="hero-headline-wrap">
+      <h1 class="hero-headline">The list you didn't<br><strong>know existed.</strong></h1>
+      <p class="hero-sub">No flyers. Just rooms.</p>
+    </div>
+    <div class="hero-actions">
+      <a href="#access" class="btn-primary"><span>Request Access</span></a>
+      <div class="hero-status">
+        <div class="hero-status-dot"></div>
+        <span class="hero-status-text">Next Room: Final Touches.</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- WHO WE ARE -->
+<section class="statement">
+  <div class="statement-bg-text">RSVP</div>
+  <div class="statement-grid">
+    <div>
+      <p class="statement-label">Who We Are</p>
+      <h2 class="statement-headline">Some things you<br>only hear about<br><em>after.</em></h2>
+      <div class="statement-rule"></div>
+    </div>
+    <div class="statement-body">
+      <p>A private room, a higher standard, and energy that stays right. We don't post everything — because it's better that way. Familiar faces mixed with the right new ones. <strong>Your presence is requested. Your vibe must be verified.</strong></p>
+    </div>
+  </div>
+</section>
+
+<!-- EXPERIENCE -->
+<section class="experience" id="experience">
+  <div class="section-label">The Experience</div>
+  <div class="exp-grid">
+    <div class="exp-card">
+      <div class="exp-number">01</div>
+      <h3 class="exp-title">The Music</h3>
+      <p class="exp-desc">R&amp;B with intention. Real blends, real timing, no filler — start to finish.</p>
+    </div>
+    <div class="exp-card">
+      <div class="exp-number">02</div>
+      <h3 class="exp-title">The Space</h3>
+      <p class="exp-desc">Private rooms and hidden corners. Chosen for how they feel, not how they post.</p>
+    </div>
+    <div class="exp-card">
+      <div class="exp-number">03</div>
+      <h3 class="exp-title">The Room</h3>
+      <p class="exp-desc">The guest list is the feature. Grown energy, good taste, and chemistry that holds.</p>
+    </div>
+  </div>
+</section>
+
+<!-- STATEMENT BREAK -->
+<section class="statement-break">
+  <p class="statement-break-line">Most nights get posted.<br><em>This one gets talked about.</em></p>
+</section>
+
+<!-- REQUEST ACCESS -->
+<section class="access-section" id="access">
+  <p class="access-eyebrow">Next Room</p>
+  <h2 class="access-headline">Get access when<br><em style="font-style:italic;color:var(--gold-light);">the room opens.</em></h2>
+  <p class="access-sub">Your name on the list is the difference.</p>
+  <form class="phone-form" id="accessForm">
+    <input type="text" id="nameInput" required placeholder="Name" class="phone-input" />
+    <input type="tel" id="phoneInput" required placeholder="Phone Number" class="phone-input" />
+    <label class="sms-opt-in-label">
+      <input type="checkbox" id="smsOptIn" class="sms-opt-in-checkbox" />
+      <span class="sms-opt-in-box">
+        <svg class="sms-check-icon" viewBox="0 0 12 10" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M1 5L4.5 8.5L11 1" stroke="#D4B96A" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </span>
+      <span class="sms-opt-in-text">Opt in to receive text message updates from RSVP Society</span>
+    </label>
+    <p class="form-disclaimer">
+      By checking the box and submitting, you consent to receive recurring automated text messages from RSVP Society (event invitations, access confirmations, and updates) to the phone number provided. Msg &amp; data rates may apply. Message frequency varies. Reply <strong>HELP</strong> for help or <strong>STOP</strong> to opt out at any time. Mobile data will not be shared with third parties for marketing purposes.<br>
+      <a href="/terms.html" class="disclaimer-link">SMS Terms &amp; Privacy Policy</a>
+    </p>
+    <button type="submit" class="btn-primary phone-submit" id="submitBtn" disabled><span id="submitLabel">Add Me to RSVP Society</span></button>
+  </form>
+</section>
+
+<!-- FOOTER -->
+<footer>
+  <span class="footer-brand">[RSVP] Society</span>
+  <span class="footer-copy">&copy; 2026 RSVP Society. All rights reserved.</span>
+  <ul class="footer-nav">
+    <li><a href="/terms.html">SMS Terms</a></li>
+    <li><a href="/terms.html">Privacy</a></li>
+  </ul>
+</footer>
+
+<script>
+// ── Cursor (single instance, no duplicates) ──
+const cursor = document.getElementById('cursor');
+const trail  = document.getElementById('trail');
+let mx = 0, my = 0, tx = 0, ty = 0;
+
+document.addEventListener('mousemove', e => {
+  mx = e.clientX; my = e.clientY;
+  cursor.style.left = mx + 'px';
+  cursor.style.top  = my + 'px';
+});
+
+(function animTrail() {
+  tx += (mx - tx) * 0.1;
+  ty += (my - ty) * 0.1;
+  trail.style.left = tx + 'px';
+  trail.style.top  = ty + 'px';
+  requestAnimationFrame(animTrail);
+})();
+
+document.querySelectorAll('a, button, input').forEach(el => {
+  el.addEventListener('mouseenter', () => {
+    trail.style.width = '52px'; trail.style.height = '52px';
+    trail.style.borderColor = 'rgba(200,184,122,0.6)';
+  });
+  el.addEventListener('mouseleave', () => {
+    trail.style.width = '28px'; trail.style.height = '28px';
+    trail.style.borderColor = 'rgba(201,168,76,0.35)';
+  });
+});
+
+// ── Form ──
+const smsOptInEl = document.getElementById('smsOptIn');
+const submitBtn  = document.getElementById('submitBtn');
+smsOptInEl.addEventListener('change', () => {
+  submitBtn.disabled = !smsOptInEl.checked;
+});
+
+async function handleSubmit(e) {
+  e.preventDefault();
+  const phoneEl = document.getElementById('phoneInput');
+  const nameEl  = document.getElementById('nameInput');
+  const label   = document.getElementById('submitLabel');
+  const phone   = (phoneEl?.value || '').trim();
+  const name    = (nameEl?.value  || '').trim();
+  if (!phone || !name || !smsOptInEl.checked) return;
+
+  label.textContent = 'Adding you...';
+
+  try {
+    const res = await fetch('https://api.rsvpsociety.com/access', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone, name, source: 'web', smsOptIn: true })
+    });
+    const text = await res.text();
+    let data;
+    try { data = JSON.parse(text); } catch { data = { raw: text }; }
+
+    if (!res.ok || data.ok !== true) {
+      label.textContent = 'Something went wrong. Try again.';
+      return;
+    }
+
+    phoneEl.disabled = true;
+    nameEl.disabled  = true;
+    submitBtn.disabled = true;
+    label.textContent = 'Locked in. Next room drops soon.';
+
+  } catch (err) {
+    label.textContent = 'Network error. Try again.';
+  }
+}
+
+document.getElementById('accessForm').addEventListener('submit', handleSubmit);
+
+// ── Smooth scroll ──
+document.querySelectorAll('a[href^="#"]').forEach(a => {
+  if (a.getAttribute('onclick')) return;
+  a.addEventListener('click', e => {
+    const target = document.querySelector(a.getAttribute('href'));
+    if (target) { e.preventDefault(); target.scrollIntoView({ behavior: 'smooth' }); }
+  });
+});
+</script>
+</body>
+</html>
