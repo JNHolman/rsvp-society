@@ -37,6 +37,7 @@ locals {
   invites_arn      = aws_dynamodb_table.event_invites.arn
   invites_index    = "${aws_dynamodb_table.event_invites.arn}/index/*"
   checkins_arn     = aws_dynamodb_table.checkins.arn
+  audit_log_arn    = aws_dynamodb_table.audit_log.arn
   region           = data.aws_region.current.name
   account          = data.aws_caller_identity.current.account_id
 }
@@ -199,13 +200,18 @@ resource "aws_iam_role_policy" "lambda_invite_handler" {
       },
       {
         Effect   = "Allow"
-        Action   = ["dynamodb:PutItem", "dynamodb:GetItem", "dynamodb:UpdateItem"]
-        Resource = [local.invites_arn]
+        Action   = ["dynamodb:PutItem", "dynamodb:GetItem", "dynamodb:UpdateItem", "dynamodb:Query", "dynamodb:Scan"]
+        Resource = [local.invites_arn, local.invites_index]
       },
       {
         Effect   = "Allow"
         Action   = ["dynamodb:GetItem"]
         Resource = [local.events_arn]
+      },
+      {
+        Effect   = "Allow"
+        Action   = ["dynamodb:PutItem", "dynamodb:UpdateItem"]
+        Resource = [local.audit_log_arn]
       },
       {
         Effect   = "Allow"

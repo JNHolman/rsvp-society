@@ -739,6 +739,229 @@ main {
   .page-btn.active { border-color: var(--gold); color: var(--gold); background: rgba(212,185,106,0.08); }
   .page-btn:disabled { opacity: 0.25; cursor: not-allowed; }
   .page-ellipsis { color: rgba(248,244,236,0.3); font-size: 12px; padding: 0 4px; }
+/* ── Analytics Tab ─────────────────────────────────────────────────────────── */
+.analytics-event-selector {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  margin-bottom: 32px;
+  flex-wrap: wrap;
+}
+.analytics-event-selector select {
+  background: var(--black-2);
+  border: none;
+  border-bottom: 1px solid rgba(212,185,106,0.2);
+  color: var(--white);
+  font-family: 'Montserrat', sans-serif;
+  font-size: 11px;
+  padding: 8px 0;
+  outline: none;
+  min-width: 220px;
+  cursor: pointer;
+}
+.analytics-event-selector select:focus { border-bottom-color: var(--gold); }
+
+.analytics-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 1px;
+  background: rgba(248,244,236,0.04);
+  margin-bottom: 32px;
+}
+.analytics-grid-wide {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1px;
+  background: rgba(248,244,236,0.04);
+  margin-bottom: 32px;
+}
+.analytics-grid-2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+  margin-bottom: 32px;
+}
+
+.analytics-block-label {
+  font-size: 8px;
+  letter-spacing: 0.4em;
+  text-transform: uppercase;
+  color: rgba(212,185,106,0.6);
+  margin-bottom: 20px;
+}
+
+.a-stat {
+  background: var(--black-2);
+  padding: 24px 28px;
+  text-align: center;
+}
+.a-stat-num {
+  font-family: 'Cormorant Garamond', serif;
+  font-size: 42px;
+  font-weight: 300;
+  line-height: 1;
+  margin-bottom: 6px;
+  color: var(--white);
+}
+.a-stat-num.gold  { color: var(--gold); }
+.a-stat-num.green { color: var(--green); }
+.a-stat-num.dim   { color: rgba(248,244,236,0.4); }
+.a-stat-label {
+  font-size: 8px;
+  letter-spacing: 0.35em;
+  text-transform: uppercase;
+  color: rgba(248,244,236,0.5);
+}
+
+.analytics-panel {
+  background: var(--black-2);
+  padding: 28px 32px;
+}
+.analytics-panel-title {
+  font-size: 8px;
+  letter-spacing: 0.4em;
+  text-transform: uppercase;
+  color: rgba(212,185,106,0.6);
+  margin-bottom: 20px;
+}
+.analytics-ratio-bar {
+  height: 4px;
+  background: rgba(248,244,236,0.06);
+  margin: 12px 0 8px;
+  position: relative;
+  overflow: hidden;
+}
+.analytics-ratio-fill {
+  height: 100%;
+  background: var(--gold);
+  transition: width 0.6s ease;
+}
+.analytics-ratio-labels {
+  display: flex;
+  justify-content: space-between;
+  font-size: 8px;
+  letter-spacing: 0.2em;
+  color: rgba(248,244,236,0.5);
+}
+
+.analytics-funnel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.funnel-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+.funnel-bar-wrap {
+  flex: 1;
+  height: 28px;
+  background: rgba(248,244,236,0.04);
+  position: relative;
+}
+.funnel-bar-fill {
+  height: 100%;
+  background: rgba(212,185,106,0.15);
+  border-right: 2px solid var(--gold);
+  transition: width 0.6s ease;
+}
+.funnel-bar-fill.green-fill {
+  background: rgba(76,175,125,0.12);
+  border-right-color: var(--green);
+}
+.funnel-label {
+  font-size: 8px;
+  letter-spacing: 0.25em;
+  text-transform: uppercase;
+  color: rgba(248,244,236,0.5);
+  width: 90px;
+  flex-shrink: 0;
+}
+.funnel-value {
+  font-family: 'Cormorant Garamond', serif;
+  font-size: 22px;
+  font-weight: 300;
+  color: var(--white);
+  width: 60px;
+  flex-shrink: 0;
+  text-align: right;
+}
+.funnel-rate {
+  font-size: 8px;
+  letter-spacing: 0.2em;
+  color: rgba(248,244,236,0.35);
+  width: 50px;
+  flex-shrink: 0;
+}
+
+.analytics-tier-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 10px;
+}
+.analytics-tier-table th {
+  font-size: 7px;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  color: rgba(248,244,236,0.35);
+  padding: 0 0 12px;
+  text-align: right;
+  font-weight: 400;
+}
+.analytics-tier-table th:first-child { text-align: left; }
+.analytics-tier-table td {
+  padding: 10px 0;
+  text-align: right;
+  border-top: 1px solid rgba(248,244,236,0.04);
+  color: rgba(248,244,236,0.7);
+  font-size: 10px;
+  letter-spacing: 0.05em;
+}
+.analytics-tier-table td:first-child {
+  text-align: left;
+  color: var(--white);
+  letter-spacing: 0.15em;
+  font-size: 9px;
+}
+
+.alltime-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 1px;
+  background: rgba(248,244,236,0.04);
+  margin-bottom: 32px;
+}
+
+.analytics-empty {
+  text-align: center;
+  padding: 80px 0;
+  color: rgba(248,244,236,0.2);
+  font-size: 9px;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+}
+
+/* Attendance sub-section */
+.att-sub-header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 24px;
+}
+.att-sub-header input {
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid rgba(212,185,106,0.2);
+  color: var(--white);
+  font-family: 'Montserrat', sans-serif;
+  font-size: 11px;
+  padding: 8px 0;
+  outline: none;
+  width: 200px;
+}
+.att-sub-header input:focus { border-bottom-color: var(--gold); }
+
 </style>
 </head>
 <body>
@@ -767,6 +990,7 @@ main {
       <button class="tab-btn active" id="tab-members" onclick="setTab('members'); showSection('members')">Members</button>
       <button class="tab-btn" id="tab-event" onclick="setTab('event'); showSection('event'); loadCurrentEvent()">Event</button>
       <button class="tab-btn" id="tab-invite" onclick="setTab('invite'); showSection('invite'); loadEventIntoInviteForm()">Invite</button>
+      <button class="tab-btn" id="tab-analytics" onclick="setTab('analytics'); showSection('analytics'); loadAnalyticsTab()">Analytics</button>
       <div class="nav-divider"></div>
       <button class="logout-btn" onclick="doLogout()">Sign Out</button>
     </div>
@@ -956,13 +1180,19 @@ main {
           <label>Dress Code</label>
           <input type="text" id="ev-dresscode" placeholder="All Black Preferred" />
         </div>
-        <div class="event-field">
-          <label>Reminder Timing</label>
-          <select id="ev-reminder" style="background:#0C0C10;border:none;border-bottom:1px solid rgba(212,185,106,0.2);color:rgba(248,244,236,0.9);font-family:'Montserrat',sans-serif;font-size:11px;padding:8px 0;outline:none;width:100%;cursor:pointer;">
-            <option value="manual">Manual only</option>
-            <option value="day_before">Day before at 6 PM</option>
-            <option value="day_of">Day of at 11 AM</option>
-          </select>
+        <div class="event-field event-grid-full">
+          <label>Auto Reminders <span style="opacity:0.4;font-size:8px;">EventBridge fires these automatically on schedule</span></label>
+          <div style="display:flex;gap:28px;padding:10px 0;">
+            <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin:0;">
+              <input type="checkbox" id="ev-remind-day-before" style="width:15px;height:15px;accent-color:#D4B96A;cursor:pointer;" />
+              <span style="font-size:9px;letter-spacing:0.25em;text-transform:uppercase;color:rgba(248,244,236,0.7);">Day Before &nbsp;<span style="opacity:0.45;letter-spacing:0.1em;text-transform:none;">6 PM EST</span></span>
+            </label>
+            <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin:0;">
+              <input type="checkbox" id="ev-remind-day-of" style="width:15px;height:15px;accent-color:#D4B96A;cursor:pointer;" />
+              <span style="font-size:9px;letter-spacing:0.25em;text-transform:uppercase;color:rgba(248,244,236,0.7);">Day Of &nbsp;<span style="opacity:0.45;letter-spacing:0.1em;text-transform:none;">11 AM EST</span></span>
+            </label>
+          </div>
+          <div style="font-size:8px;color:rgba(248,244,236,0.2);letter-spacing:0.1em;">Check both to send both. Uncheck all for manual only via the Invite tab.</div>
         </div>
 
         <!-- Event Type + Vibe Tag -->
@@ -1006,14 +1236,18 @@ main {
       <div id="jade-preview-panel" style="display:none;margin-top:32px;border:1px solid rgba(212,185,106,0.2);padding:28px;">
         <div style="font-size:8px;letter-spacing:0.4em;text-transform:uppercase;color:rgba(212,185,106,0.6);margin-bottom:8px;">Jade Message Preview</div>
         <div style="font-size:10px;color:rgba(248,244,236,0.35);letter-spacing:0.05em;margin-bottom:24px;">Edit directly. Use <strong style="color:rgba(212,185,106,0.7);">{name}</strong> where the member's first name should appear. Save Event to lock these in.</div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;">
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:24px;">
           <div>
             <div style="font-size:8px;letter-spacing:0.3em;text-transform:uppercase;color:rgba(248,244,236,0.3);margin-bottom:10px;">Invite Text</div>
-            <textarea id="jade-invite-preview" rows="4" style="width:100%;background:rgba(212,185,106,0.04);border:none;border-left:2px solid rgba(212,185,106,0.4);color:#F8F4EC;font-family:'Cormorant Garamond',serif;font-size:16px;line-height:1.7;padding:16px;outline:none;resize:vertical;"></textarea>
+            <textarea id="jade-invite-preview" rows="5" style="width:100%;background:rgba(212,185,106,0.04);border:none;border-left:2px solid rgba(212,185,106,0.4);color:#F8F4EC;font-family:'Cormorant Garamond',serif;font-size:16px;line-height:1.7;padding:16px;outline:none;resize:vertical;"></textarea>
           </div>
           <div>
-            <div style="font-size:8px;letter-spacing:0.3em;text-transform:uppercase;color:rgba(248,244,236,0.3);margin-bottom:10px;">Reminder Text (Day-Of)</div>
-            <textarea id="jade-reminder-preview" rows="4" style="width:100%;background:rgba(212,185,106,0.04);border:none;border-left:2px solid rgba(212,185,106,0.4);color:#F8F4EC;font-family:'Cormorant Garamond',serif;font-size:16px;line-height:1.7;padding:16px;outline:none;resize:vertical;"></textarea>
+            <div style="font-size:8px;letter-spacing:0.3em;text-transform:uppercase;color:rgba(248,244,236,0.3);margin-bottom:6px;">Day Before Reminder <span style="opacity:0.4;font-weight:300;">· 6 PM EST</span></div>
+            <textarea id="jade-day-before-preview" rows="5" style="width:100%;background:rgba(212,185,106,0.04);border:none;border-left:2px solid rgba(212,185,106,0.2);color:#F8F4EC;font-family:'Cormorant Garamond',serif;font-size:16px;line-height:1.7;padding:16px;outline:none;resize:vertical;"></textarea>
+          </div>
+          <div>
+            <div style="font-size:8px;letter-spacing:0.3em;text-transform:uppercase;color:rgba(248,244,236,0.3);margin-bottom:6px;">Day Of Reminder <span style="opacity:0.4;font-weight:300;">· 11 AM EST</span></div>
+            <textarea id="jade-day-of-preview" rows="5" style="width:100%;background:rgba(212,185,106,0.04);border:none;border-left:2px solid rgba(212,185,106,0.2);color:#F8F4EC;font-family:'Cormorant Garamond',serif;font-size:16px;line-height:1.7;padding:16px;outline:none;resize:vertical;"></textarea>
           </div>
         </div>
         <div style="margin-top:20px;display:flex;align-items:center;gap:16px;">
@@ -1027,7 +1261,40 @@ main {
 
 
 
-  </main>
+  
+<!-- ── Analytics Section ──────────────────────────────────────────────────── -->
+<div id="analytics-section" style="display:none">
+  <div class="section-header">
+    <div class="section-title">Analytics</div>
+    <div class="section-count" id="analytics-subtitle">Select an event</div>
+  </div>
+
+  <!-- All-time summary — always visible -->
+  <div style="margin-bottom:12px;">
+    <div class="analytics-block-label">All Time</div>
+  </div>
+  <div class="alltime-grid" id="alltime-grid">
+    <div class="a-stat"><div class="a-stat-num gold" id="at-events">—</div><div class="a-stat-label">Events Run</div></div>
+    <div class="a-stat"><div class="a-stat-num" id="at-members">—</div><div class="a-stat-label">Member Pool</div></div>
+    <div class="a-stat"><div class="a-stat-num green" id="at-attendees">—</div><div class="a-stat-label">Unique Attendees</div></div>
+    <div class="a-stat"><div class="a-stat-num" id="at-repeat">—</div><div class="a-stat-label">Repeat Attendees</div></div>
+  </div>
+
+  <!-- Event selector -->
+  <div class="analytics-event-selector">
+    <div class="analytics-block-label" style="margin:0;">Event</div>
+    <select id="analytics-event-select" onchange="loadEventAnalytics(this.value)">
+      <option value="">— select event —</option>
+    </select>
+    <button onclick="loadAnalyticsTab()" style="background:none;border:1px solid rgba(212,185,106,0.2);color:rgba(212,185,106,0.6);font-family:'Montserrat',sans-serif;font-size:8px;letter-spacing:0.25em;text-transform:uppercase;padding:8px 16px;cursor:pointer;">Refresh</button>
+  </div>
+
+  <div id="event-analytics-body">
+    <div class="analytics-empty">Select an event above</div>
+  </div>
+</div>
+
+</main>
 </div>
 
 <div class="toast" id="toast"></div>
@@ -1370,9 +1637,10 @@ function escHtml(str) {
 
 // ── Section switching ──
 function showSection(section) {
-  document.getElementById('members-section').style.display   = section === 'members'    ? 'block' : 'none';
-  document.getElementById('invite-section').style.display    = section === 'invite'     ? 'block' : 'none';
-  document.getElementById('event-section').style.display     = section === 'event'      ? 'block' : 'none';
+  document.getElementById('members-section').style.display   = section === 'members'   ? 'block' : 'none';
+  document.getElementById('invite-section').style.display    = section === 'invite'    ? 'block' : 'none';
+  document.getElementById('event-section').style.display     = section === 'event'     ? 'block' : 'none';
+  document.getElementById('analytics-section').style.display = section === 'analytics' ? 'block' : 'none';
   if (section === 'event') loadCurrentEvent();
 }
 
@@ -1897,20 +2165,23 @@ function previewJadeMessages() {
   if (reveal && address) parts.push(address + '.');
   if (closing) parts.push(closing);
 
-  // Build reminder template
-  const reminderClosing = Math.random() < 0.4 ? closings[Math.floor(Math.random() * closings.length)] : '';
-  const reminderParts = [];
-  if (Math.random() > 0.5) {
-    reminderParts.push('Tonight.');
-    if (label) reminderParts.push(label + '.');
-    if (time)  reminderParts.push(time + '.');
-  } else {
-    reminderParts.push(time ? ('Doors at ' + time + '.') : 'Tonight.');
-  }
-  if (reminderClosing) reminderParts.push(reminderClosing);
+  // Build day-before reminder template — "tomorrow" framing
+  const dayBeforeClosing = Math.random() < 0.4 ? closings[Math.floor(Math.random() * closings.length)] : '';
+  const dayBeforeParts = ['{name}.', 'Tomorrow.'];
+  if (label) dayBeforeParts.push(label + '.');
+  if (time)  dayBeforeParts.push('Doors at ' + time + '.');
+  if (dayBeforeClosing) dayBeforeParts.push(dayBeforeClosing);
 
-  document.getElementById('jade-invite-preview').value   = parts.join(' ');
-  document.getElementById('jade-reminder-preview').value = reminderParts.join(' ');
+  // Build day-of reminder template — "tonight" framing
+  const dayOfClosing = Math.random() < 0.4 ? closings[Math.floor(Math.random() * closings.length)] : '';
+  const dayOfParts = ['{name}.', 'Tonight.'];
+  if (label) dayOfParts.push(label + '.');
+  if (time)  dayOfParts.push('Doors at ' + time + '.');
+  if (dayOfClosing) dayOfParts.push(dayOfClosing);
+
+  document.getElementById('jade-invite-preview').value      = parts.join(' ');
+  document.getElementById('jade-day-before-preview').value  = dayBeforeParts.join(' ');
+  document.getElementById('jade-day-of-preview').value      = dayOfParts.join(' ');
 
   document.getElementById('jade-preview-panel').style.display = 'block';
   document.getElementById('template-lock-status').textContent = 'Edit above, then Save Event to lock in.';
@@ -1944,15 +2215,20 @@ async function loadCurrentEvent() {
         updateVibeTags();
         if (ev.vibe_tag) document.getElementById('ev-vibe-tag').value = ev.vibe_tag;
       }
+      // Restore reminder checkboxes
+      const timing = ev.reminderTiming || '';
+      document.getElementById('ev-remind-day-before').checked = timing.includes('day_before') || timing === 'both';
+      document.getElementById('ev-remind-day-of').checked     = timing.includes('day_of')     || timing === 'both';
+
       // Restore locked templates if they exist
-      if (ev.invite_template || ev.reminder_template) {
-        document.getElementById('jade-invite-preview').value   = ev.invite_template  || '';
-        document.getElementById('jade-reminder-preview').value = ev.reminder_template || '';
+      if (ev.invite_template || ev.day_before_template || ev.day_of_template) {
+        document.getElementById('jade-invite-preview').value     = ev.invite_template      || '';
+        document.getElementById('jade-day-before-preview').value = ev.day_before_template  || '';
+        document.getElementById('jade-day-of-preview').value     = ev.day_of_template      || '';
         document.getElementById('jade-preview-panel').style.display = 'block';
         document.getElementById('template-lock-status').textContent = '✓ Templates locked';
         document.getElementById('template-lock-status').style.color = 'rgba(76,175,125,0.8)';
       }
-      document.getElementById('ev-reminder').value    = ev.reminderTiming || 'manual';
 
       // Show current event display
       const fields = [
@@ -1993,9 +2269,17 @@ async function saveEvent() {
     event_type:     document.getElementById('ev-type').value,
     vibe_tag:       document.getElementById('ev-vibe-tag').value,
     description:    document.getElementById('ev-description').value.trim(),
-    invite_template:  document.getElementById('jade-invite-preview').value.trim(),
-    reminder_template: document.getElementById('jade-reminder-preview').value.trim(),
-    reminderTiming: document.getElementById('ev-reminder').value,
+    invite_template:      document.getElementById('jade-invite-preview').value.trim(),
+    day_before_template:  document.getElementById('jade-day-before-preview').value.trim(),
+    day_of_template:      document.getElementById('jade-day-of-preview').value.trim(),
+    reminderTiming: (() => {
+      const db = document.getElementById('ev-remind-day-before').checked;
+      const dof = document.getElementById('ev-remind-day-of').checked;
+      if (db && dof) return 'both';
+      if (db)  return 'day_before';
+      if (dof) return 'day_of';
+      return 'manual';
+    })(),
   };
 
   if (!body.date) { showToast('Date is required', 'error'); return; }
@@ -2031,32 +2315,54 @@ async function sendReminderBlast() {
     }
   } catch(e) {}
 
-  // Determine is_day_of from event timing or ask if manual
-  let is_day_of;
-  if (reminderTiming === 'day_of') {
-    is_day_of = true;
+  // Determine which reminder(s) to send
+  // reminderTiming: 'both' | 'day_before' | 'day_of' | 'manual'
+  let sendDayBefore = false;
+  let sendDayOf     = false;
+
+  if (reminderTiming === 'both') {
+    sendDayBefore = true;
+    sendDayOf     = true;
   } else if (reminderTiming === 'day_before') {
-    is_day_of = false;
+    sendDayBefore = true;
+  } else if (reminderTiming === 'day_of') {
+    sendDayOf = true;
   } else {
-    // Manual — ask operator which wording to use
-    const choice = confirm(`Send reminder for "${eventLabel}"\n\nOK = Tonight wording\nCancel = Tomorrow wording`);
-    is_day_of = choice;
+    // Manual — ask which one(s) to send
+    sendDayBefore = confirm(`Send DAY BEFORE reminder for "${eventLabel}"?\n\n"Tomorrow" wording.`);
+    sendDayOf     = confirm(`Send DAY OF reminder for "${eventLabel}"?\n\n"Tonight" wording.`);
+    if (!sendDayBefore && !sendDayOf) return;
   }
 
-  if (!confirm(`Send ${is_day_of ? '"Tonight"' : '"Tomorrow"'} reminder to all confirmed members for "${eventLabel}"?`)) return;
+  const label = [];
+  if (sendDayBefore) label.push('"Tomorrow"');
+  if (sendDayOf)     label.push('"Tonight"');
+  if (!confirm(`Send ${label.join(' + ')} reminder to all confirmed members for "${eventLabel}"?`)) return;
 
   btn.textContent = 'Sending...';
   btn.disabled = true;
 
   try {
-    const res = await fetch(`${API}/admin/invite/reminder`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', 'x-admin-token': adminToken },
-      body: JSON.stringify({ is_day_of })
-    });
-    const data = await res.json();
-    if (!data.ok) throw new Error(data.error);
-    showToast(`Reminder sent to ${data.sent} confirmed members`, 'success');
+    const sends = [];
+    if (sendDayBefore) sends.push(
+      fetch(`${API}/admin/invite/reminder`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-admin-token': adminToken },
+        body: JSON.stringify({ is_day_of: false })
+      }).then(r => r.json())
+    );
+    if (sendDayOf) sends.push(
+      fetch(`${API}/admin/invite/reminder`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-admin-token': adminToken },
+        body: JSON.stringify({ is_day_of: true })
+      }).then(r => r.json())
+    );
+    const results = await Promise.all(sends);
+    const failed  = results.filter(r => !r.ok);
+    const totalSent = results.reduce((sum, r) => sum + (r.sent || 0), 0);
+    if (failed.length) throw new Error(failed[0].error || 'Partial failure');
+    showToast(`Reminder sent to ${totalSent} confirmed members`, 'success');
   } catch (err) {
     showToast('Blast failed: ' + err.message, 'error');
   } finally {
@@ -2283,6 +2589,336 @@ async function confirmImport() {
   }
 }
 
+
+
+// ── Analytics Tab ──────────────────────────────────────────────────────────
+
+async function loadAnalyticsTab() {
+  await Promise.all([loadAllTimeStats(), loadEventSelector()]);
+}
+
+async function loadAllTimeStats() {
+  try {
+    // Pull approved + member counts from existing members endpoint
+    const [approvedRes, allRes] = await Promise.all([
+      fetch(`${API}/admin/members?status=APPROVED`, { headers: { 'x-admin-token': adminToken } }),
+      fetch(`${API}/admin/members?status=PENDING`,  { headers: { 'x-admin-token': adminToken } }),
+    ]);
+    const approvedData = await approvedRes.json();
+    const pendingData  = await allRes.json();
+
+    const totalMembers = (approvedData.ok ? approvedData.total || 0 : 0)
+                       + (pendingData.ok  ? pendingData.total  || 0 : 0);
+    document.getElementById('at-members').textContent = totalMembers || '—';
+
+    // Pull analytics for all known events to build cumulative numbers
+    const analyticsRes = await fetch(`${API}/admin/event/analytics?eventId=current`, {
+      headers: { 'x-admin-token': adminToken }
+    });
+    const analyticsData = await analyticsRes.json();
+    if (analyticsData.ok && analyticsData.analytics) {
+      const a = analyticsData.analytics;
+      const totals = a.totals || {};
+      document.getElementById('at-attendees').textContent = totals.attended || '—';
+    }
+  } catch(e) {
+    console.error('loadAllTimeStats:', e);
+  }
+  // Events run and repeat attendees require historical scan — populate when available
+  // For now show member pool and current event attendance; these grow over time
+}
+
+async function loadEventSelector() {
+  try {
+    // Get distinct eventIds from invite records via analytics endpoint listing
+    // For now we seed with "current" — as events accumulate they appear here
+    const res = await fetch(`${API}/admin/event/analytics?eventId=current`, {
+      headers: { 'x-admin-token': adminToken }
+    });
+    const data = await res.json();
+    const sel = document.getElementById('analytics-event-select');
+
+    // Always offer current event
+    if (sel.options.length <= 1) {
+      // Fetch the actual event slug to label it properly
+      const evRes = await fetch(`${API}/admin/event`, { headers: { 'x-admin-token': adminToken } });
+      const evData = await evRes.json();
+      if (evData.ok && evData.event) {
+        const ev = evData.event;
+        const slug = ev.eventSlug || ev.eventId || 'current';
+        const label = ev.eventSlug
+          ? `${ev.eventSlug}${ev.date ? ' — ' + ev.date : ''}`
+          : 'Current Event';
+
+        // Remove placeholder dupes and add
+        while (sel.options.length > 1) sel.remove(1);
+        const opt = document.createElement('option');
+        opt.value = slug;
+        opt.textContent = label;
+        sel.appendChild(opt);
+
+        // Persist known slugs in localStorage for history
+        try {
+          const known = JSON.parse(localStorage.getItem('rsvp_known_events') || '[]');
+          if (!known.find(e => e.slug === slug)) {
+            known.unshift({ slug, label });
+            // Keep last 50 events
+            localStorage.setItem('rsvp_known_events', JSON.stringify(known.slice(0, 50)));
+          }
+        } catch(e) {}
+      }
+
+      // Load historical slugs from localStorage
+      try {
+        const known = JSON.parse(localStorage.getItem('rsvp_known_events') || '[]');
+        const existing = Array.from(sel.options).map(o => o.value);
+        known.forEach(e => {
+          if (!existing.includes(e.slug)) {
+            const opt = document.createElement('option');
+            opt.value = e.slug;
+            opt.textContent = e.label;
+            sel.appendChild(opt);
+          }
+        });
+        // Update all-time event count
+        document.getElementById('at-events').textContent = known.length || '—';
+      } catch(e) {}
+    }
+  } catch(e) {
+    console.error('loadEventSelector:', e);
+  }
+}
+
+async function loadEventAnalytics(eventId) {
+  if (!eventId) {
+    document.getElementById('event-analytics-body').innerHTML = '<div class="analytics-empty">Select an event above</div>';
+    document.getElementById('analytics-subtitle').textContent = 'Select an event';
+    return;
+  }
+
+  document.getElementById('event-analytics-body').innerHTML = '<div class="analytics-empty">Loading...</div>';
+  document.getElementById('analytics-subtitle').textContent = eventId;
+
+  try {
+    const [analyticsRes, evRes] = await Promise.all([
+      fetch(`${API}/admin/event/analytics?eventId=${encodeURIComponent(eventId)}`, {
+        headers: { 'x-admin-token': adminToken }
+      }),
+      fetch(`${API}/admin/event`, { headers: { 'x-admin-token': adminToken } })
+    ]);
+    const analyticsData = await analyticsRes.json();
+    const evData = await evRes.json();
+
+    if (!analyticsData.ok) throw new Error(analyticsData.error || 'Failed to load analytics');
+
+    const a   = analyticsData.analytics;
+    const ev  = (evData.ok && evData.event) ? evData.event : {};
+    const t   = a.totals   || {};
+    const bg  = a.by_gender || {};
+    const bt  = a.by_tier   || {};
+    const bw  = a.by_wave   || {};
+
+    // Rates
+    const confirmRate = t.invited  > 0 ? t.confirmed  / t.invited   : 0;
+    const showRate    = t.confirmed > 0 ? t.attended   / t.confirmed : 0;
+    const ghostRate   = t.invited  > 0 ? (t.no_response || 0) / t.invited : 0;
+    const noShowRate  = t.confirmed > 0 ? (t.declined_after_confirm || (t.confirmed - t.attended)) / t.confirmed : 0;
+
+    // Event meta from the event record if this is current, otherwise from slug
+    const venue    = ev.venue    || '—';
+    const city     = ev.city     || '—';
+    const date     = ev.date     || '—';
+    const capacity = ev.capacity || '—';
+    const evName   = ev.eventSlug || eventId;
+
+    // Gender breakdown
+    const mInv  = (bg.M || {}).invited   || 0;
+    const fInv  = (bg.F || {}).invited   || 0;
+    const mAtt  = (bg.M || {}).attended  || 0;
+    const fAtt  = (bg.F || {}).attended  || 0;
+    const oInv  = (bg.O || {}).invited   || 0;
+    const totalInvGender = mInv + fInv + oInv;
+    const fPctInv = totalInvGender > 0 ? Math.round(fInv / totalInvGender * 100) : 0;
+    const mPctInv = totalInvGender > 0 ? Math.round(mInv / totalInvGender * 100) : 0;
+    const totalAttGender = mAtt + fAtt + ((bg.O||{}).attended||0);
+    const fPctAtt = totalAttGender > 0 ? Math.round(fAtt / totalAttGender * 100) : 0;
+    const mPctAtt = totalAttGender > 0 ? Math.round(mAtt / totalAttGender * 100) : 0;
+
+    // Wave breakdown rows
+    const waveRows = Object.keys(bw).sort().map(w => {
+      const wd = bw[w];
+      const wConf = wd.confirmed || 0;
+      const wInv  = wd.invited   || 0;
+      const wRate = wInv > 0 ? Math.round(wConf / wInv * 100) : 0;
+      return `<tr>
+        <td>Wave ${w}</td>
+        <td>${wInv}</td>
+        <td>${wConf}</td>
+        <td>${wRate}%</td>
+        <td>${wd.attended || 0}</td>
+      </tr>`;
+    }).join('');
+
+    // Tier rows
+    const tierRows = [1, 2, 3].map(tier => {
+      const td = bt[tier] || bt[String(tier)] || {};
+      const tInv  = td.invited   || 0;
+      const tConf = td.confirmed || 0;
+      const tAtt  = td.attended  || 0;
+      const tCR   = tInv  > 0 ? Math.round(tConf / tInv  * 100) : 0;
+      const tSR   = tConf > 0 ? Math.round(tAtt  / tConf * 100) : 0;
+      return `<tr>
+        <td>Tier ${tier}</td>
+        <td>${tInv}</td>
+        <td>${tConf} <span style="color:rgba(248,244,236,0.3);font-size:8px;">${tCR}%</span></td>
+        <td>${tAtt} <span style="color:rgba(248,244,236,0.3);font-size:8px;">${tSR}%</span></td>
+      </tr>`;
+    }).join('');
+
+    // Funnel max for bar widths
+    const funnelMax = Math.max(t.invited || 0, 1);
+
+    document.getElementById('event-analytics-body').innerHTML = `
+      <!-- Event header -->
+      <div style="margin-bottom:28px;padding-bottom:20px;border-bottom:1px solid rgba(248,244,236,0.06);">
+        <div style="font-family:'Cormorant Garamond',serif;font-size:28px;font-weight:300;color:var(--white);margin-bottom:8px;">${evName}</div>
+        <div style="font-size:9px;letter-spacing:0.25em;color:rgba(248,244,236,0.4);">
+          ${date}${city !== '—' ? ' &nbsp;·&nbsp; ' + city : ''}${venue !== '—' ? ' &nbsp;·&nbsp; ' + venue : ''}${capacity !== '—' ? ' &nbsp;·&nbsp; Cap ' + capacity : ''}
+        </div>
+      </div>
+
+      <!-- Top-line numbers -->
+      <div class="analytics-block-label">Event Summary</div>
+      <div class="analytics-grid" style="margin-bottom:32px;">
+        <div class="a-stat"><div class="a-stat-num">${t.invited || 0}</div><div class="a-stat-label">Invited</div></div>
+        <div class="a-stat"><div class="a-stat-num gold">${t.confirmed || 0}</div><div class="a-stat-label">Confirmed</div></div>
+        <div class="a-stat"><div class="a-stat-num green">${t.attended || 0}</div><div class="a-stat-label">Attended</div></div>
+        <div class="a-stat"><div class="a-stat-num dim">${t.no_response || 0}</div><div class="a-stat-label">No Response</div></div>
+        <div class="a-stat"><div class="a-stat-num dim">${t.declined || 0}</div><div class="a-stat-label">Declined</div></div>
+      </div>
+
+      <!-- Conversion funnel + Rates side by side -->
+      <div class="analytics-grid-2">
+        <div class="analytics-panel">
+          <div class="analytics-panel-title">Conversion Funnel</div>
+          <div class="analytics-funnel">
+            <div class="funnel-row">
+              <div class="funnel-label">Invited</div>
+              <div class="funnel-bar-wrap"><div class="funnel-bar-fill" style="width:100%"></div></div>
+              <div class="funnel-value">${t.invited || 0}</div>
+              <div class="funnel-rate"></div>
+            </div>
+            <div class="funnel-row">
+              <div class="funnel-label">Confirmed</div>
+              <div class="funnel-bar-wrap"><div class="funnel-bar-fill" style="width:${Math.round(confirmRate*100)}%"></div></div>
+              <div class="funnel-value">${t.confirmed || 0}</div>
+              <div class="funnel-rate">${Math.round(confirmRate*100)}%</div>
+            </div>
+            <div class="funnel-row">
+              <div class="funnel-label">Attended</div>
+              <div class="funnel-bar-wrap"><div class="funnel-bar-fill green-fill" style="width:${Math.round((t.attended||0)/funnelMax*100)}%"></div></div>
+              <div class="funnel-value">${t.attended || 0}</div>
+              <div class="funnel-rate">${Math.round(showRate*100)}%</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="analytics-panel">
+          <div class="analytics-panel-title">Rates</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:1px;background:rgba(248,244,236,0.04);">
+            <div style="background:var(--black-3);padding:20px;text-align:center;">
+              <div style="font-family:'Cormorant Garamond',serif;font-size:36px;font-weight:300;color:var(--gold);">${Math.round(confirmRate*100)}%</div>
+              <div style="font-size:7px;letter-spacing:0.35em;text-transform:uppercase;color:rgba(248,244,236,0.4);margin-top:6px;">Confirm Rate</div>
+            </div>
+            <div style="background:var(--black-3);padding:20px;text-align:center;">
+              <div style="font-family:'Cormorant Garamond',serif;font-size:36px;font-weight:300;color:var(--green);">${Math.round(showRate*100)}%</div>
+              <div style="font-size:7px;letter-spacing:0.35em;text-transform:uppercase;color:rgba(248,244,236,0.4);margin-top:6px;">Show Rate</div>
+            </div>
+            <div style="background:var(--black-3);padding:20px;text-align:center;">
+              <div style="font-family:'Cormorant Garamond',serif;font-size:36px;font-weight:300;color:rgba(248,244,236,0.4);">${Math.round(ghostRate*100)}%</div>
+              <div style="font-size:7px;letter-spacing:0.35em;text-transform:uppercase;color:rgba(248,244,236,0.4);margin-top:6px;">Ghost Rate</div>
+            </div>
+            <div style="background:var(--black-3);padding:20px;text-align:center;">
+              <div style="font-family:'Cormorant Garamond',serif;font-size:36px;font-weight:300;color:rgba(192,71,74,0.7);">${Math.round(noShowRate*100)}%</div>
+              <div style="font-size:7px;letter-spacing:0.35em;text-transform:uppercase;color:rgba(248,244,236,0.4);margin-top:6px;">No-Show Rate</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Gender ratio -->
+      <div class="analytics-grid-2">
+        <div class="analytics-panel">
+          <div class="analytics-panel-title">Gender — Invited</div>
+          <div style="display:flex;justify-content:space-between;margin-bottom:8px;">
+            <span style="font-size:9px;letter-spacing:0.2em;color:rgba(248,244,236,0.6);">F ${fPctInv}%</span>
+            <span style="font-size:9px;letter-spacing:0.2em;color:rgba(248,244,236,0.6);">M ${mPctInv}%</span>
+          </div>
+          <div class="analytics-ratio-bar">
+            <div class="analytics-ratio-fill" style="width:${fPctInv}%"></div>
+          </div>
+          <div class="analytics-ratio-labels">
+            <span>${fInv} women</span><span>${mInv} men${oInv ? ' · ' + oInv + ' other' : ''}</span>
+          </div>
+        </div>
+
+        <div class="analytics-panel">
+          <div class="analytics-panel-title">Gender — Attended</div>
+          <div style="display:flex;justify-content:space-between;margin-bottom:8px;">
+            <span style="font-size:9px;letter-spacing:0.2em;color:rgba(248,244,236,0.6);">F ${fPctAtt}%</span>
+            <span style="font-size:9px;letter-spacing:0.2em;color:rgba(248,244,236,0.6);">M ${mPctAtt}%</span>
+          </div>
+          <div class="analytics-ratio-bar">
+            <div class="analytics-ratio-fill" style="width:${fPctAtt}%"></div>
+          </div>
+          <div class="analytics-ratio-labels">
+            <span>${fAtt} women</span><span>${mAtt} men</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tier + Wave breakdown -->
+      <div class="analytics-grid-2">
+        <div class="analytics-panel">
+          <div class="analytics-panel-title">By Tier</div>
+          <table class="analytics-tier-table">
+            <thead><tr>
+              <th>Tier</th><th>Invited</th><th>Confirmed</th><th>Attended</th>
+            </tr></thead>
+            <tbody>${tierRows || '<tr><td colspan="4" style="color:rgba(248,244,236,0.2);text-align:center;padding:16px 0;">No data</td></tr>'}</tbody>
+          </table>
+        </div>
+
+        <div class="analytics-panel">
+          <div class="analytics-panel-title">By Wave</div>
+          <table class="analytics-tier-table">
+            <thead><tr>
+              <th>Wave</th><th>Invited</th><th>Confirmed</th><th>Rate</th><th>Attended</th>
+            </tr></thead>
+            <tbody>${waveRows || '<tr><td colspan="5" style="color:rgba(248,244,236,0.2);text-align:center;padding:16px 0;">No data</td></tr>'}</tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Attendance sub-section: mark attended / no-show -->
+      <div style="margin-top:40px;padding-top:32px;border-top:1px solid rgba(248,244,236,0.06);">
+        <div class="analytics-block-label">Door — Mark Attendance</div>
+        <div class="att-sub-header">
+          <input type="text" id="att-event-id" placeholder="Event ID (e.g. 2026-03-march)" value="${eventId}" />
+          <button onclick="loadAttendance()" style="background:none;border:1px solid rgba(212,185,106,0.2);color:rgba(212,185,106,0.6);font-family:'Montserrat',sans-serif;font-size:8px;letter-spacing:0.25em;text-transform:uppercase;padding:8px 16px;cursor:pointer;">Load Guests</button>
+        </div>
+        <div id="attendance-container"><div class="analytics-empty" style="padding:40px 0;">Enter event ID and load guests</div></div>
+      </div>
+    `;
+
+    // Auto-load attendance for this event
+    loadAttendance();
+
+  } catch(e) {
+    console.error('loadEventAnalytics:', e);
+    document.getElementById('event-analytics-body').innerHTML = `<div class="analytics-empty">Failed to load — ${e.message}</div>`;
+  }
+}
 
 </script>
 </body>

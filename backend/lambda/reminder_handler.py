@@ -25,29 +25,39 @@ def _members_table():
 
 def _build_reminder(member_name: str, event: dict) -> str:
     """
-    Use locked reminder_template if admin approved one.
-    Replace {name} with member first name.
-    Fall back to building from event fields.
-    """
-    name = (member_name or "").split()[0] or ""
+    Build the reminder SMS for a member.
 
-    template = (event.get("reminder_template") or "").strip()
+    Reads day_of_template or day_before_template depending on _is_day_of flag.
+    Falls back to legacy reminder_template for backward compat with old saved events.
+    Falls back to building from event fields if no template is saved.
+    Replace {name} with member first name.
+    """
+    name       = (member_name or "").split()[0] or ""
+    is_day_of  = event.get("_is_day_of", False)
+
+    # Try the specific template first, then legacy single template
+    if is_day_of:
+        template = (event.get("day_of_template") or event.get("reminder_template") or "").strip()
+    else:
+        template = (event.get("day_before_template") or event.get("reminder_template") or "").strip()
+
     if template:
         return template.replace("{name}", name).strip()
 
-    event_label = (event.get("event_label") or event.get("eventSlug") or "the event").strip()
+    # Fallback: build from event fields
+    event_label = (event.get("event_label") or event.get("eventSlug") or "").strip()
     start_time  = (event.get("startTime") or "").strip()
-    timing_word = "Tonight" if event.get("_is_day_of") else "Tomorrow"
+    timing_word = "Tonight" if is_day_of else "Tomorrow"
 
-    parts = []
+    parts = [f"{{{name}}}." if name else ""]
+    parts = [f"{name}." if name else ""]
+    parts.append(f"{timing_word}.")
+    if event_label:
+        parts.append(f"{event_label}.")
     if start_time:
         parts.append(f"Doors at {start_time}.")
-    else:
-        parts.append(f"{timing_word}.")
-        if event_label:
-            parts.append(f"{event_label}.")
 
-    return " ".join(parts)
+    return " ".join(p for p in parts if p)
 
 
 def _get_confirmed_invites(event_id: str) -> list:
@@ -295,7 +305,17 @@ def handler(event, context):
             return {"ok": True, "skipped": True, "reason": "unparseable date"}
 
         today    = datetime.now(timezone.utc).date()
-        is_day_of = reminder_timing == "day_of"
+        # 'both' means this Lambda fires for EITHER schedule and should check which one
+        # We determine is_day_of from the cron that fired — passed in the EventBridge event
+        # source field, OR we check current UTC hour as a proxy:
+        #   day_of rule fires at 16:00 UTC (11AM EST), day_before fires at 23:00 UTC (6PM EST)
+        from datetime import datetime as _dt
+        current_hour_utc = _dt.utcnow().hour
+        if reminder_timing == "both":
+            # Fired by one of two rules — infer which by hour
+            is_day_of = (14 <= current_hour_utc <= 18)  # 16 UTC ± 2h window for day-of
+        else:
+            is_day_of = reminder_timing == "day_of"
         expected_fire_date = event_date if is_day_of else event_date - timedelta(days=1)
 
         if today != expected_fire_date:
