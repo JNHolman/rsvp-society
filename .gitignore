@@ -25,3 +25,4 @@ __pycache__/
 backend/terraform/--*
 backend/terraform/terraform.tfstate
 backend/terraform/terraform.tfstate.backup
+backend/terraform/lambda_bundle.zip

@@ -44,6 +44,12 @@ variable "admin_token_secret_id" {
   default = "rsvp/admin-token"
 }
 
+variable "webhook_secret_id" {
+  type        = string
+  default     = "rsvp/webhook-secret"
+  description = "Secrets Manager ID for Quo webhook signing key. Configure before SMS go-live."
+}
+
 locals {
   allowed_origins_csv = join(",", var.allowed_origins)
   cors_origins        = "'https://rsvpsociety.com'"
@@ -165,11 +171,8 @@ resource "aws_lambda_function" "access_request" {
     variables = {
       ENVIRONMENT           = "prod"
       MEMBERS_TABLE_NAME    = aws_dynamodb_table.members.name
-      EVENTS_TABLE_NAME     = aws_dynamodb_table.events.name
-      INVITES_TABLE_NAME    = aws_dynamodb_table.event_invites.name
       ALLOWED_ORIGINS       = local.allowed_origins_csv
       SMS_ENABLED           = "false"
-      SMS_PROVIDER          = "quo"
       QUO_API_KEY_SECRET_ID = var.quo_api_key_secret_id
     }
   }
@@ -218,9 +221,12 @@ resource "aws_lambda_function" "sms_handler" {
       EVENTS_TABLE_NAME        = aws_dynamodb_table.events.name
       INVITES_TABLE_NAME       = aws_dynamodb_table.event_invites.name
       ALLOWED_ORIGINS          = local.allowed_origins_csv
+      SMS_ENABLED              = "false"
       SMS_PROVIDER             = "quo"
       QUO_API_KEY_SECRET_ID    = var.quo_api_key_secret_id
       CLAUDE_API_KEY_SECRET_ID = "rsvp/claude-api-key"
+      ADMIN_TOKEN_SECRET_ID    = var.admin_token_secret_id
+      WEBHOOK_SECRET_ID        = var.webhook_secret_id
     }
   }
 }

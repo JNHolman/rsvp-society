@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>RSVP Society — Check In</title>
 <meta name="robots" content="noindex, nofollow">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -476,6 +476,7 @@ const API = 'https://api.rsvpsociety.com';
 let adminToken = '';
 let allMembers = [];
 let checkedIn = new Set();
+let currentEventId = 'current';
 
 function showToast(msg, type = '') {
   const t = document.getElementById('toast');
@@ -512,10 +513,13 @@ async function doLogin() {
     }
     adminToken = val;
     sessionStorage.setItem('rsvp_checkin_token', val);
+    sessionStorage.setItem('rsvp_checkin_token_exp', Date.now() + 8 * 60 * 60 * 1000);
     document.getElementById('login-screen').style.display = 'none';
     document.getElementById('app').style.display = 'flex';
     btn.textContent = 'Enter';
-    await Promise.all([loadEvent(), loadGuests()]);
+    // loadEvent must complete first so currentEventId is set before loadGuests fires
+    await loadEvent();
+    await loadGuests();
   } catch(err) {
     errEl.textContent = 'Network error.';
     btn.textContent = 'Enter';
@@ -525,6 +529,7 @@ async function doLogin() {
 function doLogout() {
   adminToken = '';
   sessionStorage.removeItem('rsvp_checkin_token');
+  sessionStorage.removeItem('rsvp_checkin_token_exp');
   allMembers = [];
   checkedIn = new Set();
   document.getElementById('app').style.display = 'none';
@@ -534,9 +539,14 @@ function doLogout() {
 
 window.addEventListener('DOMContentLoaded', () => {
   const saved = sessionStorage.getItem('rsvp_checkin_token');
-  if (saved) {
+  const exp   = parseInt(sessionStorage.getItem('rsvp_checkin_token_exp') || '0', 10);
+  if (saved && Date.now() < exp) {
     document.getElementById('token-input').value = saved;
     doLogin();
+  } else if (saved) {
+    // Expired — clear silently
+    sessionStorage.removeItem('rsvp_checkin_token');
+    sessionStorage.removeItem('rsvp_checkin_token_exp');
   }
 });
 
@@ -546,18 +556,22 @@ async function loadEvent() {
     const data = await res.json();
     if (data.ok && data.event && data.event.date) {
       const ev = data.event;
-      document.getElementById('banner-name').textContent = ev.eventSlug || ev.eventId || '—';
+      // Fix #4: capture eventId so checkIn can pass it explicitly
+      currentEventId = ev.eventSlug || ev.eventId || 'current';
+      document.getElementById('banner-name').textContent = currentEventId || '—';
       document.getElementById('banner-date').textContent = ev.date || '—';
       document.getElementById('banner-venue').textContent = ev.venue || '—';
       document.getElementById('banner-time').textContent = ev.startTime || '—';
       document.getElementById('event-banner').style.display = 'block';
     }
-  } catch(e) {}
+  } catch(e) {
+    console.error('loadEvent:', e);
+  }
 }
 
 async function loadGuests() {
   try {
-    const res = await fetch(`${API}/admin/members/confirmed`, {
+    const res = await fetch(`${API}/admin/members/confirmed?eventId=${encodeURIComponent(currentEventId)}`, {
       headers: { 'x-admin-token': adminToken }
     });
     const data = await res.json();
@@ -566,6 +580,10 @@ async function loadGuests() {
     allMembers = (data.members || []).sort((a, b) => {
       return (a.name || '').toLowerCase().localeCompare((b.name || '').toLowerCase());
     });
+
+    // Fix #3: seed checkedIn from server data so a page refresh mid-event
+    // doesn't wipe the green rows. Server returns checkedIn: bool per member.
+    checkedIn = new Set(allMembers.filter(m => m.checkedIn).map(m => m.phone));
 
     updateCounter();
     renderAlphaBar();
@@ -672,7 +690,7 @@ async function checkIn(phone, name) {
     const res = await fetch(`${API}/admin/members/attendance`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', 'x-admin-token': adminToken },
-      body: JSON.stringify({ phone, attended: true }),
+      body: JSON.stringify({ phone, attended: true, eventId: currentEventId }),
     });
     const data = await res.json();
     if (!data.ok) throw new Error(data.error);

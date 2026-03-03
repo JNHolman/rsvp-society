@@ -17,12 +17,11 @@
 #   4. terraform plan → review → apply.
 #
 # LAMBDA ROLE SUBSTITUTIONS (replace `role` in each aws_lambda_function):
-#   access_request  → aws_iam_role.lambda_access_request.arn
-#   admin_handler   → aws_iam_role.lambda_admin_handler.arn
-#   sms_handler     → aws_iam_role.lambda_sms_handler.arn
-#   invite_handler  → aws_iam_role.lambda_invite_handler.arn
+#   access_request   → aws_iam_role.lambda_access_request.arn
+#   admin_handler    → aws_iam_role.lambda_admin_handler.arn
+#   sms_handler      → aws_iam_role.lambda_sms_handler.arn
+#   invite_handler   → aws_iam_role.lambda_invite_handler.arn
 #   reminder_handler → aws_iam_role.lambda_reminder_handler.arn
-#   event_handler   → aws_iam_role.lambda_event_handler.arn
 # =============================================================================
 
 locals {
@@ -245,7 +244,7 @@ resource "aws_iam_role_policy" "lambda_reminder_handler" {
       },
       {
         Effect   = "Allow"
-        Action   = ["dynamodb:Scan"]
+        Action   = ["dynamodb:Query"]
         Resource = [local.invites_arn]
       },
       {
@@ -260,35 +259,4 @@ resource "aws_iam_role_policy" "lambda_reminder_handler" {
   })
 }
 
-# =============================================================================
-# event_handler — public + admin event read/write
-# Needs: events (read + write), Secrets Manager (admin token)
-# Does NOT need members, invites, checkins, or SMS keys.
-# =============================================================================
-resource "aws_iam_role" "lambda_event_handler" {
-  name               = "rsvp-fn-event-handler"
-  assume_role_policy = data.aws_iam_policy_document.lambda_assume.json
-}
 
-resource "aws_iam_role_policy" "lambda_event_handler" {
-  name = "policy"
-  role = aws_iam_role.lambda_event_handler.id
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      { Effect = "Allow", Action = local.log_actions, Resource = "*" },
-      {
-        Effect   = "Allow"
-        Action   = ["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:UpdateItem"]
-        Resource = [local.events_arn]
-      },
-      {
-        Effect   = "Allow"
-        Action   = ["secretsmanager:GetSecretValue"]
-        Resource = [
-          "arn:aws:secretsmanager:${local.region}:${local.account}:secret:${var.admin_token_secret_id}*",
-        ]
-      },
-    ]
-  })
-}

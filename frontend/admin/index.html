@@ -435,96 +435,7 @@ main {
   .member-table td:nth-child(5) { display: none; }
 }
 
-/* Settings panel */
-.settings-panel {
-  display: none;
-  position: fixed;
-  top: 0; right: 0; bottom: 0;
-  width: 380px;
-  background: var(--black-2);
-  border-left: 1px solid rgba(212,185,106,0.12);
-  z-index: 300;
-  padding: 48px 36px;
-  flex-direction: column;
-  gap: 0;
-}
-.settings-panel.open { display: flex; }
-.settings-title {
-  font-family: 'Cormorant Garamond', serif;
-  font-size: 22px;
-  font-weight: 300;
-  color: var(--white);
-  margin-bottom: 32px;
-}
-.settings-label {
-  font-size: 8px;
-  letter-spacing: 0.4em;
-  text-transform: uppercase;
-  color: rgba(212,185,106,0.8);
-  display: block;
-  margin-bottom: 10px;
-}
-.settings-input {
-  width: 100%;
-  background: transparent;
-  border: none;
-  border-bottom: 1px solid rgba(212,185,106,0.2);
-  color: var(--white);
-  font-family: 'Montserrat', sans-serif;
-  font-weight: 300;
-  font-size: 11px;
-  letter-spacing: 0.08em;
-  padding: 10px 0;
-  outline: none;
-  transition: border-color .2s;
-  margin-bottom: 24px;
-}
-.settings-input:focus { border-color: var(--gold); }
-.settings-save {
-  background: transparent;
-  border: 1px solid rgba(212,185,106,0.3);
-  color: var(--gold);
-  font-family: 'Montserrat', sans-serif;
-  font-size: 9px;
-  letter-spacing: 0.4em;
-  text-transform: uppercase;
-  padding: 12px;
-  cursor: pointer;
-  width: 100%;
-  transition: background .2s, border-color .2s;
-  margin-bottom: 12px;
-}
-.settings-save:hover { background: var(--gold-faint); border-color: var(--gold); }
-.settings-close {
-  background: none;
-  border: none;
-  color: var(--white-dim);
-  font-family: 'Montserrat', sans-serif;
-  font-size: 9px;
-  letter-spacing: 0.3em;
-  text-transform: uppercase;
-  padding: 10px;
-  cursor: pointer;
-  transition: color .2s;
-  text-align: center;
-}
-.settings-close:hover { color: var(--white); }
-.settings-overlay {
-  display: none;
-  position: fixed;
-  inset: 0;
-  background: rgba(6,6,8,0.6);
-  z-index: 299;
-}
-.settings-overlay.open { display: block; }
-.settings-hint {
-  font-size: 9px;
-  letter-spacing: 0.08em;
-  color: rgba(248,244,236,0.45);
-  line-height: 1.8;
-  margin-top: -16px;
-  margin-bottom: 24px;
-}
+/* Settings panel removed — dead scaffolding deleted */
 .invite-form {
   background: var(--black-2);
   border: 1px solid rgba(212,185,106,0.08);
@@ -958,7 +869,26 @@ main {
           <label for="inv-buffer">Tier 2 Ghost Buffer %</label>
           <input type="number" id="inv-buffer" placeholder="30" min="0" max="100" value="30" />
         </div>
+        <div class="invite-field">
+          <label for="inv-wave-number">Wave</label>
+          <select id="inv-wave-number" onchange="onWaveChange()" style="background:#0C0C10;border:none;border-bottom:1px solid rgba(212,185,106,0.2);color:rgba(248,244,236,0.9);font-family:'Montserrat',sans-serif;font-size:11px;padding:8px 0;outline:none;width:100%;cursor:pointer;">
+            <option value="1">Wave 1</option>
+            <option value="2">Wave 2</option>
+            <option value="3">Wave 3</option>
+          </select>
+        </div>
+        <div class="invite-field">
+          <label for="inv-wave-size">Wave Size <span style="opacity:0.5;font-size:8px;">optional override</span></label>
+          <input type="number" id="inv-wave-size" placeholder="Auto" min="1" />
+        </div>
       </div>
+      <!-- Gap analysis panel — shown for wave 2+ -->
+      <div id="wave-gap-panel" style="display:none;grid-column:1/-1;background:rgba(212,185,106,0.04);border:1px solid rgba(212,185,106,0.12);padding:16px;margin-top:4px;">
+        <div style="font-size:8px;letter-spacing:0.3em;text-transform:uppercase;color:rgba(212,185,106,0.6);margin-bottom:12px;">Gap Analysis</div>
+        <div id="wave-gap-content" style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:12px;"></div>
+        <div id="wave-gap-suggestion" style="font-size:9px;letter-spacing:0.1em;color:rgba(248,244,236,0.5);line-height:1.6;"></div>
+      </div>
+
       <div class="invite-actions">
         <button class="invite-btn-preview" onclick="runPreview()">Preview Invite List</button>
         <button class="invite-btn-send" id="send-btn" onclick="sendInvites()" disabled>Send Invites</button>
@@ -1031,7 +961,7 @@ main {
           <select id="ev-reminder" style="background:#0C0C10;border:none;border-bottom:1px solid rgba(212,185,106,0.2);color:rgba(248,244,236,0.9);font-family:'Montserrat',sans-serif;font-size:11px;padding:8px 0;outline:none;width:100%;cursor:pointer;">
             <option value="manual">Manual only</option>
             <option value="day_before">Day before at 6 PM</option>
-            <option value="day_of">Day of at 4 PM</option>
+            <option value="day_of">Day of at 11 AM</option>
           </select>
         </div>
 
@@ -1064,11 +994,6 @@ main {
         <div class="event-field event-grid-full">
           <label>Event Description <span style="opacity:0.5;font-size:8px;">Brief for Jade — context she uses when building messages</span></label>
           <textarea id="ev-description" rows="3" placeholder="e.g. Rooftop at The Tribe. Open bar first hour. Dress sharp. Capacity is tight." style="background:transparent;border:none;border-bottom:1px solid rgba(212,185,106,0.2);color:rgba(248,244,236,0.9);font-family:'Montserrat',sans-serif;font-size:11px;padding:8px 0;outline:none;width:100%;resize:none;line-height:1.6;"></textarea>
-        </div>
-
-        <div class="event-field event-grid-full">
-          <label>Internal Notes <span style="opacity:0.5;font-size:8px;">Admin only — Jade does not see this</span></label>
-          <textarea id="ev-notes" rows="2" placeholder="Parking situation, photographer, etc." style="background:transparent;border:none;border-bottom:1px solid rgba(212,185,106,0.2);color:rgba(248,244,236,0.9);font-family:'Montserrat',sans-serif;font-size:11px;padding:8px 0;outline:none;width:100%;resize:none;line-height:1.6;"></textarea>
         </div>
       </div>
       <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
@@ -1662,7 +1587,7 @@ async function loadEventIntoInviteForm() {
             <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px;">
               ${ev.date ? `<div><div style="font-size:8px;letter-spacing:0.2em;color:rgba(248,244,236,0.4);margin-bottom:4px;">DATE</div><div style="font-size:12px;color:#F8F4EC;">${ev.date}</div></div>` : ''}
               ${ev.venue ? `<div><div style="font-size:8px;letter-spacing:0.2em;color:rgba(248,244,236,0.4);margin-bottom:4px;">VENUE</div><div style="font-size:12px;color:#F8F4EC;">${ev.venue}${ev.revealVenue ? ' <span style="color:rgba(76,175,125,0.8);font-size:9px;">revealed</span>' : ' <span style="color:rgba(212,185,106,0.5);font-size:9px;">hidden</span>'}</div></div>` : ''}
-              ${ev.notes ? `<div><div style="font-size:8px;letter-spacing:0.2em;color:rgba(248,244,236,0.4);margin-bottom:4px;">VIBE</div><div style="font-size:12px;color:#F8F4EC;">${ev.notes}</div></div>` : ''}
+              ${ev.vibe_tag ? `<div><div style="font-size:8px;letter-spacing:0.2em;color:rgba(248,244,236,0.4);margin-bottom:4px;">VIBE</div><div style="font-size:12px;color:#F8F4EC;">${ev.vibe_tag}</div></div>` : ''}
               ${ev.capacity ? `<div><div style="font-size:8px;letter-spacing:0.2em;color:rgba(248,244,236,0.4);margin-bottom:4px;">CAPACITY</div><div style="font-size:12px;color:#F8F4EC;">${ev.capacity}</div></div>` : ''}
             </div>
           </div>`;
@@ -1672,11 +1597,101 @@ async function loadEventIntoInviteForm() {
   } catch(e) { /* silent */ }
 }
 
+async function onWaveChange() {
+  const wave = parseInt(document.getElementById('inv-wave-number').value) || 1;
+  const panel = document.getElementById('wave-gap-panel');
+
+  if (wave === 1) {
+    panel.style.display = 'none';
+    document.getElementById('inv-wave-size').placeholder = 'Auto';
+    return;
+  }
+
+  // Wave 2+ — fetch live analytics and show gap
+  const eventId = document.getElementById('inv-event-id').value.trim();
+  const capacity = parseInt(document.getElementById('inv-capacity').value) || 0;
+
+  if (!eventId || !capacity) {
+    panel.style.display = 'none';
+    return;
+  }
+
+  panel.style.display = 'block';
+  document.getElementById('wave-gap-content').innerHTML = '<div style="grid-column:1/-1;color:rgba(248,244,236,0.3);font-size:9px;">Loading...</div>';
+
+  try {
+    const res = await fetch(`${API}/admin/event/analytics?eventId=${encodeURIComponent(eventId)}`, {
+      headers: { 'x-admin-token': adminToken }
+    });
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.error);
+
+    const a = data.analytics;
+    const totals = a.totals;
+    renderGapPanel(capacity, totals, wave);
+  } catch(err) {
+    document.getElementById('wave-gap-content').innerHTML = `<div style="grid-column:1/-1;color:rgba(248,244,236,0.3);font-size:9px;">Could not load analytics — enter Wave Size manually</div>`;
+  }
+}
+
+function renderGapPanel(capacity, totals, wave) {
+  const SHOW_RATE = 0.60;
+  const confirmRate = totals.invited > 0 ? totals.confirmed / totals.invited : 0.30;
+  const targetConfirmed = Math.ceil(capacity / SHOW_RATE);
+  const gap = Math.max(0, targetConfirmed - totals.confirmed);
+  const suggested = gap > 0 ? Math.ceil(gap / (confirmRate || 0.30)) : 0;
+
+  const statStyle = 'text-align:center;';
+  const numStyle = 'font-size:18px;font-family:"Cormorant Garamond",serif;color:rgba(248,244,236,0.9);';
+  const labelStyle = 'font-size:7px;letter-spacing:0.2em;text-transform:uppercase;color:rgba(248,244,236,0.35);margin-top:4px;';
+
+  const confirmRatePct = Math.round((confirmRate || 0.30) * 100);
+  const isRealRate = totals.invited > 0;
+
+  document.getElementById('wave-gap-content').innerHTML = `
+    <div style="${statStyle}">
+      <div style="${numStyle}">${totals.confirmed}</div>
+      <div style="${labelStyle}">Confirmed</div>
+    </div>
+    <div style="${statStyle}">
+      <div style="${numStyle} color:#D4B96A;">${targetConfirmed}</div>
+      <div style="${labelStyle}">Need Confirmed</div>
+    </div>
+    <div style="${statStyle}">
+      <div style="${numStyle} ${gap > 0 ? 'color:#e05555;' : 'color:#4CAF50;'}">${gap}</div>
+      <div style="${labelStyle}">Conf. Gap</div>
+    </div>
+    <div style="${statStyle}">
+      <div style="${numStyle} color:#D4B96A;">${suggested}</div>
+      <div style="${labelStyle}">Suggested Invites</div>
+    </div>
+  `;
+
+  const rateNote = isRealRate
+    ? `Your actual confirm rate is ${confirmRatePct}% (${totals.confirmed} confirmed / ${totals.invited} invited).`
+    : `No invite data yet — using default 30% confirm rate.`;
+
+  document.getElementById('wave-gap-suggestion').innerHTML =
+    `${rateNote} At ${SHOW_RATE * 100}% show rate you need <strong style="color:rgba(248,244,236,0.8);">${targetConfirmed} confirmed</strong> to fill ${capacity} seats. ` +
+    (gap > 0
+      ? `You're <strong style="color:#e05555;">${gap} short</strong> — sending <strong style="color:#D4B96A;">${suggested} more invites</strong> should close the gap.`
+      : `<strong style="color:#4CAF50;">You're on track</strong> — no additional invites needed to fill the room.`);
+
+  // Pre-fill wave size with suggestion (operator can override)
+  if (suggested > 0) {
+    document.getElementById('inv-wave-size').value = suggested;
+    document.getElementById('inv-wave-size').placeholder = suggested;
+  }
+}
+
 async function runPreview() {
   const eventId  = document.getElementById('inv-event-id').value.trim();
   const capacity = parseInt(document.getElementById('inv-capacity').value) || 0;
   const femalePct = parseInt(document.getElementById('inv-female-pct').value) || 60;
   const buffer   = parseInt(document.getElementById('inv-buffer').value) || 30;
+  const waveNumber = parseInt(document.getElementById('inv-wave-number').value) || 1;
+  const waveSizeRaw = parseInt(document.getElementById('inv-wave-size').value);
+  const waveSize = Number.isFinite(waveSizeRaw) ? waveSizeRaw : 0;
 
   if (!eventId || !capacity) { showToast('Event ID and capacity required', 'error'); return; }
 
@@ -1685,12 +1700,19 @@ async function runPreview() {
     const res = await fetch(`${API}/admin/invite/preview`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', 'x-admin-token': adminToken },
-      body: JSON.stringify({ eventId, capacity, femalePercent: femalePct, tier2BufferPct: buffer })
+      body: JSON.stringify({
+        eventId,
+        capacity,
+        femalePercent: femalePct,
+        tier2BufferPct: buffer,
+        waveNumber,
+        waveSize
+      })
     });
     const data = await res.json();
     if (!data.ok) throw new Error(data.error);
 
-    lastPreview = { eventId, capacity, femalePercent: femalePct, tier2BufferPct: buffer };
+    lastPreview = { eventId, capacity, femalePercent: femalePct, tier2BufferPct: buffer, waveNumber, waveSize };
     allPreviewMembers = data.members;
     removedPhones = new Set();
     activeMarketFilter = 'All';
@@ -1699,7 +1721,7 @@ async function runPreview() {
     const sendBtn = document.getElementById('send-btn');
     sendBtn.disabled = false;
     sendBtn.classList.add('ready');
-    showToast('Preview ready — review before sending', '');
+    showToast(`Preview ready — Wave ${waveNumber}`, '');
   } catch (err) {
     showToast('Preview failed: ' + err.message, 'error');
   }
@@ -1724,11 +1746,21 @@ function renderPreview(data) {
     return `<button class="market-pill" data-market="${st}" onclick="filterByMarket('${st}')" style="background:none;border:1px solid rgba(212,185,106,${active ? '0.8' : '0.15'});color:${active ? '#D4B96A' : 'rgba(248,244,236,0.5)'};font-family:'Montserrat',sans-serif;font-size:9px;letter-spacing:0.2em;text-transform:uppercase;padding:6px 14px;cursor:pointer;transition:all .2s;">${st} <span style="opacity:0.6;">${count}</span></button>`;
   }).join('');
 
+  const gapHtml = s.gapAnalysis ? `
+    <div style="width:100%;margin-top:8px;padding:10px 12px;background:rgba(212,185,106,0.04);border:1px solid rgba(212,185,106,0.10);font-size:8px;letter-spacing:0.08em;color:rgba(248,244,236,0.45);line-height:1.7;">
+      <span style="color:rgba(212,185,106,0.7);letter-spacing:0.2em;text-transform:uppercase;font-size:7px;">Gap · </span>
+      Confirmed: <strong style="color:rgba(248,244,236,0.7);">${s.gapAnalysis.currentConfirmed}</strong> /
+      Need: <strong style="color:#D4B96A;">${s.gapAnalysis.targetConfirmed}</strong> /
+      Gap: <strong style="${s.gapAnalysis.confirmationGap > 0 ? 'color:#e05555' : 'color:#4CAF50'}">${s.gapAnalysis.confirmationGap}</strong> ·
+      Confirm rate: ${s.gapAnalysis.assumedConfirmRate}% · Show rate: ${s.gapAnalysis.assumedShowRate}%
+    </div>` : '';
+
   document.getElementById('preview-stats').innerHTML = `
-    <div class="preview-stat"><div class="preview-stat-num" id="preview-remaining-count">${s.totalInvites}</div><div class="preview-stat-label">Selected</div></div>
+    <div class="preview-stat"><div class="preview-stat-num" id="preview-remaining-count">${s.totalInvites}</div><div class="preview-stat-label">Wave ${s.waveNumber || 1} Selected</div></div>
     <div class="preview-stat"><div class="preview-stat-num gold">${s.breakdown.femTier1 + s.breakdown.femTier2}</div><div class="preview-stat-label">Female (${s.femalePercent}%)</div></div>
     <div class="preview-stat"><div class="preview-stat-num">${s.breakdown.maleTier1 + s.breakdown.maleTier2}</div><div class="preview-stat-label">Male (${s.malePercent}%)</div></div>
     <div class="preview-stat"><div class="preview-stat-num red">${s.breakdown.tier3Skipped}</div><div class="preview-stat-label">Tier 3 Skipped</div></div>
+    ${gapHtml}
     <div style="width:100%;margin-top:16px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
       <span style="font-size:8px;letter-spacing:0.3em;text-transform:uppercase;color:rgba(248,244,236,0.3);margin-right:4px;">Filter</span>
       ${pills}
@@ -1763,9 +1795,8 @@ async function sendInvites() {
   if (!lastPreview) return;
   const visibleRows = document.querySelectorAll('#preview-table-container tbody tr:not([style*="display: none"])');
   const remaining = visibleRows.length;
-  if (!confirm(`Send invites to ${remaining} member${remaining !== 1 ? 's' : ''}?`)) return;
+  if (!confirm(`Send invites to ${remaining} member${remaining !== 1 ? 's' : ''} in Wave ${lastPreview.waveNumber || 1}?`)) return;
 
-  // Collect phones of visible (non-removed, non-filtered-out) rows
   const phonesToSend = Array.from(visibleRows).map(r => r.dataset.phone).filter(Boolean);
 
   const sendBtn = document.getElementById('send-btn');
@@ -1776,19 +1807,21 @@ async function sendInvites() {
     const res = await fetch(`${API}/admin/invite/send`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', 'x-admin-token': adminToken },
-      body: JSON.stringify({ ...lastPreview, confirmSend: true, removedPhones: Array.from(removedPhones) })
+      body: JSON.stringify({ ...lastPreview, phones: phonesToSend, confirmSend: true, removedPhones: Array.from(removedPhones) })
     });
     const data = await res.json();
     if (!data.ok) throw new Error(data.error);
 
-    showToast(`Done — ${data.invitesWritten} invites written, ${data.smsSent} SMS sent`, 'success');
+    showToast(`Wave ${lastPreview.waveNumber || 1} done — ${data.invitesWritten} invites written, ${data.smsSent} SMS sent`, 'success');
     lastPreview = null;
     removedPhones = new Set();
     document.getElementById('preview-box').classList.remove('visible');
     sendBtn.classList.remove('ready');
+    sendBtn.textContent = 'Send Invites';
   } catch (err) {
     showToast('Send failed: ' + err.message, 'error');
     sendBtn.disabled = false;
+    sendBtn.textContent = 'Send Invites';
   }
 }
 
@@ -1904,7 +1937,6 @@ async function loadCurrentEvent() {
       document.getElementById('ev-address').value     = ev.address    || '';
       document.getElementById('ev-dresscode').value   = ev.dresscode  || '';
       document.getElementById('ev-reveal-venue').checked = ev.revealVenue || false;
-      document.getElementById('ev-notes').value       = ev.notes      || '';
       document.getElementById('ev-description').value = ev.description || '';
       // Restore event type and vibe tag selectors
       if (ev.event_type) {
@@ -1930,7 +1962,7 @@ async function loadCurrentEvent() {
         { label: 'Address',   val: ev.address },
         { label: 'Dresscode', val: ev.dresscode },
         { label: 'Capacity',  val: ev.capacity },
-        { label: 'Vibe',      val: ev.notes },
+        { label: 'Vibe',      val: ev.vibe_tag },
         { label: 'Updated',   val: (ev.updatedAt || '').replace('T', ' ').slice(0, 16) },
       ];
       document.getElementById('event-current-grid').innerHTML = fields.map(f => `
@@ -1961,7 +1993,6 @@ async function saveEvent() {
     event_type:     document.getElementById('ev-type').value,
     vibe_tag:       document.getElementById('ev-vibe-tag').value,
     description:    document.getElementById('ev-description').value.trim(),
-    notes:          document.getElementById('ev-notes').value.trim(),
     invite_template:  document.getElementById('jade-invite-preview').value.trim(),
     reminder_template: document.getElementById('jade-reminder-preview').value.trim(),
     reminderTiming: document.getElementById('ev-reminder').value,
@@ -1988,17 +2019,31 @@ async function saveEvent() {
 async function sendReminderBlast() {
   const btn = document.getElementById('reminder-blast-btn');
 
-  // Fetch current event to show in confirm dialog
+  // Fetch current event to determine timing and label
   let eventLabel = 'current event';
+  let reminderTiming = 'manual';
   try {
     const evRes = await fetch(`${API}/admin/event`, { headers: { 'x-admin-token': adminToken } });
     const evData = await evRes.json();
-    if (evData.ok && evData.event && evData.event.date) {
-      eventLabel = evData.event.eventSlug || evData.event.date;
+    if (evData.ok && evData.event) {
+      eventLabel = evData.event.eventSlug || evData.event.date || 'current event';
+      reminderTiming = evData.event.reminderTiming || 'manual';
     }
   } catch(e) {}
 
-  if (!confirm(`Send reminder blast to all confirmed members for "${eventLabel}"?`)) return;
+  // Determine is_day_of from event timing or ask if manual
+  let is_day_of;
+  if (reminderTiming === 'day_of') {
+    is_day_of = true;
+  } else if (reminderTiming === 'day_before') {
+    is_day_of = false;
+  } else {
+    // Manual — ask operator which wording to use
+    const choice = confirm(`Send reminder for "${eventLabel}"\n\nOK = Tonight wording\nCancel = Tomorrow wording`);
+    is_day_of = choice;
+  }
+
+  if (!confirm(`Send ${is_day_of ? '"Tonight"' : '"Tomorrow"'} reminder to all confirmed members for "${eventLabel}"?`)) return;
 
   btn.textContent = 'Sending...';
   btn.disabled = true;
@@ -2007,7 +2052,7 @@ async function sendReminderBlast() {
     const res = await fetch(`${API}/admin/invite/reminder`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', 'x-admin-token': adminToken },
-      body: JSON.stringify({ manual: true })
+      body: JSON.stringify({ is_day_of })
     });
     const data = await res.json();
     if (!data.ok) throw new Error(data.error);
@@ -2028,14 +2073,14 @@ async function loadAttendance() {
   document.getElementById('attendance-container').innerHTML = '<div class="loading-state">Loading invitees...</div>';
 
   try {
-    const res = await fetch(`${API}/admin/members?status=APPROVED`, {
+    const res = await fetch(`${API}/admin/members/confirmed?eventId=${encodeURIComponent(eventId)}`, {
       headers: { 'x-admin-token': adminToken }
     });
     const data = await res.json();
     const members = data.members || [];
 
     if (!members.length) {
-      document.getElementById('attendance-container').innerHTML = '<div class="empty-state">No approved members found.</div>';
+      document.getElementById('attendance-container').innerHTML = '<div class="empty-state">No confirmed members found for this event.</div>';
       return;
     }
 
@@ -2043,11 +2088,10 @@ async function loadAttendance() {
       <tr id="att-row-${m.phone.replace(/\+/g,'').replace(/\s/g,'')}">
         <td><span class="member-name">${escHtml(m.name || '')}${m.lastName ? ' ' + escHtml(m.lastName) : ''}</span></td>
         <td><span class="member-phone">${m.phone}</span></td>
-
-        <td><span class="member-date">Attended: ${m.attendedCount || 0} / Invited: ${m.invitedCount || 0}</span></td>
+        <td><span class="member-date">${m.checkedIn ? '✓ Checked in' : m.confirmedAt ? 'Confirmed' : 'Invited'}</span></td>
         <td>
           <div class="action-btns">
-            <button class="action-btn approve att-btn-yes" onclick="markAttendance('${m.phone}', true, '${eventId}')">Attended</button>
+            <button class="action-btn approve att-btn-yes" onclick="markAttendance('${m.phone}', true, '${eventId}')" ${m.checkedIn ? 'disabled style="opacity:0.4"' : ''}>Attended</button>
             <button class="action-btn deny att-btn-no" onclick="markAttendance('${m.phone}', false, '${eventId}')">No Show</button>
           </div>
         </td>

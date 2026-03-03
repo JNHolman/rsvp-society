@@ -3,7 +3,7 @@
 # -----------------------------
 resource "aws_lambda_function" "reminder_handler" {
   function_name = "rsvp-reminder-handler"
-  role          = aws_iam_role.lambda_role.arn
+  role          = aws_iam_role.lambda_reminder_handler.arn
   handler       = "reminder_handler.handler"
   runtime       = "python3.11"
   timeout       = 60
@@ -95,9 +95,10 @@ resource "aws_api_gateway_integration_response" "admin_invite_reminder_options_2
 
 # -----------------------------
 # EventBridge — Daily reminder check
-# Fires at 6PM EST (23:00 UTC) for day-before reminders
-# and 4PM EST (21:00 UTC) for day-of reminders
-# Lambda checks which applies based on event settings
+# Two separate rules, each passing timing context to the Lambda:
+#   day_before: fires at 6PM EST (23:00 UTC)
+#   day_of:     fires at 11AM EST (16:00 UTC)
+# Lambda checks event date and reminderTiming before sending.
 # -----------------------------
 resource "aws_cloudwatch_event_rule" "reminder_day_before" {
   name                = "rsvp-reminder-day-before"
@@ -107,7 +108,7 @@ resource "aws_cloudwatch_event_rule" "reminder_day_before" {
 
 resource "aws_cloudwatch_event_rule" "reminder_day_of" {
   name                = "rsvp-reminder-day-of"
-  description         = "Fires daily at 4PM EST to send day-of reminders"
+  description         = "Fires daily at 11AM EST (16:00 UTC) to send day-of reminders"
   schedule_expression = "cron(0 16 * * ? *)"
 }
 

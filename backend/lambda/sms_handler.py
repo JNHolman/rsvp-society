@@ -1,4 +1,9 @@
+import base64
+import hashlib
+import hmac
 import json
+import logging
+import math
 import os
 import urllib.request
 from datetime import datetime, timezone
@@ -8,6 +13,8 @@ from boto3.dynamodb.conditions import Key as DKey
 
 from member_store import get_member, normalize_phone
 from sms_adapter import get_secret_string, send_sms
+
+logger = logging.getLogger()
 
 # ── Jade system prompt ────────────────────────────────────────────────────────
 
@@ -114,19 +121,16 @@ You're not a bot. You're Jade. Keep it tight."""
 
 # ── Intent classification ─────────────────────────────────────────────────────
 
-# Clear confirmation — unambiguous hard yes only
 CONFIRMED_KEYWORDS = {
     "YES", "Y", "YEP", "YUP", "IN", "CONFIRMED", "THERE",
 }
 
-# Clear decline
 DECLINED_KEYWORDS = {
     "NO", "N", "NOPE", "NAH", "NAWL", "CANT", "CAN'T", "PASS",
     "DECLINE", "NOT COMING", "CAN'T MAKE IT", "CANT MAKE IT",
     "NOT GOING", "WON'T MAKE IT", "WONT MAKE IT", "SKIP",
 }
 
-# Ambiguous — Jade responds with a soft confirm prompt, no status change
 AMBIGUOUS_KEYWORDS = {
     "MAYBE", "MIGHT", "TRYING", "DEPENDS", "IDK", "I DON'T KNOW",
     "POSSIBLY", "HOPEFULLY", "WE'LL SEE", "NOT SURE",
@@ -149,11 +153,13 @@ def _members_table():
 
 
 def _invites_table():
-    return _DDB.Table(os.getenv("INVITES_TABLE_NAME", "rsvp-event-invites"))
+    name = os.getenv("INVITES_TABLE_NAME", "rsvp-event-invites")
+    return _DDB.Table(name)
 
 
 def _events_table():
-    return _DDB.Table(os.getenv("EVENTS_TABLE_NAME", "rsvp-events"))
+    name = os.getenv("EVENTS_TABLE_NAME", "rsvp-events")
+    return _DDB.Table(name)
 
 
 def _set_opt_out(phone: str) -> None:
@@ -179,6 +185,30 @@ def _get_pending_invite(phone: str):
     return None
 
 
+def _get_confirmed_count(event_id: str) -> int:
+    """
+    Count CONFIRMED invite records for the given event.
+    Paginates fully so large events don't return a truncated count.
+    Excludes DELETED records (they don't affect the count since we filter by CONFIRMED,
+    but being explicit keeps the intent clear).
+    """
+    try:
+        invites_t = _invites_table()
+        count = 0
+        kwargs: dict = {"KeyConditionExpression": DKey("eventId").eq(event_id)}
+        while True:
+            resp = invites_t.query(**kwargs)
+            count += sum(1 for i in resp.get("Items", []) if i.get("status") == "CONFIRMED")
+            last = resp.get("LastEvaluatedKey")
+            if not last:
+                break
+            kwargs["ExclusiveStartKey"] = last
+        return count
+    except Exception:
+        logger.exception("_get_confirmed_count failed event=%s", event_id)
+        return 0
+
+
 def _update_invite_status(event_id: str, phone: str, status: str) -> None:
     now = datetime.now(timezone.utc).isoformat(timespec="seconds")
     field = "confirmedAt" if status == "CONFIRMED" else "declinedAt"
@@ -191,13 +221,12 @@ def _update_invite_status(event_id: str, phone: str, status: str) -> None:
 
 
 def _build_confirmation_message(phone: str) -> str:
-    """Build Jade's confirmation reply after a member confirms."""
+    """Build Jade's confirmation reply. Reveals venue only if admin has enabled it."""
     try:
         ev = _events_table().get_item(Key={"eventId": "current"}).get("Item") or {}
         parts = ["You're in."]
         if ev.get("date"):
             parts.append(f"See you {ev['date']}.")
-        # Only reveal venue/address if revealVenue is explicitly enabled
         if ev.get("revealVenue") and ev.get("venue"):
             parts.append(f"{ev['venue']}.")
         if ev.get("revealVenue") and ev.get("address"):
@@ -207,16 +236,84 @@ def _build_confirmation_message(phone: str) -> str:
         return "You're in. See you there."
 
 
+# ── Webhook signature verification (#33) ─────────────────────────────────────
+
+def _verify_webhook_signature(event: dict) -> bool:
+    """
+    Verify the inbound SMS webhook is genuinely from our SMS provider.
+    Reads WEBHOOK_SECRET_ID from env; if not set, logs a warning and passes
+    through so the system stays functional until the secret is configured.
+
+    When your SMS provider (Quo/OpenPhone) signs requests, they include a
+    header such as X-Signature or X-OpenPhone-Signature containing an HMAC-SHA256
+    hex digest of the raw request body keyed by your webhook secret.
+    Set WEBHOOK_SECRET_ID to the Secrets Manager secret ID that holds that key.
+    """
+    secret_id = os.getenv("WEBHOOK_SECRET_ID")
+    if not secret_id:
+        logger.warning(
+            "sms_handler: WEBHOOK_SECRET_ID not set — webhook signature verification skipped. "
+            "Configure this before going live to prevent forged inbound SMS."
+        )
+        return True
+
+    try:
+        secret = get_secret_string(secret_id)
+        try:
+            parsed = json.loads(secret)
+            if isinstance(parsed, dict):
+                secret = parsed.get("secret") or parsed.get("token") or secret
+        except Exception:
+            pass
+
+        raw_body = event.get("body") or ""
+        if event.get("isBase64Encoded"):
+            raw_body = base64.b64decode(raw_body).decode("utf-8")
+
+        headers = event.get("headers") or {}
+        # Try common signature header names from SMS providers
+        provided_sig = (
+            headers.get("x-signature") or
+            headers.get("X-Signature") or
+            headers.get("x-openphone-signature") or
+            headers.get("X-OpenPhone-Signature") or
+            headers.get("x-quo-signature") or
+            headers.get("X-Quo-Signature") or
+            ""
+        ).strip()
+
+        if not provided_sig:
+            logger.warning("sms_handler: webhook received with no signature header")
+            return False
+
+        expected_sig = hmac.new(
+            secret.encode("utf-8"),
+            raw_body.encode("utf-8"),
+            hashlib.sha256,
+        ).hexdigest()
+
+        if not hmac.compare_digest(expected_sig, provided_sig.lower()):
+            logger.warning("sms_handler: webhook signature mismatch — possible forgery")
+            return False
+
+        return True
+
+    except Exception:
+        logger.exception("sms_handler: signature verification error — rejecting request")
+        return False
+
+
 # ── Claude / Jade ─────────────────────────────────────────────────────────────
 
 def _claude(message: str, mode: str = "general") -> str:
     """
-    Call Claude (Jade). mode can be:
+    Call Claude as Jade.
       'general'   — normal inbound message
-      'ambiguous' — member replied with a soft/uncertain answer; Jade should
-                    ask a direct yes/no confirm question
+      'ambiguous' — member replied with a soft/uncertain answer
     """
-    api_key = get_secret_string("rsvp/claude-api-key")
+    api_key = get_secret_string(
+        os.getenv("CLAUDE_API_KEY_SECRET_ID", "rsvp/claude-api-key")
+    )
 
     user_content = message
     if mode == "ambiguous":
@@ -258,7 +355,14 @@ def _claude(message: str, mode: str = "general") -> str:
 # ── Main handler ──────────────────────────────────────────────────────────────
 
 def handler(event, context):
+    # Always return 200 to the SMS provider — non-200 causes retries.
+    # Internal failures are logged but never surfaced as HTTP errors.
     try:
+        # Fix #33: verify the request is genuinely from our SMS provider
+        if not _verify_webhook_signature(event):
+            logger.warning("sms_handler: rejected request with invalid signature")
+            return {"statusCode": 200, "body": json.dumps({"ok": True})}
+
         body = json.loads(event.get("body") or "{}")
         from_phone = normalize_phone(body.get("from") or "")
         text = (body.get("text") or "").strip()
@@ -266,67 +370,108 @@ def handler(event, context):
 
         sms_enabled = (os.getenv("SMS_ENABLED", "false") or "").lower() == "true"
 
-        # ── Opt-out ───────────────────────────────────────────────────────────
+        # ── Opt-out (STOP/UNSUBSCRIBE) ────────────────────────────────────────
         if normalized in OPT_OUT_KEYWORDS:
             if from_phone:
                 try:
                     _set_opt_out(from_phone)
                 except Exception:
-                    pass
+                    logger.exception("sms_handler: opt-out write failed phone=...%s", from_phone[-4:])
             return {"statusCode": 200, "body": json.dumps({"ok": True})}
 
-        # ── Gate: approved members only ───────────────────────────────────────
+        # ── Gate: approved members with SMS opt-in only ───────────────────────
         member = get_member(from_phone)
         if not member or member.get("status") != "APPROVED":
             return {"statusCode": 200, "body": json.dumps({"ok": True})}
         if member.get("optOut"):
             return {"statusCode": 200, "body": json.dumps({"ok": True})}
 
-        # ── Intent classification ─────────────────────────────────────────────
+        # Fix I3: also check smsOptIn for inbound Jade responses, consistent with outbound
+        if not member.get("smsOptIn", False):
+            return {"statusCode": 200, "body": json.dumps({"ok": True})}
 
-        # CONFIRMED
+        # ── CONFIRMED ─────────────────────────────────────────────────────────
         if normalized in CONFIRMED_KEYWORDS:
             try:
                 invite = _get_pending_invite(from_phone)
                 if invite:
-                    _update_invite_status(invite["eventId"], from_phone, "CONFIRMED")
+                    event_id = invite["eventId"]
+
+                    # Fix C2: check capacity before confirming
+                    ev = _events_table().get_item(Key={"eventId": event_id}).get("Item") or {}
+                    capacity = int(ev.get("capacity") or 0)
+                    if capacity > 0:
+                        target_confirmed = math.ceil(capacity / 0.60)
+                        current_confirmed = _get_confirmed_count(event_id)
+                        if current_confirmed >= target_confirmed:
+                            # Room is full — do not confirm; Jade signals waitlist
+                            logger.info(
+                                "sms_handler: capacity reached (%d/%d) for event=%s phone=...%s",
+                                current_confirmed, target_confirmed, event_id, from_phone[-4:],
+                            )
+                            if sms_enabled:
+                                try:
+                                    send_sms(
+                                        from_phone,
+                                        "We're at capacity for this one. I'll keep you in mind for next time.",
+                                    )
+                                except Exception:
+                                    logger.exception("sms_handler: at-capacity SMS failed phone=...%s", from_phone[-4:])
+                            return {"statusCode": 200, "body": json.dumps({"ok": True})}
+
+                    _update_invite_status(event_id, from_phone, "CONFIRMED")
                     if sms_enabled:
-                        send_sms(from_phone, _build_confirmation_message(from_phone))
+                        try:
+                            send_sms(from_phone, _build_confirmation_message(from_phone))
+                        except Exception:
+                            logger.exception("sms_handler: confirmation SMS failed phone=...%s", from_phone[-4:])
             except Exception:
-                pass
+                logger.exception("sms_handler: CONFIRMED branch failed phone=...%s", from_phone[-4:])
             return {"statusCode": 200, "body": json.dumps({"ok": True})}
 
-        # DECLINED
+        # ── DECLINED ──────────────────────────────────────────────────────────
         if normalized in DECLINED_KEYWORDS:
             try:
                 invite = _get_pending_invite(from_phone)
                 if invite:
                     _update_invite_status(invite["eventId"], from_phone, "DECLINED")
                     if sms_enabled:
-                        send_sms(from_phone, "No worries. I'll keep you in mind.")
+                        try:
+                            send_sms(from_phone, "No worries. I'll keep you in mind.")
+                        except Exception:
+                            logger.exception("sms_handler: declined SMS failed phone=...%s", from_phone[-4:])
             except Exception:
-                pass
+                logger.exception("sms_handler: DECLINED branch failed phone=...%s", from_phone[-4:])
             return {"statusCode": 200, "body": json.dumps({"ok": True})}
 
-        # AMBIGUOUS — Jade asks for a direct confirm
+        # ── AMBIGUOUS — Jade asks for a direct confirm ─────────────────────────
         if normalized in AMBIGUOUS_KEYWORDS:
             try:
                 reply = _claude(text, mode="ambiguous")
                 if sms_enabled and reply:
-                    send_sms(from_phone, reply)
+                    try:
+                        send_sms(from_phone, reply)
+                    except Exception:
+                        logger.exception("sms_handler: ambiguous SMS send failed phone=...%s", from_phone[-4:])
             except Exception:
-                pass
+                logger.exception("sms_handler: AMBIGUOUS Jade call failed phone=...%s", from_phone[-4:])
             return {"statusCode": 200, "body": json.dumps({"ok": True})}
 
-        # GENERAL — everything else goes to Jade
+        # ── GENERAL — everything else goes to Jade ────────────────────────────
         try:
             reply = _claude(text, mode="general")
             if sms_enabled and reply:
-                send_sms(from_phone, reply)
+                try:
+                    send_sms(from_phone, reply)
+                except Exception:
+                    logger.exception("sms_handler: general SMS send failed phone=...%s", from_phone[-4:])
         except Exception:
-            pass
+            logger.exception("sms_handler: GENERAL Jade call failed phone=...%s", from_phone[-4:])
 
         return {"statusCode": 200, "body": json.dumps({"ok": True})}
 
     except Exception:
+        # Outer catch: something went very wrong (bad JSON, normalize failure, etc.)
+        # Still return 200 to prevent SMS provider retries.
+        logger.exception("sms_handler: unhandled top-level exception")
         return {"statusCode": 200, "body": json.dumps({"ok": True})}

@@ -1,13 +1,9 @@
 import boto3
 from boto3.dynamodb.conditions import Key as DKey
+from botocore.exceptions import ClientError
 import json
+from datetime import datetime, timezone
 from decimal import Decimal
-
-class DecimalEncoder(json.JSONEncoder):
-    def default(self, obj):
-        if isinstance(obj, Decimal):
-            return int(obj) if obj % 1 == 0 else float(obj)
-        return super().default(obj)
 import logging
 import os
 
@@ -25,6 +21,13 @@ from audit_log import (
 from sms_adapter import get_secret_string
 
 logger = logging.getLogger()
+
+
+class DecimalEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, Decimal):
+            return int(obj) if obj % 1 == 0 else float(obj)
+        return super().default(obj)
 
 
 def _get_method(event: dict) -> str:
@@ -97,10 +100,6 @@ def get_current_event():
 
 
 def set_current_event(data: dict):
-    from datetime import datetime, timezone
-
-    # Validate capacity before writing — a non-numeric value would throw
-    # ValueError and bubble up as a 500 without this check.
     raw_capacity = data.get("capacity")
     try:
         capacity = int(raw_capacity or 0)
@@ -109,22 +108,22 @@ def set_current_event(data: dict):
     except (ValueError, TypeError):
         raise ValueError(f"capacity must be a non-negative integer, got: {raw_capacity!r}")
 
+    # notes (internal operational notes) removed — use description for Jade's brief
     item = {
-        "eventId":      "current",
-        "updatedAt":    datetime.now(timezone.utc).isoformat(timespec="seconds"),
-        "eventSlug":    (data.get("eventSlug") or "").strip(),
-        "date":         (data.get("date") or "").strip(),
-        "venue":        (data.get("venue") or "").strip(),
-        "dresscode":    (data.get("dresscode") or "").strip(),
-        "capacity":     capacity,
-        "city":         (data.get("city") or "").strip(),
-        "address":      (data.get("address") or "").strip(),
-        "revealVenue":  bool(data.get("revealVenue", False)),
-        "vibe_tag":     (data.get("vibe_tag") or "").strip(),
-        "event_label":  (data.get("event_label") or "").strip(),
-        "startTime":    (data.get("startTime") or "").strip(),
+        "eventId":           "current",
+        "updatedAt":         datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "eventSlug":         (data.get("eventSlug") or "").strip(),
+        "date":              (data.get("date") or "").strip(),
+        "venue":             (data.get("venue") or "").strip(),
+        "dresscode":         (data.get("dresscode") or "").strip(),
+        "capacity":          capacity,
+        "city":              (data.get("city") or "").strip(),
+        "address":           (data.get("address") or "").strip(),
+        "revealVenue":       bool(data.get("revealVenue", False)),
+        "vibe_tag":          (data.get("vibe_tag") or "").strip(),
+        "event_label":       (data.get("event_label") or "").strip(),
+        "startTime":         (data.get("startTime") or "").strip(),
         "reminderTiming":    (data.get("reminderTiming") or "manual").strip(),
-        "notes":             (data.get("notes") or "").strip(),
         "description":       (data.get("description") or "").strip(),
         "event_type":        (data.get("event_type") or "").strip(),
         "invite_template":   (data.get("invite_template") or "").strip(),
@@ -149,50 +148,71 @@ def handler(event, context):
 
         path = event.get("path", "")
 
-        # ── GET /admin/members/confirmed ──
-        # Returns all members who replied YES to the current event.
-        # Used by the check-in page to show a door list by confirmed RSVP
-        # rather than by approval status — more accurate for night-of operations.
+        # ── GET /admin/members/confirmed ──────────────────────────────────────
         if method == "GET" and "/admin/members/confirmed" in path:
             ddb = boto3.resource("dynamodb")
             invites_t = ddb.Table(os.getenv("INVITES_TABLE_NAME", "rsvp-event-invites"))
-            members_t = ddb.Table(os.getenv("MEMBERS_TABLE_NAME", "rsvp-members"))
+            qs = event.get("queryStringParameters") or {}
+            event_id = (qs.get("eventId") or "current").strip() or "current"
+            members_table_name = os.getenv("MEMBERS_TABLE_NAME", "rsvp-members")
+            members_t = ddb.Table(members_table_name)
 
-            # Query on primary hash key (eventId = "current") — native key
-            # lookup, no scan. Filter CONFIRMED in Python after.
+            # Paginate invite query to handle large events
             confirmed_invites = []
-            kwargs: dict = {
-                "KeyConditionExpression": DKey("eventId").eq("current"),
-            }
+            kwargs: dict = {"KeyConditionExpression": DKey("eventId").eq(event_id)}
             while True:
                 resp = invites_t.query(**kwargs)
                 confirmed_invites.extend(
-                    [item for item in resp.get("Items", []) if item.get("status") == "CONFIRMED"]
+                    [i for i in resp.get("Items", []) if i.get("status") == "CONFIRMED"]
                 )
                 last = resp.get("LastEvaluatedKey")
                 if not last:
                     break
                 kwargs["ExclusiveStartKey"] = last
 
-            # Hydrate with member display fields
+            # BatchGetItem replaces N+1 individual reads — 200 confirmed = 2 batch calls
+            phones = [inv["phone"] for inv in confirmed_invites if inv.get("phone")]
+            member_map: dict = {}
+            for i in range(0, len(phones), 100):
+                batch_phones = phones[i:i + 100]
+                try:
+                    batch_resp = members_t.meta.client.batch_get_item(
+                        RequestItems={
+                            members_table_name: {
+                                "Keys": [{"phone": p} for p in batch_phones],
+                                "ProjectionExpression": "phone, #n, lastName, gender",
+                                "ExpressionAttributeNames": {"#n": "name"},
+                            }
+                        }
+                    )
+                    for item in batch_resp.get("Responses", {}).get(members_table_name, []):
+                        member_map[item["phone"]] = item
+                    # Retry any unprocessed keys (DDB throttle)
+                    unprocessed = batch_resp.get("UnprocessedKeys", {})
+                    if unprocessed:
+                        retry_resp = members_t.meta.client.batch_get_item(
+                            RequestItems=unprocessed
+                        )
+                        for item in retry_resp.get("Responses", {}).get(members_table_name, []):
+                            member_map[item["phone"]] = item
+                except Exception:
+                    logger.exception("confirmed: batch_get_item failed for batch starting i=%d", i)
+
             members_out = []
             for invite in confirmed_invites:
                 phone = invite.get("phone", "")
                 if not phone:
                     continue
-                try:
-                    result = members_t.get_item(Key={"phone": phone})
-                    m = result.get("Item") or {}
-                    members_out.append({
-                        "phone":       phone,
-                        "name":        m.get("name", ""),
-                        "lastName":    m.get("lastName", ""),
-                        "gender":      m.get("gender", ""),
-                        "confirmedAt": invite.get("confirmedAt", ""),
-                    })
-                except Exception:
-                    logger.exception("confirmed: failed to fetch member phone=...%s", phone[-4:])
-                    continue
+                m = member_map.get(phone) or {}
+                members_out.append({
+                    "phone":       phone,
+                    "name":        m.get("name", ""),
+                    "lastName":    m.get("lastName", ""),
+                    "gender":      m.get("gender", ""),
+                    "confirmedAt": invite.get("confirmedAt", ""),
+                    "attendedAt":  invite.get("attendedAt", ""),
+                    "checkedIn":   bool(invite.get("attendedAt")),
+                })
 
             members_out.sort(key=lambda x: (
                 (x.get("lastName") or x.get("name") or "").lower(),
@@ -200,19 +220,17 @@ def handler(event, context):
             ))
             return _resp(headers, 200, {"ok": True, "members": members_out})
 
-        # ── GET /admin/members ──
+        # ── GET /admin/members ────────────────────────────────────────────────
         if method == "GET" and path.endswith("/admin/members"):
             qs = _get_query(event)
             status = (qs.get("status") or "PENDING").upper()
             members = list_members_by_status(status=status)
             return _resp(headers, 200, {"ok": True, "members": members})
 
-        # ── DELETE /admin/members ──
-        # Soft-delete: sets status=DELETED and wipes PII fields on the member
-        # record rather than dropping the row. Preserves invite/checkin/audit
-        # history integrity. Invite records are tombstoned (status=DELETED) so
-        # they are excluded from future blasts and confirmed-member queries.
-        # Checkin records are left intact as immutable attendance history.
+        # ── DELETE /admin/members ─────────────────────────────────────────────
+        # Soft-delete: wipes PII, sets status=DELETED. Tombstones all invite
+        # records for this member so they are excluded from future blasts and
+        # analytics. Checkin records are left intact as attendance history.
         if method == "DELETE" and path.endswith("/admin/members"):
             raw_body = event.get("body") or ""
             data = json.loads(raw_body) if raw_body else {}
@@ -220,11 +238,9 @@ def handler(event, context):
             if not phone:
                 return _resp(headers, 400, {"ok": False, "error": "phone required"})
 
-            from datetime import datetime, timezone
             now = datetime.now(timezone.utc).isoformat(timespec="seconds")
             ddb = boto3.resource("dynamodb")
 
-            # 1. Soft-delete member record: wipe PII, set status=DELETED
             members_t = ddb.Table(os.getenv("MEMBERS_TABLE_NAME", "rsvp-members"))
             members_t.update_item(
                 Key={"phone": phone},
@@ -236,8 +252,6 @@ def handler(event, context):
                 ExpressionAttributeValues={":deleted": "DELETED", ":now": now},
             )
 
-            # 2. Tombstone any invite records for this member so they are
-            # excluded from confirmed-member queries and future blast previews.
             invites_t = ddb.Table(os.getenv("INVITES_TABLE_NAME", "rsvp-event-invites"))
             try:
                 invite_resp = invites_t.query(
@@ -253,12 +267,11 @@ def handler(event, context):
                     )
             except Exception:
                 logger.exception("delete: failed to tombstone invites for phone=...%s", phone[-4:])
-                # Non-fatal — member record is already soft-deleted
 
             log_action(token=token, action=ACTION_MEMBER_DELETED, target_phone=phone)
             return _resp(headers, 200, {"ok": True})
 
-        # ── POST /admin/members/status ──
+        # ── POST /admin/members/status ────────────────────────────────────────
         if method == "POST" and path.endswith("/admin/members/status"):
             raw_body = event.get("body") or ""
             data = json.loads(raw_body) if raw_body else {}
@@ -274,7 +287,7 @@ def handler(event, context):
                        metadata={"status": status})
             return _resp(headers, 200, {"ok": True})
 
-        # ── POST /admin/members/gender ──
+        # ── POST /admin/members/gender ────────────────────────────────────────
         if method == "POST" and path.endswith("/admin/members/gender"):
             raw_body = event.get("body") or ""
             data = json.loads(raw_body) if raw_body else {}
@@ -287,7 +300,7 @@ def handler(event, context):
                        target_phone=phone, metadata={"gender": gender})
             return _resp(headers, 200, {"ok": True})
 
-        # ── POST /admin/members/tier ──
+        # ── POST /admin/members/tier ──────────────────────────────────────────
         if method == "POST" and path.endswith("/admin/members/tier"):
             raw_body = event.get("body") or ""
             data = json.loads(raw_body) if raw_body else {}
@@ -300,7 +313,7 @@ def handler(event, context):
                        target_phone=phone, metadata={"tier": int(tier)})
             return _resp(headers, 200, {"ok": True})
 
-        # ── POST /admin/members/attendance ──
+        # ── POST /admin/members/attendance ────────────────────────────────────
         if method == "POST" and path.endswith("/admin/members/attendance"):
             raw_body = event.get("body") or ""
             data = json.loads(raw_body) if raw_body else {}
@@ -316,7 +329,7 @@ def handler(event, context):
                                  "alreadyCheckedIn": not is_new})
             return _resp(headers, 200, {"ok": True, "alreadyCheckedIn": not is_new})
 
-        # ── POST /admin/members/import ──
+        # ── POST /admin/members/import ────────────────────────────────────────
         if method == "POST" and path.endswith("/admin/members/import"):
             raw_body = event.get("body") or ""
             data = json.loads(raw_body) if raw_body else {}
@@ -324,9 +337,6 @@ def handler(event, context):
             if not members_to_import:
                 return _resp(headers, 400, {"ok": False, "error": "members array required"})
 
-            # Operator can choose import status per batch.
-            # Defaults to APPROVED (trusted source behavior).
-            # Pass status=PENDING in the request body to hold for review.
             import_status = (data.get("status") or "APPROVED").upper()
             if import_status not in ("APPROVED", "PENDING"):
                 import_status = "APPROVED"
@@ -335,9 +345,6 @@ def handler(event, context):
             skipped = 0
             errors = []
 
-            # Hoist table handle — one DynamoDB resource per import call,
-            # not one per row. Also eliminates the separate Instagram update
-            # by folding it into the upsert expression below.
             members_t = boto3.resource("dynamodb").Table(
                 os.getenv("MEMBERS_TABLE_NAME", "rsvp-members")
             )
@@ -355,7 +362,13 @@ def handler(event, context):
                     email = (row.get("email") or "").strip() or None
                     instagram = (row.get("instagram") or "").strip() or None
                     tags = (row.get("tags") or "").strip() or None
-                    sms_opt_in = bool(row.get("smsOptIn", True))
+                    # Parse smsOptIn safely — CSV values arrive as strings.
+                    # bool("false") == True in Python, so we check string values explicitly.
+                    raw_opt_in = row.get("smsOptIn", True)
+                    if isinstance(raw_opt_in, str):
+                        sms_opt_in = raw_opt_in.strip().lower() not in ("false", "0", "no", "n", "")
+                    else:
+                        sms_opt_in = bool(raw_opt_in)
 
                     upsert_member(
                         phone=phone_e164,
@@ -367,8 +380,6 @@ def handler(event, context):
                         tags=tags,
                     )
 
-                    # Fold instagram and status into one update instead of
-                    # two separate write calls per row.
                     update_expr = "SET #status = :status"
                     expr_names = {"#status": "status"}
                     expr_vals: dict = {":status": import_status}
@@ -385,8 +396,6 @@ def handler(event, context):
                     imported += 1
 
                 except Exception as row_err:
-                    # Log full detail internally — never surface raw exceptions
-                    # (table names, boto3 codes, phone numbers) in the API response.
                     logger.error("import row %d phone=%s: %s", idx, row.get("phone"), row_err)
                     errors.append(f"row {idx}: {type(row_err).__name__}")
                     skipped += 1
@@ -403,7 +412,7 @@ def handler(event, context):
                 "errors": errors[:10],
             })
 
-        # ── GET /admin/members/search ──
+        # ── GET /admin/members/search ─────────────────────────────────────────
         if method == "GET" and path.endswith("/admin/members/search"):
             qs = _get_query(event)
             query = (qs.get("q") or "").strip()
@@ -412,17 +421,18 @@ def handler(event, context):
             members = search_members(query, limit=50)
             return _resp(headers, 200, {"ok": True, "members": members})
 
-        # ── GET /admin/event/analytics ──
-        # Most-specific /admin/event path — must be checked before /admin/event
-        # so the endswith("/admin/event") check below cannot shadow it.
-        # Post-event summary: invited / confirmed / declined / no-response /
-        # attended, broken down by gender and tier. Primary key query, no scan.
+        # ── GET /admin/event/analytics ────────────────────────────────────────
+        # Must be checked before /admin/event so endswith("/admin/event") below
+        # cannot shadow it.
         if method == "GET" and "/admin/event/analytics" in path:
             ddb = boto3.resource("dynamodb")
             invites_t = ddb.Table(os.getenv("INVITES_TABLE_NAME", "rsvp-event-invites"))
 
+            qs = event.get("queryStringParameters") or {}
+            event_id = (qs.get("eventId") or "current").strip() or "current"
+
             items = []
-            kwargs: dict = {"KeyConditionExpression": DKey("eventId").eq("current")}
+            kwargs: dict = {"KeyConditionExpression": DKey("eventId").eq(event_id)}
             while True:
                 resp = invites_t.query(**kwargs)
                 items.extend(resp.get("Items", []))
@@ -431,7 +441,9 @@ def handler(event, context):
                     break
                 kwargs["ExclusiveStartKey"] = last
 
-            # Aggregate
+            # Fix #19: exclude DELETED records from all totals
+            # Fix #20: tier-3 bucket added
+            # Fix #21: no_response only counts genuinely unreplied INVITED records
             totals = {"invited": 0, "confirmed": 0, "declined": 0, "no_response": 0, "attended": 0}
             by_gender = {
                 "M": {"invited": 0, "confirmed": 0, "declined": 0, "attended": 0},
@@ -441,16 +453,35 @@ def handler(event, context):
             by_tier = {
                 1: {"invited": 0, "confirmed": 0, "declined": 0, "attended": 0},
                 2: {"invited": 0, "confirmed": 0, "declined": 0, "attended": 0},
+                3: {"invited": 0, "confirmed": 0, "declined": 0, "attended": 0},
+            }
+            by_wave = {
+                1: {"invited": 0, "confirmed": 0, "declined": 0, "no_response": 0, "attended": 0},
+                2: {"invited": 0, "confirmed": 0, "declined": 0, "no_response": 0, "attended": 0},
+                3: {"invited": 0, "confirmed": 0, "declined": 0, "no_response": 0, "attended": 0},
+                0: {"invited": 0, "confirmed": 0, "declined": 0, "no_response": 0, "attended": 0},
             }
 
             for item in items:
                 status = item.get("status", "INVITED")
+
+                # Fix #19: skip tombstoned records entirely
+                if status == "DELETED":
+                    continue
+
                 gender = (item.get("gender") or "O").upper()
                 if gender not in ("M", "F"):
                     gender = "O"
+
                 tier = int(item.get("tier", 1))
-                if tier not in (1, 2):
+                # Fix #20: tier-3 gets its own bucket instead of being absorbed into tier-1
+                if tier not in (1, 2, 3):
                     tier = 1
+
+                wave = int(item.get("waveNumber", 0) or 0)
+                if wave not in (1, 2, 3):
+                    wave = 0
+
                 attended = bool(item.get("attendedAt"))
 
                 totals["invited"] += 1
@@ -458,10 +489,24 @@ def handler(event, context):
                     totals["confirmed"] += 1
                 elif status == "DECLINED":
                     totals["declined"] += 1
-                else:
+                elif status == "INVITED":
+                    # Fix #21: only genuine pending INVITED records count as no_response
                     totals["no_response"] += 1
+                # Any other unknown status is silently excluded from rates
+
                 if attended:
                     totals["attended"] += 1
+
+                w = by_wave[wave]
+                w["invited"] += 1
+                if status == "CONFIRMED":
+                    w["confirmed"] += 1
+                elif status == "DECLINED":
+                    w["declined"] += 1
+                elif status == "INVITED":
+                    w["no_response"] += 1
+                if attended:
+                    w["attended"] += 1
 
                 g = by_gender[gender]
                 g["invited"] += 1
@@ -487,23 +532,24 @@ def handler(event, context):
             summary = {
                 "totals": totals,
                 "rates": {
-                    "confirm_rate":  rate(totals["confirmed"], totals["invited"]),
-                    "decline_rate":  rate(totals["declined"], totals["invited"]),
-                    "show_rate":     rate(totals["attended"], totals["confirmed"]),
-                    "ghost_rate":    rate(totals["confirmed"] - totals["attended"], totals["confirmed"]),
+                    "confirm_rate": rate(totals["confirmed"], totals["invited"]),
+                    "decline_rate": rate(totals["declined"], totals["invited"]),
+                    "show_rate":    rate(totals["attended"], totals["confirmed"]),
+                    "ghost_rate":   rate(totals["confirmed"] - totals["attended"], totals["confirmed"]),
                 },
                 "by_gender": by_gender,
-                "by_tier": by_tier,
+                "by_tier":   by_tier,
+                "by_wave":   by_wave,
                 "total_records": len(items),
             }
-            return _resp(headers, 200, {"ok": True, "analytics": summary})
+            return _resp(headers, 200, {"ok": True, "eventId": event_id, "analytics": summary})
 
-        # ── GET /admin/event ──
+        # ── GET /admin/event ──────────────────────────────────────────────────
         if method == "GET" and path.endswith("/admin/event"):
             ev = get_current_event()
             return _resp(headers, 200, {"ok": True, "event": ev or {}})
 
-        # ── POST /admin/event ──
+        # ── POST /admin/event ─────────────────────────────────────────────────
         if method == "POST" and path.endswith("/admin/event"):
             raw_body = event.get("body") or ""
             data = json.loads(raw_body) if raw_body else {}
@@ -516,9 +562,7 @@ def handler(event, context):
                                  "capacity": ev.get("capacity"), "eventSlug": ev.get("eventSlug")})
             return _resp(headers, 200, {"ok": True, "event": ev})
 
-        # ── GET /event (public) ──
-        # Strip both venue AND address when revealVenue is false — either field
-        # alone is enough to reveal the location before the operator wants it known.
+        # ── GET /event (public) ───────────────────────────────────────────────
         if method == "GET" and path.endswith("/event") and not path.endswith("/admin/event"):
             ev = get_current_event()
             if ev:
