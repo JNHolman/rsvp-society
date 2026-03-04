@@ -3,6 +3,7 @@ import logging
 import os
 import boto3
 from datetime import datetime, timezone, timedelta
+from zoneinfo import ZoneInfo
 from boto3.dynamodb.conditions import Key as DKey
 from sms_adapter import send_sms, get_secret_string
 from audit_log import log_action, ACTION_REMINDER_SENT
@@ -21,6 +22,24 @@ def _invites_table():
 
 def _members_table():
     return _DDB.Table(os.environ["MEMBERS_TABLE_NAME"])
+
+
+def _event_timezone_name(event: dict) -> str:
+    tz_name = (event.get("event_timezone") or "America/New_York").strip()
+    return tz_name or "America/New_York"
+
+
+def _event_zoneinfo(event: dict):
+    tz_name = _event_timezone_name(event)
+    try:
+        return ZoneInfo(tz_name)
+    except Exception:
+        logger.warning("reminder_handler: invalid event_timezone=%s — defaulting to America/New_York", tz_name)
+        return ZoneInfo("America/New_York")
+
+
+def _scheduled_target_hour(is_day_of: bool) -> int:
+    return 11 if is_day_of else 18
 
 
 def _build_reminder(member_name: str, event: dict) -> str:
@@ -49,7 +68,6 @@ def _build_reminder(member_name: str, event: dict) -> str:
     start_time  = (event.get("startTime") or "").strip()
     timing_word = "Tonight" if is_day_of else "Tomorrow"
 
-    parts = [f"{{{name}}}." if name else ""]
     parts = [f"{name}." if name else ""]
     parts.append(f"{timing_word}.")
     if event_label:
@@ -261,13 +279,17 @@ def handler(event, context):
                     "body": json.dumps({"ok": False, "error": "No current event"}),
                 }
 
-            if "is_day_of" not in body:
+            manual_timing = str(body.get("timing") or "").strip().lower()
+            if manual_timing in {"day_before", "day_of"}:
+                is_day_of = manual_timing == "day_of"
+            elif "is_day_of" in body:
+                is_day_of = bool(body["is_day_of"])
+            else:
                 return {
                     "statusCode": 400,
                     "headers": _cors_headers(origin),
-                    "body": json.dumps({"ok": False, "error": "is_day_of (true/false) required"}),
+                    "body": json.dumps({"ok": False, "error": "timing (day_before/day_of) or is_day_of (true/false) required"}),
                 }
-            is_day_of = bool(body["is_day_of"])
 
             result = send_reminders(current_event, is_day_of=is_day_of, token=token)
             return {
@@ -304,26 +326,46 @@ def handler(event, context):
             logger.warning("reminder_handler: unparseable date '%s' — skipping", event_date_str)
             return {"ok": True, "skipped": True, "reason": "unparseable date"}
 
-        today    = datetime.now(timezone.utc).date()
-        # 'both' means this Lambda fires for EITHER schedule and should check which one
-        # We determine is_day_of from the cron that fired — passed in the EventBridge event
-        # source field, OR we check current UTC hour as a proxy:
-        #   day_of rule fires at 16:00 UTC (11AM EST), day_before fires at 23:00 UTC (6PM EST)
-        from datetime import datetime as _dt
-        current_hour_utc = _dt.utcnow().hour
+        trigger_timing = str(event.get("timing") or "").strip().lower()
+
         if reminder_timing == "both":
-            # Fired by one of two rules — infer which by hour
-            is_day_of = (14 <= current_hour_utc <= 18)  # 16 UTC ± 2h window for day-of
+            if trigger_timing not in {"day_before", "day_of"}:
+                logger.info("reminder_handler: timing=both but trigger timing missing — skipping")
+                return {"ok": True, "skipped": True, "reason": "missing trigger timing"}
+            is_day_of = trigger_timing == "day_of"
+        elif reminder_timing == "day_before":
+            if trigger_timing and trigger_timing != "day_before":
+                logger.info("reminder_handler: trigger=%s but event timing=day_before — skipping", trigger_timing)
+                return {"ok": True, "skipped": True, "reason": "wrong trigger timing"}
+            is_day_of = False
+        elif reminder_timing == "day_of":
+            if trigger_timing and trigger_timing != "day_of":
+                logger.info("reminder_handler: trigger=%s but event timing=day_of — skipping", trigger_timing)
+                return {"ok": True, "skipped": True, "reason": "wrong trigger timing"}
+            is_day_of = True
         else:
-            is_day_of = reminder_timing == "day_of"
+            logger.info("reminder_handler: unsupported timing=%s — skipping", reminder_timing)
+            return {"ok": True, "skipped": True, "reason": "unsupported timing"}
+
+        zone = _event_zoneinfo(current_event)
+        local_now = datetime.now(zone)
+        local_today = local_now.date()
+        target_hour = _scheduled_target_hour(is_day_of)
         expected_fire_date = event_date if is_day_of else event_date - timedelta(days=1)
 
-        if today != expected_fire_date:
+        if local_today != expected_fire_date:
             logger.info(
-                "reminder_handler: today=%s expected_fire=%s — skipping",
-                today.isoformat(), expected_fire_date.isoformat(),
+                "reminder_handler: local_today=%s expected_fire=%s tz=%s — skipping",
+                local_today.isoformat(), expected_fire_date.isoformat(), _event_timezone_name(current_event),
             )
             return {"ok": True, "skipped": True, "reason": "not the right day"}
+
+        if local_now.hour != target_hour:
+            logger.info(
+                "reminder_handler: local_hour=%s target_hour=%s tz=%s trigger=%s — skipping",
+                local_now.hour, target_hour, _event_timezone_name(current_event), trigger_timing,
+            )
+            return {"ok": True, "skipped": True, "reason": "not the right hour"}
 
         result = send_reminders(current_event, is_day_of=is_day_of, token="")
         logger.info(

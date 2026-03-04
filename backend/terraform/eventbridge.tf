@@ -68,7 +68,7 @@ resource "aws_api_gateway_integration" "admin_invite_reminder_options" {
   resource_id = aws_api_gateway_resource.admin_invite_reminder.id
   http_method = aws_api_gateway_method.admin_invite_reminder_options.http_method
   type        = "MOCK"
-  request_templates = { "application/json" = "{\"statusCode\": 200}" }
+  request_templates = { "application/json" = local.cors_mock_request_template }
 }
 resource "aws_api_gateway_method_response" "admin_invite_reminder_options_200" {
   rest_api_id = aws_api_gateway_rest_api.api.id
@@ -87,29 +87,28 @@ resource "aws_api_gateway_integration_response" "admin_invite_reminder_options_2
   http_method = aws_api_gateway_method.admin_invite_reminder_options.http_method
   status_code = aws_api_gateway_method_response.admin_invite_reminder_options_200.status_code
   response_parameters = {
-    "method.response.header.Access-Control-Allow-Origin"  = local.cors_origins
+    "method.response.header.Access-Control-Allow-Origin"  = local.cors_allow_origin_expr
     "method.response.header.Access-Control-Allow-Methods" = local.cors_methods
     "method.response.header.Access-Control-Allow-Headers" = local.cors_headers
   }
 }
 
 # -----------------------------
-# EventBridge — Daily reminder check
-# Two separate rules, each passing timing context to the Lambda:
-#   day_before: fires at 6PM EST (23:00 UTC)
-#   day_of:     fires at 11AM EST (16:00 UTC)
-# Lambda checks event date and reminderTiming before sending.
+# EventBridge — Hourly reminder check
+# Two separate hourly rules pass timing context to the Lambda.
+# The Lambda now decides whether it is the correct local event date/hour
+# using the saved event_timezone (default America/New_York).
 # -----------------------------
 resource "aws_cloudwatch_event_rule" "reminder_day_before" {
   name                = "rsvp-reminder-day-before"
-  description         = "Fires daily at 6PM EST to send day-before reminders"
-  schedule_expression = "cron(0 23 * * ? *)"
+  description         = "Checks hourly and sends day-before reminders at 6 PM local event time"
+  schedule_expression = "cron(0 * * * ? *)"
 }
 
 resource "aws_cloudwatch_event_rule" "reminder_day_of" {
   name                = "rsvp-reminder-day-of"
-  description         = "Fires daily at 11AM EST (16:00 UTC) to send day-of reminders"
-  schedule_expression = "cron(0 16 * * ? *)"
+  description         = "Checks hourly and sends day-of reminders at 11 AM local event time"
+  schedule_expression = "cron(0 * * * ? *)"
 }
 
 resource "aws_cloudwatch_event_target" "reminder_day_before" {

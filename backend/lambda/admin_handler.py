@@ -109,6 +109,10 @@ def set_current_event(data: dict):
         raise ValueError(f"capacity must be a non-negative integer, got: {raw_capacity!r}")
 
     # notes (internal operational notes) removed — use description for Jade's brief
+    shared_reminder = (data.get("reminder_template") or "").strip()
+    day_before_template = (data.get("day_before_template") or shared_reminder).strip()
+    day_of_template = (data.get("day_of_template") or shared_reminder).strip()
+
     item = {
         "eventId":           "current",
         "updatedAt":         datetime.now(timezone.utc).isoformat(timespec="seconds"),
@@ -118,6 +122,7 @@ def set_current_event(data: dict):
         "dresscode":         (data.get("dresscode") or "").strip(),
         "capacity":          capacity,
         "city":              (data.get("city") or "").strip(),
+        "event_timezone":    (data.get("event_timezone") or "America/New_York").strip() or "America/New_York",
         "address":           (data.get("address") or "").strip(),
         "revealVenue":       bool(data.get("revealVenue", False)),
         "vibe_tag":          (data.get("vibe_tag") or "").strip(),
@@ -127,7 +132,9 @@ def set_current_event(data: dict):
         "description":       (data.get("description") or "").strip(),
         "event_type":        (data.get("event_type") or "").strip(),
         "invite_template":   (data.get("invite_template") or "").strip(),
-        "reminder_template": (data.get("reminder_template") or "").strip(),
+        "reminder_template": shared_reminder,
+        "day_before_template": day_before_template,
+        "day_of_template":     day_of_template,
     }
     _events_table().put_item(Item=item)
     return item
@@ -142,11 +149,22 @@ def handler(event, context):
         if method == "OPTIONS":
             return _resp(headers, 200, {"ok": True})
 
+        path = event.get("path", "")
+
+        # Public current-event endpoints do not require the admin token.
+        if method == "GET" and (path.endswith("/event") or path.endswith("/event/current")) and not path.endswith("/admin/event"):
+            ev = get_current_event()
+            if ev:
+                reveal = bool(ev.get("revealVenue", False))
+                hidden = {"venue", "address"} if not reveal else set()
+                public = {k: v for k, v in ev.items() if k not in hidden}
+            else:
+                public = {}
+            return _resp(headers, 200, {"ok": True, "event": public})
+
         token = (headers.get("x-admin-token") or headers.get("X-Admin-Token") or "").strip()
         if not token or token != _admin_token():
             return _resp(headers, 401, {"ok": False, "error": "unauthorized"})
-
-        path = event.get("path", "")
 
         # ── GET /admin/members/confirmed ──────────────────────────────────────
         if method == "GET" and "/admin/members/confirmed" in path:
@@ -561,17 +579,6 @@ def handler(event, context):
                        metadata={"date": ev.get("date"), "venue": ev.get("venue"),
                                  "capacity": ev.get("capacity"), "eventSlug": ev.get("eventSlug")})
             return _resp(headers, 200, {"ok": True, "event": ev})
-
-        # ── GET /event (public) ───────────────────────────────────────────────
-        if method == "GET" and path.endswith("/event") and not path.endswith("/admin/event"):
-            ev = get_current_event()
-            if ev:
-                reveal = bool(ev.get("revealVenue", False))
-                hidden = {"venue", "address"} if not reveal else set()
-                public = {k: v for k, v in ev.items() if k not in hidden}
-            else:
-                public = {}
-            return _resp(headers, 200, {"ok": True, "event": public})
 
         return _resp(headers, 404, {"ok": False, "error": "not found"})
 

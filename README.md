@@ -26,32 +26,52 @@ Everything runs on AWS. The frontend runs on Netlify. SMS runs through Quo (pend
 rsvp-society/
 ├── frontend/
 │   ├── index.html              # Main website + member signup form
-│   ├── apple-touch-icon.png    # iOS home screen / share icon
-│   ├── favicon-32.png          # Browser tab favicon
 │   ├── pics.html               # Photo gallery (post-event, pulls from S3/CloudFront)
 │   ├── terms.html              # SMS Terms & Privacy Policy (Quo requirement)
 │   └── admin/
-│       ├── index.html          # Admin panel (token protected)
-│       └── checkin.html        # Mobile door check-in (tablet, staff use)
+│       ├── index.html          # Admin shell (token protected)
+│       ├── checkin.html        # Mobile door check-in (tablet, staff use)
+│       ├── admin-app.js        # App bootstrap + tab routing
+│       ├── api.js              # Shared fetch layer + token/API base handling
+│       ├── state.js            # Shared client state
+│       ├── constants.js        # Route map + market/area-code constants
+│       ├── ui.js               # Reusable DOM helpers
+│       ├── members.js          # Members tab
+│       ├── event.js            # Event tab
+│       ├── invite.js           # Invite tab + reminder blast controls
+│       ├── analytics.js        # Analytics tab
+│       ├── attendance.js       # Attendance tab
+│       ├── checkin.js          # Door check-in logic (shares api.js/state.js)
+│       ├── base.css            # Shared admin typography + utility styles
+│       ├── shell.css           # Admin shell layout
+│       ├── event.css           # Event tab styles
+│       ├── invite.css          # Invite tab styles
+│       ├── attendance.css      # Attendance/check-in styles
+│       └── analytics.css       # Analytics styles
 │
 ├── backend/
 │   └── lambda/
 │       ├── access_request.py   # Handles form submissions from website
 │       ├── sms_handler.py      # Jade AI concierge + YES/NO RSVP + STOP opt-out
 │       ├── sms_adapter.py      # SMS provider wrapper (stub — wire HTTP call before go-live)
-│       ├── admin_handler.py    # All admin API endpoints
+│       ├── admin_handler.py    # Admin API endpoints + public current-event endpoints
 │       ├── member_store.py     # DynamoDB read/write layer (GSI queries)
 │       ├── invite_handler.py   # Invite math, blast preview, send
-│       ├── reminder_handler.py # EventBridge reminder blasts + manual trigger
-│       └── audit_log.py        # Immutable admin action audit trail
+│       ├── reminder_handler.py # EventBridge reminders + manual trigger
+│       ├── audit_log.py        # Immutable admin action audit trail
+│       └── route_contract_audit.py # Frontend/backend/Terraform contract check
 │
 └── terraform/
-    ├── main.tf                 # API Gateway, Lambda, DynamoDB, WAF, IAM, CloudWatch
+    ├── main.tf                 # API Gateway, Lambda, DynamoDB, IAM, CORS, CloudWatch
+    ├── eventbridge.tf          # reminder_handler Lambda + hourly reminder rules
     ├── iam_per_function.tf     # Per-function IAM roles (least privilege)
-    ├── eventbridge.tf          # reminder_handler Lambda + scheduled rules
+    ├── analytics_endpoint.tf   # Analytics route wiring
+    ├── confirmed_endpoint.tf   # Confirmed-members route wiring
     ├── checkins.tf             # rsvp-checkins dedup table
     ├── audit_log.tf            # rsvp-audit-log table + IAM write policy
-    └── cloudfront_api.tf       # CloudFront distribution → api.rsvpsociety.com
+    ├── cloudfront_api.tf       # CloudFront distribution -> api.rsvpsociety.com
+    ├── cloudwatch_dashboard.tf # Ops dashboard widgets
+    └── storage.tf              # Buckets / storage helpers
 ```
 
 ---
@@ -59,7 +79,7 @@ rsvp-society/
 ## Tech Stack & Why
 
 ### Frontend — Netlify
-Static HTML/CSS/JS. No framework. **Manual deploys only** — drag the `frontend/` folder into Netlify dashboard. GitHub auto-deploy is disabled to avoid conflicts with backend CI/CD. Custom domain `rsvpsociety.com` managed via Netlify DNS.
+Static HTML/CSS/JS. No framework. The public site stays simple. The admin is now modularized into small Vanilla JS/CSS files with a shared request/config layer (`api.js`, `state.js`, `constants.js`) so routes, token handling, and API base logic stay consistent across tabs and the check-in page. **Manual deploys only** — drag the `frontend/` folder into Netlify dashboard. GitHub auto-deploy is disabled to avoid conflicts with backend CI/CD. Custom domain `rsvpsociety.com` managed via Netlify DNS.
 
 ### Backend — AWS Lambda (Python)
 Serverless functions. Each Lambda handles one responsibility. No always-on server costs. Scales automatically. Chosen because the event business is bursty — quiet for weeks, then 200 SMS messages go out in an hour.
@@ -82,11 +102,11 @@ Carrier-compliant SMS platform. Required for 10DLC registration. Quo webhooks hi
 Jade is an SMS-based AI assistant for RSVP Society members. She handles RSVPs, event questions, and reminders. Built on `claude-haiku-4-5-20251001` with prompt caching (~90% token savings). Jade only responds to approved, opted-in members.
 
 ### Scheduled Reminders — AWS EventBridge
-Two daily CloudWatch Event Rules fire the `reminder_handler` Lambda:
-- **Day before at 6:00 PM EST** — `cron(0 23 * * ? *)` UTC
-- **Day of at 11:00 AM EST** — `cron(0 16 * * ? *)` UTC
+Two hourly EventBridge rules fire the `reminder_handler` Lambda:
+- **Day before rule** — checks every hour and sends at **6:00 PM local event time** when the event is tomorrow
+- **Day of rule** — checks every hour and sends at **11:00 AM local event time** when the event is today
 
-Lambda validates the event date and `reminderTiming` field before sending — it will not blast on the wrong day. Manual blast available from the Invite tab.
+The Lambda reads the saved `event_timezone`, validates the local event date, checks the local hour, and respects the event's `reminderTiming` setting (`day_before`, `day_of`, `both`, or `manual`) before sending. Manual blast is still available from the Invite tab.
 
 ### Photo Storage — AWS S3 + CloudFront
 Event photos upload to S3 bucket `rsvp-society-pics-prod`. CloudFront serves them at `https://d31o74npegx00h.cloudfront.net`. Gallery in `pics.html` references this URL. No photos in the git repo ever.
@@ -98,7 +118,7 @@ Three secrets: admin token, Quo API key, Anthropic API key. Stored in Secrets Ma
 All AWS infrastructure defined in `.tf` files. Remote state: `s3://rsvp-society-terraform-state/prod/terraform.tfstate`. To recreate: `terraform init && terraform apply`.
 
 ### CI/CD — GitHub Actions
-Backend deploys automatically on push to `main`. Builds Lambda zip, deploys all 6 functions. Frontend is manual via Netlify.
+Backend deploys automatically on push to `main`. Builds the Lambda bundle and deploys all 5 live functions. Frontend is manual via Netlify.
 
 ---
 
@@ -169,20 +189,24 @@ Backend deploys automatically on push to `main`. Builds Lambda zip, deploys all 
 |---|---|---|
 | `eventId` | String | Always `"current"` — one active event at a time |
 | `eventSlug` | String | Human ID used as the key in invite/checkin queries — e.g. `"2026-03-march"` |
-| `date` | String | e.g. "Saturday March 15" |
-| `startTime` | String | e.g. "9:00 PM" — used in reminder SMS |
-| `city` | String | e.g. "Louisville, KY" |
+| `date` | String | Stored as a real event date string. Scheduled reminders parse this field. |
+| `startTime` | String | e.g. `"9:00 PM"` — used in reminder SMS |
+| `city` | String | e.g. `"Louisville, KY"` |
+| `event_timezone` | String | IANA timezone name — e.g. `"America/New_York"`, `"America/Chicago"` |
 | `venue` | String | Venue name |
 | `address` | String | Full address — sent to confirmed members |
-| `dresscode` | String | e.g. "All Black" |
-| `revealVenue` | Boolean | If true, venue name appears in confirmation SMS |
+| `dresscode` | String | e.g. `"All Black"` |
+| `revealVenue` | Boolean | If true, venue name/address appear in confirmation + public current-event response |
 | `description` | String | Brief for Jade — context she uses when building messages |
-| `vibe_tag` | String | Curated vibe tag (e.g. "suits + shots") — appears in invite SMS |
-| `event_label` | String | Short event label for SMS (e.g. "Pool Party") |
-| `event_type` | String | Internal type — swim_party, rooftop, etc. |
+| `vibe_tag` | String | Curated vibe tag (e.g. `"suits + shots"`) — appears in invite SMS |
+| `event_label` | String | Short event label for SMS (e.g. `"Pool Party"`) |
+| `event_type` | String | Internal type — swim, day, rooftop, karaoke, etc. |
 | `capacity` | Number | Target headcount — drives wave math and confirmation cap |
-| `reminderTiming` | String | `day_before`, `day_of`, or `manual` |
-| `revealVenue` | Boolean | Controls whether venue/address appear in confirmation reply |
+| `reminderTiming` | String | `day_before`, `day_of`, `both`, or `manual` |
+| `invite_template` | String | Saved Jade invite copy |
+| `reminder_template` | String | Legacy shared reminder field kept for backward compatibility |
+| `day_before_template` | String | Saved day-before reminder copy |
+| `day_of_template` | String | Saved day-of reminder copy |
 | `updatedAt` | String | ISO timestamp |
 
 ### API Endpoints
@@ -193,6 +217,8 @@ Base URL: `https://api.rsvpsociety.com`
 |---|---|---|---|
 | POST | `/access` | None | Submit access request from website |
 | POST | `/sms` | Quo signature | Inbound SMS from members |
+| GET | `/event` | None | Public current-event payload |
+| GET | `/event/current` | None | Public current-event payload (explicit path) |
 | GET | `/admin/members` | Token | List members by status (uses `status-index` GSI) |
 | DELETE | `/admin/members` | Token | Soft-delete a member (wipes PII, tombstones invites) |
 | POST | `/admin/members/status` | Token | Set member status |
@@ -204,9 +230,10 @@ Base URL: `https://api.rsvpsociety.com`
 | GET | `/admin/members/confirmed` | Token | List confirmed members for an event (`?eventId=` required) |
 | GET | `/admin/event` | Token | Get current event |
 | POST | `/admin/event` | Token | Save current event |
+| GET | `/admin/event/analytics` | Token | Event analytics snapshot for the current or requested event |
 | POST | `/admin/invite/preview` | Token | Preview invite list without sending |
 | POST | `/admin/invite/send` | Token | Execute SMS invite blast |
-| POST | `/admin/invite/reminder` | Token | Manual reminder blast to confirmed members |
+| POST | `/admin/invite/reminder` | Token | Manual reminder blast to confirmed members (`timing=day_before/day_of`) |
 
 ---
 
@@ -254,9 +281,9 @@ Login: admin token (stored in Secrets Manager — not in this file).
 
 **Members** — approve, deny, delete, set gender/tier. Search, paginate, bulk CSV import. 50 per page, alphabetical. Import modal supports Superphone and Eventbrite exports. `smsOptIn` in imported CSVs is parsed safely — string values like `"false"` and `"0"` correctly resolve to false. Imported members who are not opted-in are excluded from invite blasts at the query layer.
 
-**Event** — set event name, slug, date, time, venue, address, vibe tag, Jade brief, reveal venue toggle, reminder timing, capacity. Save overwrites the single current event record in DynamoDB. The `eventSlug` field is critical — it must match the event ID used in the Invite tab. No SMS goes out on save.
+**Event** — set event name, slug, date, time, city, timezone, venue, address, vibe tag, Jade brief, reveal venue toggle, reminder timing, capacity, and Jade message templates (invite, day-before reminder, day-of reminder). Save overwrites the single current event record in DynamoDB. The `eventSlug` field is critical — it must match the event ID used in the Invite tab. No SMS goes out on save.
 
-**Invite** — auto-populates from saved event. Set capacity, female %, ghost buffer. Preview invite list with state-based market filter pills (all 50 states + DC covered by area code). Remove individuals before sending. Send blast or trigger manual reminder blast. Next wave automatically excludes already-invited members — safe to run multiple times for the same event.
+**Invite** — auto-populates from saved event. Set capacity, female %, ghost buffer. Preview invite list with state-based market filter pills (all 50 states + DC covered by area code). Remove individuals before sending. Send blast or trigger a manual **day-before** or **day-of** reminder blast. Next wave automatically excludes already-invited members — safe to run multiple times for the same event.
 
 **Attendance** — loads confirmed invitees for a specific event by slug. Mark attended or no-show. "Attended" increments the member's `attendedCount` and writes `attendedAt` to their invite record. "No Show" stamps `noShowAt` only — does not consume the check-in dedup guard and does not touch counters, so the person can still be checked in at the door if they show up late.
 
@@ -305,11 +332,11 @@ She handles:
 
 **Webhook security:** Inbound Quo webhooks are signature-verified using HMAC-SHA256 before any processing. Configure `WEBHOOK_SECRET_ID` in Lambda env vars with the Secrets Manager ID holding Quo's signing key once the account is live.
 
-**Two-text rule per event:**
+**Reminder guardrail per event:**
 1. The invite blast ("You're on the list. Reply YES.")
-2. One reminder (day before at 6PM EST or day of at 11AM EST — set per event in the Event tab)
+2. Reminder logic is controlled per event: day-before, day-of, both, or manual only
 
-No exceptions. Keeps texts out of spam folders.
+Use restraint. The system supports separate day-before and day-of copy, but the brand still wins by not over-texting people.
 
 Model: `claude-haiku-4-5-20251001`
 Prompt caching: enabled (~90% token savings after first call)
@@ -320,19 +347,19 @@ Status: **SMS disabled** (`SMS_ENABLED=false`). Flip to `true` once Quo approved
 
 ## EventBridge Reminder Schedule
 
-| Rule | Cron (UTC) | EST | Sends if |
+| Rule | Cron (UTC) | Local send target | Sends if |
 |---|---|---|---|
-| `rsvp-reminder-day-before` | `cron(0 23 * * ? *)` | 6:00 PM | Event is tomorrow + `reminderTiming=day_before` |
-| `rsvp-reminder-day-of` | `cron(0 16 * * ? *)` | 11:00 AM | Event is today + `reminderTiming=day_of` |
+| `rsvp-reminder-day-before` | `cron(0 * * * ? *)` | 6:00 PM local event time | Event is tomorrow + `reminderTiming=day_before` or `both` |
+| `rsvp-reminder-day-of` | `cron(0 * * * ? *)` | 11:00 AM local event time | Event is today + `reminderTiming=day_of` or `both` |
 
-Lambda validates the event date before executing either path — it will not fire if the date doesn't match, `reminderTiming` is `manual`, or the event date is unparseable. Dedup sentinels (`dayBeforeReminderSentAt` / `dayOfReminderSentAt`) on each invite record prevent double-sending even if the rule fires twice. Manual override: **Send Reminder Blast** button on Invite tab fires immediately to all confirmed members for the current event.
+The rules now check hourly. `reminder_handler.py` reads `event_timezone`, converts to the event's local time, validates the local event date, and only sends when the correct local hour is hit. If `reminderTiming` is `manual`, nothing sends on schedule. Dedup sentinels (`dayBeforeReminderSentAt` / `dayOfReminderSentAt`) on each invite record prevent double-sending even if a rule fires twice. Manual override: **Send Reminder Blast** button on Invite tab fires immediately to all confirmed members for the current event.
 
 ---
 
 ## Deployment
 
 ### Backend (automatic)
-Push to `main` → GitHub Actions builds Lambda zip → deploys all 6 functions.
+Push to `main` → GitHub Actions builds the Lambda bundle → deploys all 5 live functions.
 
 ### Frontend (manual)
 Drag `frontend/` folder into Netlify dashboard. Takes 4 seconds.
@@ -433,6 +460,7 @@ CloudFront URL: `https://d31o74npegx00h.cloudfront.net`
 - **`search_members()` scan** — full-table scan used for name/phone search (check-in page). Acceptable at current scale. Revisit around 5,000+ members.
 - **Multi-city simultaneous events** — current architecture supports one active event at a time. Multi-city same-night would require a different `eventId` per city — doable but not needed yet
 - **Admin auth upgrade** — Cognito + MFA is the long-term play. Not needed at current scale. See Security section.
+- **Contract tests** — `route_contract_audit.py` catches route/method/body drift across frontend, backend, and Terraform. Good safety rail. Not a replacement for live integration tests.
 - **Confirmation cap show-rate** — currently hardcoded at 60%. If your actual show rate diverges significantly after 3–5 events, update this value or pull it from the event record.
 
 ---

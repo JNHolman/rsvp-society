@@ -51,10 +51,14 @@ variable "webhook_secret_id" {
 }
 
 locals {
-  allowed_origins_csv = join(",", var.allowed_origins)
-  cors_origins        = "'https://rsvpsociety.com'"
-  cors_methods        = "'GET,POST,PUT,DELETE,OPTIONS'"
-  cors_headers        = "'content-type,x-admin-token'"
+  allowed_origins_csv     = join(",", var.allowed_origins)
+  primary_frontend_origin = "https://rsvpsociety.com"
+  cors_allow_origin_expr  = "'${local.primary_frontend_origin}'"
+  cors_methods            = "'GET,POST,PUT,DELETE,OPTIONS'"
+  cors_headers            = "'content-type,x-admin-token'"
+  cors_mock_request_template = <<-EOT
+{"statusCode": 200}
+EOT
 }
 
 # -----------------------------
@@ -621,7 +625,7 @@ resource "aws_api_gateway_integration" "admin_members_import_options" {
   http_method = aws_api_gateway_method.admin_members_import_options.http_method
   type        = "MOCK"
   request_templates = {
-    "application/json" = "{\"statusCode\": 200}"
+    "application/json" = local.cors_mock_request_template
   }
 }
 resource "aws_api_gateway_method_response" "admin_members_import_options_200" {
@@ -641,7 +645,7 @@ resource "aws_api_gateway_integration_response" "admin_members_import_options_20
   http_method = aws_api_gateway_method.admin_members_import_options.http_method
   status_code = aws_api_gateway_method_response.admin_members_import_options_200.status_code
   response_parameters = {
-    "method.response.header.Access-Control-Allow-Origin"  = "'${var.allowed_origins[0]}'"
+    "method.response.header.Access-Control-Allow-Origin"  = local.cors_allow_origin_expr
     "method.response.header.Access-Control-Allow-Methods" = "'POST,OPTIONS'"
     "method.response.header.Access-Control-Allow-Headers" = local.cors_headers
   }
@@ -691,7 +695,7 @@ resource "aws_api_gateway_integration" "admin_members_search_options" {
   http_method = aws_api_gateway_method.admin_members_search_options.http_method
   type        = "MOCK"
   request_templates = {
-    "application/json" = "{\"statusCode\": 200}"
+    "application/json" = local.cors_mock_request_template
   }
 }
 
@@ -713,7 +717,7 @@ resource "aws_api_gateway_integration_response" "admin_members_search_options_20
   http_method = aws_api_gateway_method.admin_members_search_options.http_method
   status_code = aws_api_gateway_method_response.admin_members_search_options_200.status_code
   response_parameters = {
-    "method.response.header.Access-Control-Allow-Origin"  = "'${var.allowed_origins[0]}'"
+    "method.response.header.Access-Control-Allow-Origin"  = local.cors_allow_origin_expr
     "method.response.header.Access-Control-Allow-Methods" = "'GET,OPTIONS'"
     "method.response.header.Access-Control-Allow-Headers" = local.cors_headers
   }
@@ -759,7 +763,7 @@ resource "aws_api_gateway_integration" "access_options" {
   type        = "MOCK"
 
   request_templates = {
-    "application/json" = "{\"statusCode\": 200}"
+    "application/json" = local.cors_mock_request_template
   }
 }
 
@@ -783,7 +787,7 @@ resource "aws_api_gateway_integration_response" "access_options_200" {
   status_code = aws_api_gateway_method_response.access_options_200.status_code
 
   response_parameters = {
-    "method.response.header.Access-Control-Allow-Origin"  = "'${var.allowed_origins[0]}'"
+    "method.response.header.Access-Control-Allow-Origin"  = local.cors_allow_origin_expr
     "method.response.header.Access-Control-Allow-Methods" = local.cors_methods
     "method.response.header.Access-Control-Allow-Headers" = "'content-type'"
   }
@@ -804,7 +808,7 @@ resource "aws_api_gateway_integration" "admin_members_options" {
   type        = "MOCK"
 
   request_templates = {
-    "application/json" = "{\"statusCode\": 200}"
+    "application/json" = local.cors_mock_request_template
   }
 }
 
@@ -828,7 +832,7 @@ resource "aws_api_gateway_integration_response" "admin_members_options_200" {
   status_code = aws_api_gateway_method_response.admin_members_options_200.status_code
 
   response_parameters = {
-    "method.response.header.Access-Control-Allow-Origin"  = "'${var.allowed_origins[0]}'"
+    "method.response.header.Access-Control-Allow-Origin"  = local.cors_allow_origin_expr
     "method.response.header.Access-Control-Allow-Methods" = local.cors_methods
     "method.response.header.Access-Control-Allow-Headers" = local.cors_headers
   }
@@ -849,7 +853,7 @@ resource "aws_api_gateway_integration" "admin_members_status_options" {
   type        = "MOCK"
 
   request_templates = {
-    "application/json" = "{\"statusCode\": 200}"
+    "application/json" = local.cors_mock_request_template
   }
 }
 
@@ -873,7 +877,7 @@ resource "aws_api_gateway_integration_response" "admin_members_status_options_20
   status_code = aws_api_gateway_method_response.admin_members_status_options_200.status_code
 
   response_parameters = {
-    "method.response.header.Access-Control-Allow-Origin"  = "'${var.allowed_origins[0]}'"
+    "method.response.header.Access-Control-Allow-Origin"  = local.cors_allow_origin_expr
     "method.response.header.Access-Control-Allow-Methods" = local.cors_methods
     "method.response.header.Access-Control-Allow-Headers" = local.cors_headers
   }
@@ -894,7 +898,7 @@ resource "aws_api_gateway_integration" "sms_inbound_options" {
   type        = "MOCK"
 
   request_templates = {
-    "application/json" = "{\"statusCode\": 200}"
+    "application/json" = local.cors_mock_request_template
   }
 }
 
@@ -918,7 +922,7 @@ resource "aws_api_gateway_integration_response" "sms_inbound_options_200" {
   status_code = aws_api_gateway_method_response.sms_inbound_options_200.status_code
 
   response_parameters = {
-    "method.response.header.Access-Control-Allow-Origin"  = "'${var.allowed_origins[0]}'"
+    "method.response.header.Access-Control-Allow-Origin"  = local.cors_allow_origin_expr
     "method.response.header.Access-Control-Allow-Methods" = local.cors_methods
     "method.response.header.Access-Control-Allow-Headers" = "'content-type'"
   }
@@ -1208,7 +1212,7 @@ resource "aws_api_gateway_integration" "admin_invite_preview_options" {
   http_method = aws_api_gateway_method.admin_invite_preview_options.http_method
   type        = "MOCK"
   request_templates = {
-    "application/json" = "{\"statusCode\": 200}"
+    "application/json" = local.cors_mock_request_template
   }
 }
 
@@ -1230,7 +1234,7 @@ resource "aws_api_gateway_integration_response" "admin_invite_preview_options_20
   http_method = aws_api_gateway_method.admin_invite_preview_options.http_method
   status_code = aws_api_gateway_method_response.admin_invite_preview_options_200.status_code
   response_parameters = {
-    "method.response.header.Access-Control-Allow-Origin"  = local.cors_origins
+    "method.response.header.Access-Control-Allow-Origin"  = local.cors_allow_origin_expr
     "method.response.header.Access-Control-Allow-Methods" = local.cors_methods
     "method.response.header.Access-Control-Allow-Headers" = local.cors_headers
   }
@@ -1252,7 +1256,7 @@ resource "aws_api_gateway_integration" "admin_invite_send_options" {
   http_method = aws_api_gateway_method.admin_invite_send_options.http_method
   type        = "MOCK"
   request_templates = {
-    "application/json" = "{\"statusCode\": 200}"
+    "application/json" = local.cors_mock_request_template
   }
 }
 
@@ -1274,7 +1278,7 @@ resource "aws_api_gateway_integration_response" "admin_invite_send_options_200" 
   http_method = aws_api_gateway_method.admin_invite_send_options.http_method
   status_code = aws_api_gateway_method_response.admin_invite_send_options_200.status_code
   response_parameters = {
-    "method.response.header.Access-Control-Allow-Origin"  = local.cors_origins
+    "method.response.header.Access-Control-Allow-Origin"  = local.cors_allow_origin_expr
     "method.response.header.Access-Control-Allow-Methods" = local.cors_methods
     "method.response.header.Access-Control-Allow-Headers" = local.cors_headers
   }
@@ -1295,7 +1299,7 @@ resource "aws_api_gateway_integration" "admin_event_options" {
   resource_id = aws_api_gateway_resource.admin_event.id
   http_method = aws_api_gateway_method.admin_event_options.http_method
   type        = "MOCK"
-  request_templates = { "application/json" = "{\"statusCode\": 200}" }
+  request_templates = { "application/json" = local.cors_mock_request_template }
 }
 resource "aws_api_gateway_method_response" "admin_event_options_200" {
   rest_api_id = aws_api_gateway_rest_api.api.id
@@ -1314,7 +1318,7 @@ resource "aws_api_gateway_integration_response" "admin_event_options_200" {
   http_method = aws_api_gateway_method.admin_event_options.http_method
   status_code = aws_api_gateway_method_response.admin_event_options_200.status_code
   response_parameters = {
-    "method.response.header.Access-Control-Allow-Origin"  = local.cors_origins
+    "method.response.header.Access-Control-Allow-Origin"  = local.cors_allow_origin_expr
     "method.response.header.Access-Control-Allow-Methods" = local.cors_methods
     "method.response.header.Access-Control-Allow-Headers" = local.cors_headers
   }
@@ -1331,7 +1335,7 @@ resource "aws_api_gateway_integration" "admin_members_gender_options" {
   resource_id = aws_api_gateway_resource.admin_members_gender.id
   http_method = aws_api_gateway_method.admin_members_gender_options.http_method
   type        = "MOCK"
-  request_templates = { "application/json" = "{\"statusCode\": 200}" }
+  request_templates = { "application/json" = local.cors_mock_request_template }
 }
 resource "aws_api_gateway_method_response" "admin_members_gender_options_200" {
   rest_api_id = aws_api_gateway_rest_api.api.id
@@ -1350,7 +1354,7 @@ resource "aws_api_gateway_integration_response" "admin_members_gender_options_20
   http_method = aws_api_gateway_method.admin_members_gender_options.http_method
   status_code = aws_api_gateway_method_response.admin_members_gender_options_200.status_code
   response_parameters = {
-    "method.response.header.Access-Control-Allow-Origin"  = local.cors_origins
+    "method.response.header.Access-Control-Allow-Origin"  = local.cors_allow_origin_expr
     "method.response.header.Access-Control-Allow-Methods" = local.cors_methods
     "method.response.header.Access-Control-Allow-Headers" = local.cors_headers
   }
@@ -1367,7 +1371,7 @@ resource "aws_api_gateway_integration" "admin_members_tier_options" {
   resource_id = aws_api_gateway_resource.admin_members_tier.id
   http_method = aws_api_gateway_method.admin_members_tier_options.http_method
   type        = "MOCK"
-  request_templates = { "application/json" = "{\"statusCode\": 200}" }
+  request_templates = { "application/json" = local.cors_mock_request_template }
 }
 resource "aws_api_gateway_method_response" "admin_members_tier_options_200" {
   rest_api_id = aws_api_gateway_rest_api.api.id
@@ -1386,7 +1390,7 @@ resource "aws_api_gateway_integration_response" "admin_members_tier_options_200"
   http_method = aws_api_gateway_method.admin_members_tier_options.http_method
   status_code = aws_api_gateway_method_response.admin_members_tier_options_200.status_code
   response_parameters = {
-    "method.response.header.Access-Control-Allow-Origin"  = local.cors_origins
+    "method.response.header.Access-Control-Allow-Origin"  = local.cors_allow_origin_expr
     "method.response.header.Access-Control-Allow-Methods" = local.cors_methods
     "method.response.header.Access-Control-Allow-Headers" = local.cors_headers
   }
@@ -1403,7 +1407,7 @@ resource "aws_api_gateway_integration" "admin_members_attendance_options" {
   resource_id = aws_api_gateway_resource.admin_members_attendance.id
   http_method = aws_api_gateway_method.admin_members_attendance_options.http_method
   type        = "MOCK"
-  request_templates = { "application/json" = "{\"statusCode\": 200}" }
+  request_templates = { "application/json" = local.cors_mock_request_template }
 }
 resource "aws_api_gateway_method_response" "admin_members_attendance_options_200" {
   rest_api_id = aws_api_gateway_rest_api.api.id
@@ -1422,7 +1426,7 @@ resource "aws_api_gateway_integration_response" "admin_members_attendance_option
   http_method = aws_api_gateway_method.admin_members_attendance_options.http_method
   status_code = aws_api_gateway_method_response.admin_members_attendance_options_200.status_code
   response_parameters = {
-    "method.response.header.Access-Control-Allow-Origin"  = local.cors_origins
+    "method.response.header.Access-Control-Allow-Origin"  = local.cors_allow_origin_expr
     "method.response.header.Access-Control-Allow-Methods" = local.cors_methods
     "method.response.header.Access-Control-Allow-Headers" = local.cors_headers
   }
@@ -1439,7 +1443,7 @@ resource "aws_api_gateway_integration" "event_current_options" {
   resource_id = aws_api_gateway_resource.event_current.id
   http_method = aws_api_gateway_method.event_current_options.http_method
   type        = "MOCK"
-  request_templates = { "application/json" = "{\"statusCode\": 200}" }
+  request_templates = { "application/json" = local.cors_mock_request_template }
 }
 resource "aws_api_gateway_method_response" "event_current_options_200" {
   rest_api_id = aws_api_gateway_rest_api.api.id
@@ -1458,7 +1462,7 @@ resource "aws_api_gateway_integration_response" "event_current_options_200" {
   http_method = aws_api_gateway_method.event_current_options.http_method
   status_code = aws_api_gateway_method_response.event_current_options_200.status_code
   response_parameters = {
-    "method.response.header.Access-Control-Allow-Origin"  = local.cors_origins
+    "method.response.header.Access-Control-Allow-Origin"  = local.cors_allow_origin_expr
     "method.response.header.Access-Control-Allow-Methods" = local.cors_methods
     "method.response.header.Access-Control-Allow-Headers" = local.cors_headers
   }
@@ -1475,7 +1479,7 @@ resource "aws_api_gateway_integration" "event_public_options" {
   resource_id = aws_api_gateway_resource.event.id
   http_method = aws_api_gateway_method.event_public_options.http_method
   type        = "MOCK"
-  request_templates = { "application/json" = "{\"statusCode\": 200}" }
+  request_templates = { "application/json" = local.cors_mock_request_template }
 }
 resource "aws_api_gateway_method_response" "event_public_options_200" {
   rest_api_id = aws_api_gateway_rest_api.api.id
@@ -1494,7 +1498,7 @@ resource "aws_api_gateway_integration_response" "event_public_options_200" {
   http_method = aws_api_gateway_method.event_public_options.http_method
   status_code = aws_api_gateway_method_response.event_public_options_200.status_code
   response_parameters = {
-    "method.response.header.Access-Control-Allow-Origin"  = local.cors_origins
+    "method.response.header.Access-Control-Allow-Origin"  = local.cors_allow_origin_expr
     "method.response.header.Access-Control-Allow-Methods" = local.cors_methods
     "method.response.header.Access-Control-Allow-Headers" = local.cors_headers
   }
