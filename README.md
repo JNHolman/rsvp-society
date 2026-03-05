@@ -16,7 +16,7 @@ The system has three jobs:
 2. **Filter** — an admin approves or denies members based on vibe, gender ratio, and fit
 3. **Operate** — approved members get invited via SMS blast, RSVP YES or NO, and receive event details and reminders from an AI concierge named Jade
 
-Everything runs on AWS. The frontend runs on Netlify. SMS runs through Quo (pending carrier approval). The AI runs on Anthropic Claude.
+Everything runs on AWS. The frontend runs on Netlify. SMS runs through Quo. The AI runs on Anthropic Claude.
 
 ---
 
@@ -53,7 +53,7 @@ rsvp-society/
 │   └── lambda/
 │       ├── access_request.py   # Handles form submissions from website
 │       ├── sms_handler.py      # Jade AI concierge + YES/NO RSVP + STOP opt-out
-│       ├── sms_adapter.py      # SMS provider wrapper (stub — wire HTTP call before go-live)
+│       ├── sms_adapter.py      # Quo outbound SMS adapter (live API send path)
 │       ├── admin_handler.py    # Admin API endpoints + public current-event endpoints
 │       ├── member_store.py     # DynamoDB read/write layer (GSI queries)
 │       ├── invite_handler.py   # Invite math, blast preview, send
@@ -96,7 +96,7 @@ NoSQL. Five tables:
 REST API routes requests from the frontend and Quo webhooks to the right Lambda. CloudFront sits in front at `api.rsvpsociety.com` — faster globally, protects against traffic spikes, handles SSL termination.
 
 ### SMS — Quo
-Carrier-compliant SMS platform. Required for 10DLC registration. Quo webhooks hit the `sms_handler` Lambda when members reply. Status: **pending carrier approval**. Compliance form lives at `https://rsvpsociety.com/#access`. Flip `SMS_ENABLED=true` in Lambda env vars once approved. Wire the real HTTP call in `sms_adapter.send_sms()` at the same time.
+Carrier-compliant SMS platform. Required for 10DLC registration. Quo webhooks hit the `sms_handler` Lambda when members reply. Status: **approved / ready to wire in prod**. Compliance form lives at `https://rsvpsociety.com/#access`. Outbound sends use Quo's `POST /v1/messages` API. The Terraform default already points at Jade (`PNqC0tQSaI`). Override `TF_VAR_quo_phone_number_id` only if you change numbers, keep the webhook signing secret in Secrets Manager, and deploy.
 
 ### AI Concierge — Anthropic Claude (Jade)
 Jade is an SMS-based AI assistant for RSVP Society members. She handles RSVPs, event questions, and reminders. Built on `claude-haiku-4-5-20251001` with prompt caching (~90% token savings). Jade only responds to approved, opted-in members.
@@ -112,7 +112,7 @@ The Lambda reads the saved `event_timezone`, validates the local event date, che
 Event photos upload to S3 bucket `rsvp-society-pics-prod`. CloudFront serves them at `https://d31o74npegx00h.cloudfront.net`. Gallery in `pics.html` references this URL. No photos in the git repo ever.
 
 ### Secrets — AWS Secrets Manager
-Three secrets: admin token, Quo API key, Anthropic API key. Stored in Secrets Manager, not env vars. Lambda calls Secrets Manager at runtime. Rotating a key is a one-step process and nothing is ever in plaintext.
+Four secrets: admin token, Quo API key, Quo webhook signing secret, and Anthropic API key. Stored in Secrets Manager, not env vars. Lambda calls Secrets Manager at runtime. Rotating a key is a one-step process and nothing is ever in plaintext.
 
 ### Infrastructure as Code — Terraform
 All AWS infrastructure defined in `.tf` files. Remote state: `s3://rsvp-society-terraform-state/prod/terraform.tfstate`. To recreate: `terraform init && terraform apply`.
@@ -330,7 +330,7 @@ She handles:
 
 **Capacity protection:** When a YES reply comes in and the event has a capacity set, Jade checks current confirmed count before updating status. If the show-rate-adjusted confirmation target is already met, she replies with a polite capacity message instead of confirming.
 
-**Webhook security:** Inbound Quo webhooks are signature-verified using HMAC-SHA256 before any processing. Configure `WEBHOOK_SECRET_ID` in Lambda env vars with the Secrets Manager ID holding Quo's signing key once the account is live.
+**Webhook security:** Inbound Quo webhooks are signature-verified using the `openphone-signature` header, timestamp + raw body, and a base64-decoded signing secret fetched from Secrets Manager via `WEBHOOK_SECRET_ID` before any processing.
 
 **Reminder guardrail per event:**
 1. The invite blast ("You're on the list. Reply YES.")
@@ -341,7 +341,7 @@ Use restraint. The system supports separate day-before and day-of copy, but the 
 Model: `claude-haiku-4-5-20251001`
 Prompt caching: enabled (~90% token savings after first call)
 System prompt: `sms_handler.py` → `JADE_SYSTEM_PROMPT`
-Status: **SMS disabled** (`SMS_ENABLED=false`). Flip to `true` once Quo approved and `send_sms()` HTTP call is wired.
+Status: **SMS enabled in Terraform**. Before production apply, confirm the default sender ID (`PNqC0tQSaI`) is still correct or override `TF_VAR_quo_phone_number_id`, and ensure `WEBHOOK_SECRET_ID` points at the Quo signing secret in Secrets Manager.
 
 ---
 
@@ -381,10 +381,11 @@ terraform apply
 # Drag frontend/ to Netlify, point rsvpsociety.com to Netlify
 
 # 3. Quo
-# Register, submit 10DLC, point webhook to api.rsvpsociety.com/sms
-# Wire HTTP call in sms_adapter.send_sms() using the skeleton in the file
-# Set WEBHOOK_SECRET_ID in sms_handler Lambda env vars (Quo signing key)
-# Flip SMS_ENABLED=true in Lambda env vars once approved
+# Register / keep 10DLC active, point webhook to api.rsvpsociety.com/sms/inbound
+# Store Quo API key in Secrets Manager at rsvp/quo-api-key
+# Store Quo signing secret in Secrets Manager at rsvp/webhook-secret
+# Optional override if you change numbers:
+# export TF_VAR_quo_phone_number_id=PN...
 
 # 4. Seed event
 # Admin panel → Event tab → fill in details, set eventSlug carefully
@@ -439,7 +440,7 @@ CloudFront URL: `https://d31o74npegx00h.cloudfront.net`
 | API Gateway | ~$3.50/million API calls | |
 | CloudFront (API) | < $1/month | Minimal at current volume |
 | S3 + CloudFront (photos) | < $1/month | |
-| Secrets Manager | ~$1.20/month | 3 secrets × $0.40/secret/month |
+| Secrets Manager | ~$1.60/month | 4 secrets × $0.40/secret/month |
 | WAF | ~$5/month | Web ACL + 2 rate-limit rules (`/access` + `/admin/invite`) |
 | CloudWatch Logs | < $1/month | 30-day retention on all 6 Lambda log groups |
 | EventBridge | Effectively $0 | 2 scheduled rules |
@@ -453,7 +454,7 @@ CloudFront URL: `https://d31o74npegx00h.cloudfront.net`
 
 ## Known Gaps / Future Work
 
-- **`sms_adapter.send_sms()` HTTP call** — documented stub. The OpenPhone skeleton is in the file. Wire it when Quo approves and the API contract is confirmed.
+- **Quo production config** — Terraform defaults to Jade's sender ID (`PNqC0tQSaI`). Override `TF_VAR_quo_phone_number_id` only if you change numbers, keep the API key in `rsvp/quo-api-key`, and keep the webhook signing secret in `rsvp/webhook-secret`. The code path is live; the remaining dependency is live prod config.
 - **Video in hero** — no video asset yet. Replace static hero with looping 5–10 second moody venue clip when available
 - **Event photos** — gallery built and ready, waiting on first event
 - **Jade system prompt tuning** — baseline personality set, refine tone as brand develops
@@ -608,10 +609,10 @@ To complete the per-function IAM migration and remove the legacy role:
 | IAM least-privilege | ⚠ In progress — per-function roles defined, legacy role pending removal |
 | Admin auth | ⚠ Acceptable. Not elite. One token = full access. |
 | `search_members()` scan | ⚠ Acceptable now. Revisit at 5,000+ members. |
-| SMS send (sms_adapter) | ⚠ Documented stub — wire HTTP call before go-live |
+| SMS send (sms_adapter) | ✓ Live Quo API call via POST /v1/messages |
 
 The system is private-facing, not public-facing. The threat model is "someone who gets hold of the admin token" and "member data staying out of places it shouldn't be." Both are addressed at an acceptable level for current scale. The path to elite is Cognito + per-function IAM fully migrated.
 
 ---
 
-*Built February 2026. Audited and hardened March 2026. The bones are solid. The system is production-ready pending carrier approval. Now go build the experience.*
+*Built February 2026. Audited and hardened March 2026. The bones are solid. The system is production-ready. Remaining go-live dependency: set the live Quo phone-number ID and signing secret in prod.*

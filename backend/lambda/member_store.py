@@ -303,6 +303,32 @@ def record_attendance(phone: str, attended: bool, event_id: str = "current") -> 
     return True
 
 
+
+def mark_welcome_sent(phone: str) -> bool:
+    """
+    Mark that the welcome SMS has been sent to this member.
+    Returns True if the field was set, False if it already existed.
+    """
+    from botocore.exceptions import ClientError
+
+    phone_e164 = normalize_phone(phone)
+    t = _table()
+    now = _now_iso()
+
+    try:
+        t.update_item(
+            Key={"phone": phone_e164},
+            UpdateExpression="SET welcomeSentAt = :now",
+            ExpressionAttributeValues={":now": now},
+            ConditionExpression="attribute_not_exists(welcomeSentAt)",
+        )
+        return True
+    except ClientError as e:
+        if e.response.get("Error", {}).get("Code") == "ConditionalCheckFailedException":
+            return False
+        raise
+
+
 def get_member(phone: str) -> Optional[Dict[str, Any]]:
     phone_e164 = normalize_phone(phone)
     t = _table()

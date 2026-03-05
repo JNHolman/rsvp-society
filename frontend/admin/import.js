@@ -60,6 +60,16 @@ function getColumnIndex(headers, names) {
   return -1;
 }
 
+const CSV_IMPORT_SOURCE = 'csv';
+
+function labelImportSource() {
+  return 'CSV';
+}
+
+function effectiveImportSource() {
+  return CSV_IMPORT_SOURCE;
+}
+
 function setImportConfirmEnabled(isEnabled) {
   const button = $('import-confirm-btn');
   if (!button) return;
@@ -74,9 +84,48 @@ function showImportPreview(builder) {
   if (typeof builder === 'function') builder(previewText);
 }
 
+function renderImportPreview() {
+  const skipped = state.importSkipped || 0;
+  if (!state.importRows.length) {
+    showImportPreview((previewText) => {
+      previewText.appendChild(createNode('span', {
+        className: 'panel-summary-error',
+        text: `No valid rows found. ${skipped} row${skipped !== 1 ? 's' : ''} skipped (missing phone).`,
+      }));
+    });
+    return;
+  }
+
+  const source = labelImportSource();
+  showImportPreview((previewText) => {
+    appendChildren(
+      previewText,
+      textStrong(`${state.importRows.length} member${state.importRows.length !== 1 ? 's' : ''}`, 'text-strong'),
+      document.createTextNode(' ready to import as '),
+      textStrong('Approved', 'text-strong'),
+      createNode('br'),
+      document.createTextNode('Import source: '),
+      textStrong(source, 'text-gold-strong'),
+    );
+
+    if (skipped) {
+      appendChildren(
+        previewText,
+        createNode('br'),
+        createNode('span', {
+          className: 'panel-summary-skipped',
+          text: `${skipped} row${skipped !== 1 ? 's' : ''} skipped (no phone)`,
+        }),
+      );
+    }
+  });
+}
+
 export function openImport() {
   setHidden('import-modal', false);
   state.importRows = [];
+  state.importDetectedSource = 'csv';
+  state.importSkipped = 0;
   $('import-preview')?.classList.remove('is-visible');
   setImportConfirmEnabled(false);
   $('csv-file-input').value = '';
@@ -121,6 +170,7 @@ export function parseCSV(file) {
     }
 
     state.importRows = [];
+    state.importSkipped = 0;
     let skipped = 0;
 
     rows.slice(1).forEach((cells) => {
@@ -141,45 +191,20 @@ export function parseCSV(file) {
     });
 
     if (!state.importRows.length) {
-      showImportPreview((previewText) => {
-        previewText.appendChild(createNode('span', {
-          className: 'panel-summary-error',
-          text: `No valid rows found. ${skipped} row${skipped !== 1 ? 's' : ''} skipped (missing phone).`,
-        }));
-      });
+      state.importSkipped = skipped;
+      renderImportPreview();
       setImportConfirmEnabled(false);
       return;
     }
 
-    const hasInstagram = state.importRows.some((row) => row.instagram);
-    const source = hasInstagram ? 'Posh' : 'Eventbrite';
-    showImportPreview((previewText) => {
-      appendChildren(
-        previewText,
-        textStrong(`${state.importRows.length} member${state.importRows.length !== 1 ? 's' : ''}`, 'text-strong'),
-        document.createTextNode(' ready to import as '),
-        textStrong('Approved', 'text-strong'),
-        createNode('br'),
-        document.createTextNode('Detected source: '),
-        textStrong(source, 'text-gold-strong'),
-      );
-
-      if (skipped) {
-        appendChildren(
-          previewText,
-          createNode('br'),
-          createNode('span', {
-            className: 'panel-summary-skipped',
-            text: `${skipped} row${skipped !== 1 ? 's' : ''} skipped (no phone)`,
-          }),
-        );
-      }
-    });
+    state.importSkipped = skipped;
+    renderImportPreview();
     setImportConfirmEnabled(true);
   };
 
   reader.readAsText(file);
 }
+
 
 export async function confirmImport() {
   if (!state.importRows.length) return;
@@ -191,10 +216,11 @@ export async function confirmImport() {
   try {
     const data = await apiJson(ROUTES.ADMIN_MEMBER_IMPORT, {
       method: 'POST',
-      body: { members: state.importRows },
+      body: { members: state.importRows, source: effectiveImportSource() },
     });
 
-    showToast(`Imported ${data.imported} member${data.imported !== 1 ? 's' : ''}${data.skipped ? `, ${data.skipped} skipped (duplicate phone)` : ''}`, 'success');
+    const message = `Imported ${data.imported} member${data.imported !== 1 ? 's' : ''}${data.skipped ? `, ${data.skipped} skipped` : ''}`;
+    showToast(message, data.skipped ? 'warning' : 'success');
     closeImport();
     await loadMembers('APPROVED');
     await loadStats();

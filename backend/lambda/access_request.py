@@ -3,9 +3,24 @@ import json
 import logging
 import os
 from member_store import upsert_member, normalize_phone
-from sms_adapter import maybe_send_welcome
 
 logger = logging.getLogger()
+
+
+def _coerce_bool(value) -> bool:
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return False
+    if isinstance(value, (int, float)):
+        return value != 0
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"true", "1", "yes", "y", "on"}:
+            return True
+        if normalized in {"false", "0", "no", "n", "off", ""}:
+            return False
+    return bool(value)
 
 
 def _get_method(event: dict) -> str:
@@ -62,7 +77,7 @@ def handler(event, context):
         phone = (data.get("phone") or "").strip()
         email = (data.get("email") or "").strip() or None
         source = (data.get("source") or "web").strip()
-        sms_opt_in = bool(data.get("smsOptIn", False))
+        sms_opt_in = _coerce_bool(data.get("smsOptIn", False))
 
         if not name or not phone:
             return _resp(400, {"ok": False, "error": "name and phone required"}, origin)
@@ -82,13 +97,13 @@ def handler(event, context):
             sms_opt_in=sms_opt_in,
         )
 
-        # Welcome SMS is best-effort — never block a successful sign-up
-        try:
-            maybe_send_welcome(member)
-        except Exception:
-            logger.exception(
-                "access_request: welcome SMS failed phone=...%s", phone_e164[-4:]
-            )
+        logger.info(
+            "access_request: member saved phone=...%s status=%s smsOptIn=%s source=%s",
+            phone_e164[-4:],
+            member.get("status", "PENDING"),
+            bool(member.get("smsOptIn", False)),
+            source,
+        )
 
         return _resp(200, {"ok": True}, origin)
 

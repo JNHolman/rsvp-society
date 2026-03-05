@@ -10,7 +10,7 @@ import os
 from member_store import (
     list_members_by_status, set_status, set_gender, set_tier_override,
     record_attendance, upsert_member, normalize_phone,
-    search_members,
+    search_members, get_member, mark_welcome_sent,
 )
 from audit_log import (
     log_action,
@@ -18,9 +18,16 @@ from audit_log import (
     ACTION_MEMBER_DELETED, ACTION_MEMBER_GENDER_SET, ACTION_MEMBER_TIER_SET,
     ACTION_ATTENDANCE, ACTION_EVENT_UPDATED, ACTION_MEMBER_IMPORTED,
 )
-from sms_adapter import get_secret_string
+from sms_adapter import get_secret_string, maybe_send_welcome
 
 logger = logging.getLogger()
+
+
+def _normalize_import_source(value: str) -> str:
+    src = (value or '').strip().lower()
+    if src in ('csv', 'web', 'import', 'eventbrite', 'posh', 'superphone'):
+        return src
+    return ''
 
 
 class DecimalEncoder(json.JSONEncoder):
@@ -293,16 +300,47 @@ def handler(event, context):
         if method == "POST" and path.endswith("/admin/members/status"):
             raw_body = event.get("body") or ""
             data = json.loads(raw_body) if raw_body else {}
-            phone = (data.get("phone") or "").strip()
+            phone_raw = (data.get("phone") or "").strip()
             status = (data.get("status") or "").strip().upper()
-            if not phone or status not in ("PENDING", "APPROVED", "DENIED"):
+
+            if not phone_raw or status not in ("PENDING", "APPROVED", "DENIED"):
                 return _resp(headers, 400, {"ok": False, "error": "phone and valid status required"})
+
+            # Normalize once so downstream logs/audit are consistent.
+            try:
+                phone = normalize_phone(phone_raw)
+            except ValueError as e:
+                return _resp(headers, 400, {"ok": False, "error": str(e)})
+
+            # Determine transition so we only welcome on the first approval.
+            prev = get_member(phone) or {}
+            prev_status = (prev.get("status") or "").upper()
+
             set_status(phone, status)
+
             action = (ACTION_MEMBER_APPROVED if status == "APPROVED"
                       else ACTION_MEMBER_DENIED if status == "DENIED"
                       else ACTION_MEMBER_PENDING)
             log_action(token=token, action=action, target_phone=phone,
                        metadata={"status": status})
+
+            # On APPROVED transition: send Jade welcome (best-effort) and mark.
+            if status == "APPROVED" and prev_status != "APPROVED":
+                try:
+                    member = get_member(phone) or {"phone": phone, "status": "APPROVED"}
+                    # Ensure the in-memory object matches the new status.
+                    member["status"] = "APPROVED"
+
+                    sent = maybe_send_welcome(member)
+                    if sent:
+                        try:
+                            mark_welcome_sent(phone)
+                        except Exception:
+                            logger.exception("admin_handler: failed to mark welcomeSentAt phone=...%s", phone[-4:])
+                except Exception:
+                    # Never fail the approval action due to SMS.
+                    logger.exception("admin_handler: welcome SMS failed phone=...%s", phone[-4:])
+
             return _resp(headers, 200, {"ok": True})
 
         # ── POST /admin/members/gender ────────────────────────────────────────
@@ -362,6 +400,7 @@ def handler(event, context):
             imported = 0
             skipped = 0
             errors = []
+            request_source = _normalize_import_source(data.get('source') or 'csv') or 'csv'
 
             members_t = boto3.resource("dynamodb").Table(
                 os.getenv("MEMBERS_TABLE_NAME", "rsvp-members")
@@ -380,20 +419,37 @@ def handler(event, context):
                     email = (row.get("email") or "").strip() or None
                     instagram = (row.get("instagram") or "").strip() or None
                     tags = (row.get("tags") or "").strip() or None
-                    # Parse smsOptIn safely — CSV values arrive as strings.
-                    # bool("false") == True in Python, so we check string values explicitly.
-                    raw_opt_in = row.get("smsOptIn", True)
-                    if isinstance(raw_opt_in, str):
-                        sms_opt_in = raw_opt_in.strip().lower() not in ("false", "0", "no", "n", "")
+                    # Preserve existing smsOptIn/source unless explicitly provided in the row.
+                    existing = get_member(phone_e164) or {}
+
+                    # smsOptIn: preserve explicit row value, otherwise preserve existing value,
+                    # otherwise default True for legacy CSV imports with prior consent.
+                    if "smsOptIn" in row and row.get("smsOptIn") is not None:
+                        raw_opt_in = row.get("smsOptIn")
+                        if isinstance(raw_opt_in, str):
+                            # bool("false") == True in Python, so interpret strings explicitly.
+                            sms_opt_in = raw_opt_in.strip().lower() not in ("false", "0", "no", "n", "")
+                        else:
+                            sms_opt_in = bool(raw_opt_in)
+                    elif "smsOptIn" in existing:
+                        sms_opt_in = bool(existing.get("smsOptIn"))
                     else:
-                        sms_opt_in = bool(raw_opt_in)
+                        sms_opt_in = True
+
+                    existing_source = _normalize_import_source(existing.get('source') or '')
+                    row_source = _normalize_import_source(row.get('source') or '')
+                    requested_source = row_source or request_source
+                    if existing_source and existing_source != 'csv':
+                        source_val = existing_source
+                    else:
+                        source_val = requested_source or existing_source or 'csv'
 
                     upsert_member(
                         phone=phone_e164,
                         name=first_name,
                         last_name=last_name,
                         email=email,
-                        source="import",
+                        source=source_val,
                         sms_opt_in=sms_opt_in,
                         tags=tags,
                     )

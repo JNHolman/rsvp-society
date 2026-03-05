@@ -240,14 +240,16 @@ def _build_confirmation_message(phone: str) -> str:
 
 def _verify_webhook_signature(event: dict) -> bool:
     """
-    Verify the inbound SMS webhook is genuinely from our SMS provider.
-    Reads WEBHOOK_SECRET_ID from env; if not set, logs a warning and passes
-    through so the system stays functional until the secret is configured.
+    Verify the inbound SMS webhook is genuinely from Quo.
 
-    When your SMS provider (Quo/OpenPhone) signs requests, they include a
-    header such as X-Signature or X-OpenPhone-Signature containing an HMAC-SHA256
-    hex digest of the raw request body keyed by your webhook secret.
-    Set WEBHOOK_SECRET_ID to the Secrets Manager secret ID that holds that key.
+    Quo signs requests with the `openphone-signature` header using the format:
+        hmac;1;<timestamp>;<base64_hmac_digest>
+
+    The signed bytes are:
+        b"<timestamp>." + raw_request_body
+
+    The signing key shown in Quo's "Reveal signing secret" UI is base64-encoded,
+    so it must be base64-decoded before computing the HMAC.
     """
     secret_id = os.getenv("WEBHOOK_SECRET_ID")
     if not secret_id:
@@ -262,41 +264,64 @@ def _verify_webhook_signature(event: dict) -> bool:
         try:
             parsed = json.loads(secret)
             if isinstance(parsed, dict):
-                secret = parsed.get("secret") or parsed.get("token") or secret
+                secret = (
+                    parsed.get("signing_secret")
+                    or parsed.get("secret")
+                    or parsed.get("token")
+                    or secret
+                )
         except Exception:
             pass
+
+        headers = event.get("headers") or {}
+        signature_header = (
+            headers.get("openphone-signature")
+            or headers.get("Openphone-Signature")
+            or headers.get("OpenPhone-Signature")
+            or headers.get("x-openphone-signature")
+            or headers.get("X-OpenPhone-Signature")
+            or ""
+        ).strip()
+        if not signature_header:
+            logger.warning("sms_handler: webhook received with no signature header")
+            return False
 
         raw_body = event.get("body") or ""
         if event.get("isBase64Encoded"):
             raw_body = base64.b64decode(raw_body).decode("utf-8")
 
-        headers = event.get("headers") or {}
-        # Try common signature header names from SMS providers
-        provided_sig = (
-            headers.get("x-signature") or
-            headers.get("X-Signature") or
-            headers.get("x-openphone-signature") or
-            headers.get("X-OpenPhone-Signature") or
-            headers.get("x-quo-signature") or
-            headers.get("X-Quo-Signature") or
-            ""
-        ).strip()
+        now = datetime.now(timezone.utc)
+        signing_key = base64.b64decode(secret)
 
-        if not provided_sig:
-            logger.warning("sms_handler: webhook received with no signature header")
-            return False
+        # Future versions may include multiple signatures separated by commas.
+        for candidate in [c.strip() for c in signature_header.split(",") if c.strip()]:
+            parts = candidate.split(";")
+            if len(parts) != 4:
+                continue
 
-        expected_sig = hmac.new(
-            secret.encode("utf-8"),
-            raw_body.encode("utf-8"),
-            hashlib.sha256,
-        ).hexdigest()
+            scheme, version, ts_raw, provided_digest = parts
+            if scheme.lower() != "hmac" or version != "1":
+                continue
 
-        if not hmac.compare_digest(expected_sig, provided_sig.lower()):
-            logger.warning("sms_handler: webhook signature mismatch — possible forgery")
-            return False
+            try:
+                ts = datetime.fromtimestamp(int(ts_raw), tz=timezone.utc)
+            except Exception:
+                continue
 
-        return True
+            if abs((now - ts).total_seconds()) > 300:
+                logger.warning("sms_handler: webhook timestamp outside tolerance")
+                continue
+
+            signed_data = b"".join([ts_raw.encode("utf-8"), b".", raw_body.encode("utf-8")])
+            computed_digest = base64.b64encode(
+                hmac.new(signing_key, signed_data, hashlib.sha256).digest()
+            ).decode()
+
+            if hmac.compare_digest(provided_digest, computed_digest):
+                return True
+
+        logger.warning("sms_handler: webhook signature mismatch — possible forgery")
+        return False
 
     except Exception:
         logger.exception("sms_handler: signature verification error — rejecting request")
@@ -352,6 +377,21 @@ def _claude(message: str, mode: str = "general") -> str:
     return out["content"][0]["text"]
 
 
+# ── Payload helpers ───────────────────────────────────────────────────────────
+
+def _extract_inbound_message(body: dict) -> tuple[str, str, str]:
+    """Support Quo's real webhook envelope and a flat legacy/dev payload."""
+    event_type = (body.get("type") or "").strip()
+    payload = body
+
+    if isinstance(body.get("data"), dict) and isinstance(body["data"].get("object"), dict):
+        payload = body["data"]["object"]
+
+    from_phone = normalize_phone(payload.get("from") or "")
+    text = (payload.get("text") or payload.get("content") or "").strip()
+    return event_type, from_phone, text
+
+
 # ── Main handler ──────────────────────────────────────────────────────────────
 
 def handler(event, context):
@@ -363,10 +403,21 @@ def handler(event, context):
             logger.warning("sms_handler: rejected request with invalid signature")
             return {"statusCode": 200, "body": json.dumps({"ok": True})}
 
-        body = json.loads(event.get("body") or "{}")
-        from_phone = normalize_phone(body.get("from") or "")
-        text = (body.get("text") or "").strip()
+        raw_body = event.get("body") or "{}"
+        if event.get("isBase64Encoded"):
+            raw_body = base64.b64decode(raw_body).decode("utf-8")
+
+        body = json.loads(raw_body or "{}")
+        event_type, from_phone, text = _extract_inbound_message(body)
         normalized = text.upper().strip()
+
+        # Ignore delivery/status webhooks — only inbound member messages should trigger Jade logic.
+        if event_type and event_type != "message.received":
+            return {"statusCode": 200, "body": json.dumps({"ok": True})}
+
+        if not from_phone or not text:
+            logger.info("sms_handler: no inbound message payload to process")
+            return {"statusCode": 200, "body": json.dumps({"ok": True})}
 
         sms_enabled = (os.getenv("SMS_ENABLED", "false") or "").lower() == "true"
 

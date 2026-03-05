@@ -18,6 +18,8 @@ export const state = {
     DENIED: 0,
   },
   importRows: [],
+  importDetectedSource: 'csv',
+  importSkipped: 0,
   preview: {
     lastPreview: null,
     members: [],
@@ -44,6 +46,8 @@ export function resetSessionState() {
     DENIED: 0,
   };
   state.importRows = [];
+  state.importDetectedSource = 'csv';
+  state.importSkipped = 0;
   state.currentStatus = 'PENDING';
   state.currentPage = 1;
   state.activeTab = 'members';

@@ -14,15 +14,15 @@ PATH_PART_RE = re.compile(r'path_part\s*=\s*"([^"]+)"')
 PARENT_RESOURCE_RE = re.compile(r'parent_id\s*=\s*aws_api_gateway_resource\.([A-Za-z0-9_]+)\.id')
 RESOURCE_ID_RE = re.compile(r'resource_id\s*=\s*aws_api_gateway_resource\.([A-Za-z0-9_]+)\.id')
 ROOT_PARENT_RE = re.compile(r'parent_id\s*=\s*aws_api_gateway_rest_api\.[A-Za-z0-9_]+\.root_resource_id')
-HTTP_METHOD_RE = re.compile(r'http_method\s*=\s*"([^"]+)"')
+HTTP_METHOD_RE = re.compile(r'http_method\s*=\s*"([A-Z]+)"')
 BACKEND_ROUTE_METHOD_RE = re.compile(r'if\s+method\s*==\s*"([A-Z]+)"\s+and\s+path\.endswith\("([^"]+)"\)')
+IN_PATH_ROUTE_RE = re.compile(r'if\s+method\s*==\s*"([A-Z]+)"\s+and\s+"([^"]+)"\s+in\s+path')
 HARDCODED_ROUTE_RE = re.compile(r'''['"](/admin/[^'"]+|/event(?:/current)?)['"]''')
 FRONTEND_CALL_RE = re.compile(r'api(?:Json|Fetch)\(\s*(?:`[^`]*ROUTES\.([A-Z0-9_]+)[^`]*`|ROUTES\.([A-Z0-9_]+))', re.S)
 METHOD_IN_WINDOW_RE = re.compile(r'method\s*:\s*["\']([A-Z]+)["\']')
 INLINE_BODY_RE = re.compile(r'body\s*:\s*\{(.*?)\}', re.S)
 BODY_COLON_KEY_RE = re.compile(r'([A-Za-z_][A-Za-z0-9_]*)\s*:')
 BODY_SHORTHAND_KEY_RE = re.compile(r'(^|[,\n])\s*([A-Za-z_][A-Za-z0-9_]*)\s*(?=,|\n|$)')
-IN_PATH_ROUTE_RE = re.compile(r'if\s+method\s*==\s*"([A-Z]+)"\s+and\s+"([^"]+)"\s+in\s+path')
 
 BACKEND_REQUIRED_KEYS: Dict[str, Dict[str, List[str]]] = {
     '/admin/members': {'DELETE': ['phone']},
@@ -43,40 +43,43 @@ FRONTEND_BODY_HINTS: Dict[str, Dict[str, List[str]]] = {
 }
 
 QUO_BONE_CHECKS = {
-    'terraform_quo_secret_variable': ('terraform/main.tf', 'variable "quo_api_key_secret_id"'),
-    'terraform_webhook_secret_variable': ('terraform/main.tf', 'variable "webhook_secret_id"'),
-    'terraform_sms_provider_quo': ('terraform/main.tf', 'SMS_PROVIDER             = "quo"'),
-    'terraform_quo_key_env': ('terraform/main.tf', 'QUO_API_KEY_SECRET_ID'),
-    'terraform_sms_disabled_default': ('terraform/main.tf', 'SMS_ENABLED              = "false"'),
-    'eventbridge_quo_env': ('terraform/eventbridge.tf', 'SMS_PROVIDER          = "quo"'),
-    'sms_adapter_quo_secret_lookup': ('python/sms_adapter.py', 'QUO_API_KEY_SECRET_ID'),
-    'sms_adapter_stub_send': ('python/sms_adapter.py', '[stub] would send'),
-    'sms_handler_quo_signature': ('python/sms_handler.py', 'x-quo-signature'),
-    'access_request_welcome_hook': ('python/access_request.py', 'maybe_send_welcome'),
+    'terraform_quo_secret_variable': ('backend/terraform/main.tf', 'variable "quo_api_key_secret_id"'),
+    'terraform_quo_phone_number_variable': ('backend/terraform/main.tf', 'variable "quo_phone_number_id"'),
+    'terraform_webhook_secret_variable': ('backend/terraform/main.tf', 'variable "webhook_secret_id"'),
+    'terraform_sms_provider_quo': ('backend/terraform/main.tf', 'SMS_PROVIDER             = "quo"'),
+    'terraform_quo_key_env': ('backend/terraform/main.tf', 'QUO_API_KEY_SECRET_ID'),
+    'terraform_quo_phone_env': ('backend/terraform/main.tf', 'QUO_PHONE_NUMBER_ID'),
+    'terraform_sms_enabled_default': ('backend/terraform/main.tf', 'SMS_ENABLED              = "true"'),
+    'eventbridge_sms_enabled_default': ('backend/terraform/eventbridge.tf', 'SMS_ENABLED           = "true"'),
+    'sms_adapter_quo_secret_lookup': ('backend/lambda/sms_adapter.py', 'QUO_API_KEY_SECRET_ID'),
+    'sms_adapter_live_send': ('backend/lambda/sms_adapter.py', 'https://api.openphone.com/v1/messages'),
+    'sms_handler_quo_signature': ('backend/lambda/sms_handler.py', 'openphone-signature'),
+    'admin_handler_welcome_hook': ('backend/lambda/admin_handler.py', 'maybe_send_welcome'),
+    'admin_handler_welcome_gate': ('backend/lambda/admin_handler.py', 'status == "APPROVED" and prev_status != "APPROVED"'),
 }
 
 
 def detect_root(script_path: Path, explicit_root: Optional[Path]) -> Path:
     if explicit_root:
         return explicit_root.resolve()
-    candidates = [script_path.resolve().parent.parent, script_path.resolve().parent, Path.cwd()]
+    candidates = [script_path.resolve().parents[2], script_path.resolve().parents[1], Path.cwd()]
     for candidate in candidates:
-        if (candidate / 'frontend').exists() and (candidate / 'python').exists() and (candidate / 'terraform').exists():
+        if (candidate / 'frontend').exists() and (candidate / 'backend' / 'lambda').exists() and (candidate / 'backend' / 'terraform').exists():
             return candidate.resolve()
-    raise SystemExit('Could not locate project root containing frontend/, python/, and terraform/.')
+    raise SystemExit('Could not locate project root containing frontend/, backend/lambda/, and backend/terraform/.')
 
 
 def load_frontend_routes(frontend_dir: Path) -> Dict[str, str]:
-    text = (frontend_dir / 'constants.js').read_text()
+    text = (frontend_dir / 'admin' / 'constants.js').read_text()
     match = re.search(r"const ROUTES = Object\.freeze\(\{(.*?)\}\);", text, re.S)
     if not match:
-        raise SystemExit('Could not parse ROUTES from frontend/constants.js')
+        raise SystemExit('Could not parse ROUTES from frontend/admin/constants.js')
     return dict(ROUTE_CONST_RE.findall(match.group(1)))
 
 
 def load_frontend_contracts(frontend_dir: Path, frontend_routes: Dict[str, str]) -> Dict[str, Dict[str, object]]:
     contracts: Dict[str, Dict[str, object]] = {name: {'path': path, 'methods': set(), 'body_keys': {}} for name, path in frontend_routes.items()}
-    for js_path in frontend_dir.glob('*.js'):
+    for js_path in (frontend_dir / 'admin').glob('*.js'):
         if js_path.name == 'constants.js':
             continue
         text = js_path.read_text()
@@ -92,8 +95,7 @@ def load_frontend_contracts(frontend_dir: Path, frontend_routes: Dict[str, str])
             if body_match:
                 body_text = body_match.group(1)
                 keys = set(BODY_COLON_KEY_RE.findall(body_text))
-                keys.update(match.group(2) for match in BODY_SHORTHAND_KEY_RE.finditer(body_text))
-                keys = sorted(keys)
+                keys.update(m.group(2) for m in BODY_SHORTHAND_KEY_RE.finditer(body_text))
                 if keys:
                     contracts[route_name]['body_keys'].setdefault(method, set()).update(keys)
     for route_name, method_map in FRONTEND_BODY_HINTS.items():
@@ -108,16 +110,13 @@ def load_frontend_contracts(frontend_dir: Path, frontend_routes: Dict[str, str])
     return contracts
 
 
-def load_backend_contracts(python_dir: Path) -> Dict[str, Dict[str, object]]:
+def load_backend_contracts(lambda_dir: Path) -> Dict[str, Dict[str, object]]:
     contracts: Dict[str, Dict[str, object]] = {}
-    for path in python_dir.glob('*.py'):
+    for path in lambda_dir.glob('*.py'):
         if path.name == 'route_contract_audit.py':
             continue
         text = path.read_text()
         for method, route in BACKEND_ROUTE_METHOD_RE.findall(text):
-            spec = contracts.setdefault(route, {'methods': set(), 'required_body_keys': {}})
-            spec['methods'].add(method)
-        for method, route in IN_PATH_ROUTE_RE.findall(text):
             spec = contracts.setdefault(route, {'methods': set(), 'required_body_keys': {}})
             spec['methods'].add(method)
         for method, route in IN_PATH_ROUTE_RE.findall(text):
@@ -135,13 +134,14 @@ def load_backend_contracts(python_dir: Path) -> Dict[str, Dict[str, object]]:
 
 def load_frontend_hardcoded(frontend_dir: Path) -> List[Tuple[str, str]]:
     findings: List[Tuple[str, str]] = []
-    for path in frontend_dir.glob('*'):
+    files = list(frontend_dir.glob('*.html')) + list((frontend_dir / 'admin').glob('*'))
+    for path in files:
         if path.suffix not in {'.js', '.html'} or path.name == 'constants.js':
             continue
         text = path.read_text()
-        for match in HARDCODED_ROUTE_RE.findall(text):
-            findings.append((path.name, match))
-    return findings
+        for route in HARDCODED_ROUTE_RE.findall(text):
+            findings.append((path.relative_to(frontend_dir).as_posix(), route))
+    return sorted(set(findings))
 
 
 def parse_tf_resources(terraform_dir: Path) -> Dict[str, Dict[str, Optional[str]]]:
@@ -149,70 +149,68 @@ def parse_tf_resources(terraform_dir: Path) -> Dict[str, Dict[str, Optional[str]
     for tf_path in terraform_dir.glob('*.tf'):
         text = tf_path.read_text()
         for name, body in RESOURCE_BLOCK_RE.findall(text):
-            path_part_match = PATH_PART_RE.search(body)
-            if not path_part_match:
-                continue
-            parent_match = PARENT_RESOURCE_RE.search(body)
+            path_part = PATH_PART_RE.search(body)
+            parent = PARENT_RESOURCE_RE.search(body)
+            is_root = bool(ROOT_PARENT_RE.search(body))
             resources[name] = {
-                'path_part': path_part_match.group(1),
-                'parent_resource': parent_match.group(1) if parent_match else None,
-                'is_root_child': bool(ROOT_PARENT_RE.search(body)),
+                'path_part': path_part.group(1) if path_part else None,
+                'parent': parent.group(1) if parent else None,
+                'is_root': is_root,
             }
     return resources
 
 
-def build_full_path(resource_name: str, resources: Dict[str, Dict[str, Optional[str]]], cache: Dict[str, str]) -> str:
-    if resource_name in cache:
-        return cache[resource_name]
-    node = resources.get(resource_name)
-    if not node:
-        return ''
-    path_part = node['path_part'] or ''
-    if node.get('is_root_child'):
-        full_path = f'/{path_part}'
-    else:
-        parent_name = node.get('parent_resource')
-        parent_path = build_full_path(parent_name, resources, cache) if parent_name else ''
-        full_path = f'{parent_path}/{path_part}' if parent_path else f'/{path_part}'
-    cache[resource_name] = full_path
-    return full_path
+def _resource_path(name: str, resources: Dict[str, Dict[str, Optional[str]]]) -> Optional[str]:
+    if name not in resources:
+        return None
+    parts: List[str] = []
+    current = name
+    seen: Set[str] = set()
+    while current and current in resources and current not in seen:
+        seen.add(current)
+        item = resources[current]
+        if item['path_part']:
+            parts.append(item['path_part'])
+        if item['is_root']:
+            break
+        current = item['parent']
+    return '/' + '/'.join(reversed(parts)) if parts else None
 
 
 def load_terraform_methods(terraform_dir: Path, resources: Dict[str, Dict[str, Optional[str]]]) -> Dict[str, Set[str]]:
-    cache: Dict[str, str] = {}
-    methods_by_route: Dict[str, Set[str]] = {}
+    methods: Dict[str, Set[str]] = {}
     for tf_path in terraform_dir.glob('*.tf'):
         text = tf_path.read_text()
-        for _name, body in METHOD_BLOCK_RE.findall(text):
+        for _, body in METHOD_BLOCK_RE.findall(text):
             resource_match = RESOURCE_ID_RE.search(body)
-            method_match = HTTP_METHOD_RE.search(body)
-            if not resource_match or not method_match:
+            http_match = HTTP_METHOD_RE.search(body)
+            if not resource_match or not http_match:
                 continue
-            route = build_full_path(resource_match.group(1), resources, cache)
+            route = _resource_path(resource_match.group(1), resources)
             if route:
-                methods_by_route.setdefault(route, set()).add(method_match.group(1))
-    return methods_by_route
+                methods.setdefault(route, set()).add(http_match.group(1))
+    return methods
 
 
 def check_quo_bones(root: Path) -> Dict[str, bool]:
-    results: Dict[str, bool] = {}
+    out: Dict[str, bool] = {}
     for name, (rel_path, needle) in QUO_BONE_CHECKS.items():
         try:
             text = (root / rel_path).read_text()
-            results[name] = needle in text
+            out[name] = needle in text
         except FileNotFoundError:
-            results[name] = False
-    return results
+            out[name] = False
+    return out
 
 
 def build_summary(root: Path) -> Dict[str, object]:
     frontend_dir = root / 'frontend'
-    python_dir = root / 'python'
-    terraform_dir = root / 'terraform'
+    lambda_dir = root / 'backend' / 'lambda'
+    terraform_dir = root / 'backend' / 'terraform'
 
     frontend_routes = load_frontend_routes(frontend_dir)
     frontend_contracts = load_frontend_contracts(frontend_dir, frontend_routes)
-    backend_contracts = load_backend_contracts(python_dir)
+    backend_contracts = load_backend_contracts(lambda_dir)
     tf_resources = parse_tf_resources(terraform_dir)
     terraform_methods = {route: sorted(methods) for route, methods in load_terraform_methods(terraform_dir, tf_resources).items()}
     hardcoded = load_frontend_hardcoded(frontend_dir)
@@ -222,28 +220,28 @@ def build_summary(root: Path) -> Dict[str, object]:
     method_mismatches = {}
     body_key_gaps = {}
 
-    for name, route in frontend_routes.items():
-        frontend_spec = frontend_contracts[name]
-        backend_spec = backend_contracts.get(route)
-        tf_methods = set(terraform_methods.get(route, []))
-        if not backend_spec:
-            missing_in_backend[name] = route
-            continue
-        if route not in terraform_methods:
-            missing_in_terraform[name] = route
-        frontend_methods = set(frontend_spec['methods']) or {'GET'}
+    for name, frontend_spec in frontend_contracts.items():
+        route = frontend_spec['path']
+        frontend_methods = set(frontend_spec['methods'])
+        backend_spec = backend_contracts.get(route, {'methods': []})
         backend_methods = set(backend_spec['methods'])
+        tf_methods = set(terraform_methods.get(route, []))
+        tf_methods_no_options = {m for m in tf_methods if m != 'OPTIONS'}
+
         missing_backend_methods = sorted(frontend_methods - backend_methods)
-        missing_tf_methods = sorted(frontend_methods - tf_methods)
-        if missing_backend_methods or missing_tf_methods:
+        missing_tf_methods = sorted(frontend_methods - tf_methods_no_options)
+        if missing_backend_methods:
+            missing_in_backend[name] = {'route': route, 'missing_methods': missing_backend_methods}
+        if missing_tf_methods:
+            missing_in_terraform[name] = {'route': route, 'missing_methods': missing_tf_methods}
+        if backend_methods and tf_methods_no_options and backend_methods != tf_methods_no_options:
             method_mismatches[name] = {
                 'route': route,
                 'frontend_methods': sorted(frontend_methods),
                 'backend_methods': sorted(backend_methods),
                 'terraform_methods': sorted(tf_methods),
-                'missing_in_backend': missing_backend_methods,
-                'missing_in_terraform': missing_tf_methods,
             }
+
         frontend_body_keys = frontend_spec['body_keys']
         backend_body_keys = backend_spec.get('required_body_keys', {})
         for method, required_keys in backend_body_keys.items():
@@ -257,8 +255,6 @@ def build_summary(root: Path) -> Dict[str, object]:
                     'missing_keys': missing_keys,
                 }
 
-    quo_checks = check_quo_bones(root)
-
     return {
         'project_root': str(root),
         'frontend_routes': frontend_routes,
@@ -270,13 +266,13 @@ def build_summary(root: Path) -> Dict[str, object]:
         'missing_in_terraform': missing_in_terraform,
         'method_mismatches': method_mismatches,
         'body_key_gaps': body_key_gaps,
-        'quo_bones_check': quo_checks,
+        'quo_bones_check': check_quo_bones(root),
     }
 
 
 def main(argv: Optional[Iterable[str]] = None) -> int:
     parser = argparse.ArgumentParser(description='Audit frontend routes/contracts against backend handlers, Terraform API methods, and Quo setup guardrails.')
-    parser.add_argument('--root', type=Path, default=None, help='Project root containing frontend/, python/, and terraform/ directories.')
+    parser.add_argument('--root', type=Path, default=None, help='Project root containing frontend/, backend/lambda/, and backend/terraform/ directories.')
     args = parser.parse_args(list(argv) if argv is not None else None)
 
     root = detect_root(Path(__file__), args.root)
