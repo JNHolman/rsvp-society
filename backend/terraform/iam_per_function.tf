@@ -120,10 +120,16 @@ resource "aws_iam_role_policy" "lambda_admin_handler" {
       },
       {
         Effect   = "Allow"
+        Action   = ["dynamodb:PutItem", "dynamodb:UpdateItem"]
+        Resource = [local.audit_log_arn]
+      },
+      {
+        Effect   = "Allow"
         Action   = ["secretsmanager:GetSecretValue"]
         Resource = [
           "arn:aws:secretsmanager:${local.region}:${local.account}:secret:${var.admin_token_secret_id}*",
           "arn:aws:secretsmanager:${local.region}:${local.account}:secret:${var.quo_api_key_secret_id}*",
+          "arn:aws:secretsmanager:${local.region}:${local.account}:secret:${var.webhook_secret_id}*",
         ]
       },
     ]
@@ -165,10 +171,21 @@ resource "aws_iam_role_policy" "lambda_sms_handler" {
       },
       {
         Effect   = "Allow"
+        Action   = ["dynamodb:PutItem", "dynamodb:GetItem"]
+        Resource = [local.checkins_arn]
+      },
+      {
+        Effect   = "Allow"
+        Action   = ["dynamodb:PutItem", "dynamodb:UpdateItem"]
+        Resource = [local.audit_log_arn]
+      },
+      {
+        Effect   = "Allow"
         Action   = ["secretsmanager:GetSecretValue"]
         Resource = [
           "arn:aws:secretsmanager:${local.region}:${local.account}:secret:${var.quo_api_key_secret_id}*",
           "arn:aws:secretsmanager:${local.region}:${local.account}:secret:rsvp/claude-api-key*",
+          "arn:aws:secretsmanager:${local.region}:${local.account}:secret:rsvp/webhook-secret*",
         ]
       },
     ]
@@ -219,6 +236,7 @@ resource "aws_iam_role_policy" "lambda_invite_handler" {
         Resource = [
           "arn:aws:secretsmanager:${local.region}:${local.account}:secret:${var.admin_token_secret_id}*",
           "arn:aws:secretsmanager:${local.region}:${local.account}:secret:${var.quo_api_key_secret_id}*",
+          "arn:aws:secretsmanager:${local.region}:${local.account}:secret:rsvp/webhook-secret*",
         ]
       },
     ]
@@ -250,7 +268,7 @@ resource "aws_iam_role_policy" "lambda_reminder_handler" {
       },
       {
         Effect   = "Allow"
-        Action   = ["dynamodb:Query"]
+        Action   = ["dynamodb:Query", "dynamodb:UpdateItem"]
         Resource = [local.invites_arn]
       },
       {

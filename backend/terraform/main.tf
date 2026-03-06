@@ -42,7 +42,7 @@ variable "quo_api_key_secret_id" {
 variable "quo_phone_number_id" {
   type        = string
   default     = "PNqC0tQSaI"
-  description = "Quo/OpenPhone phone-number ID (PN...) used for outbound SMS. Defaults to Jade. Override via tfvars or TF_VAR_quo_phone_number_id if needed."
+  description = "Quo/OpenPhone phone-number ID (PN...) used for outbound SMS. Defaults to Jade's number. Override via TF_VAR_quo_phone_number_id or tfvars only if the number changes."
 }
 
 variable "admin_token_secret_id" {
@@ -238,13 +238,14 @@ resource "aws_lambda_function" "sms_handler" {
       MEMBERS_TABLE_NAME       = aws_dynamodb_table.members.name
       EVENTS_TABLE_NAME        = aws_dynamodb_table.events.name
       INVITES_TABLE_NAME       = aws_dynamodb_table.event_invites.name
+      CHECKINS_TABLE_NAME      = aws_dynamodb_table.checkins.name
+      AUDIT_LOG_TABLE_NAME     = aws_dynamodb_table.audit_log.name
       ALLOWED_ORIGINS          = local.allowed_origins_csv
       SMS_ENABLED              = "true"
       SMS_PROVIDER             = "quo"
       QUO_API_KEY_SECRET_ID    = var.quo_api_key_secret_id
       QUO_PHONE_NUMBER_ID      = var.quo_phone_number_id
       CLAUDE_API_KEY_SECRET_ID = "rsvp/claude-api-key"
-      ADMIN_TOKEN_SECRET_ID    = var.admin_token_secret_id
       WEBHOOK_SECRET_ID        = var.webhook_secret_id
     }
   }

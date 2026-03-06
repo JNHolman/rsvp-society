@@ -49,31 +49,12 @@ resource "aws_dynamodb_table" "audit_log" {
 # they can be managed and reviewed independently.
 # =============================================================================
 
-resource "aws_iam_role_policy" "admin_handler_audit_log" {
-  name = "audit-log-write"
-  role = aws_iam_role.lambda_admin_handler.id
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [{
-      Effect   = "Allow"
-      Action   = ["dynamodb:PutItem"]
-      Resource = aws_dynamodb_table.audit_log.arn
-    }]
-  })
-}
-
-resource "aws_iam_role_policy" "invite_handler_audit_log" {
-  name = "audit-log-write"
-  role = aws_iam_role.lambda_invite_handler.id
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [{
-      Effect   = "Allow"
-      Action   = ["dynamodb:PutItem"]
-      Resource = aws_dynamodb_table.audit_log.arn
-    }]
-  })
-}
+# =============================================================================
+# IAM — reminder_handler audit log write permission.
+# admin_handler and invite_handler audit log access is already granted
+# in iam_per_function.tf; adding it again here would cause a Terraform
+# duplicate resource name conflict on apply.
+# =============================================================================
 
 resource "aws_iam_role_policy" "reminder_handler_audit_log" {
   name = "audit-log-write"
