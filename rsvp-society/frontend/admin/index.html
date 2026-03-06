@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>RSVP Society — Admin</title>
+<meta content="noindex, nofollow" name="robots"/>
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;1,300;1,400&amp;family=Montserrat:wght@200;300;400;500&amp;display=swap" rel="stylesheet"/>
+<link href="./base.css" rel="stylesheet"/>
+<link href="./shell.css" rel="stylesheet"/>
+<link href="./invite.css" rel="stylesheet"/>
+<link href="./event.css" rel="stylesheet"/>
+<link href="./attendance.css" rel="stylesheet"/>
+<link href="./analytics.css" rel="stylesheet"/>
+</head>
+<body>
+<!-- Login -->
+<div id="login-screen">
+<div class="login-wordmark">[RSVP] Society</div>
+<div class="login-box">
+<label class="login-label" for="token-input">Admin Token</label>
+<input autocomplete="off" class="login-input" id="token-input" placeholder="••••••••••••" type="password"/>
+<button class="login-btn" id="login-btn">Enter</button>
+<div class="login-error" id="login-error"></div>
+</div>
+</div>
+<!-- App -->
+<div hidden="" id="app">
+<nav class="nav">
+<div class="nav-left">
+<span class="nav-wordmark">[RSVP]</span>
+<div class="nav-divider"></div>
+<span class="nav-title">Member Console</span>
+</div>
+<div class="nav-right">
+<button class="tab-btn active" id="tab-members">Members</button>
+<button class="tab-btn" id="tab-event">Event</button>
+<button class="tab-btn" id="tab-invite">Invite</button>
+<button class="tab-btn" id="tab-analytics">Analytics</button>
+<div class="nav-divider"></div>
+<button class="logout-btn" id="logout-btn">Sign Out</button>
+</div>
+</nav>
+<main>
+<div id="members-section">
+<!-- Stats -->
+<div class="stats-row" id="stats-row">
+<div class="stat-card">
+<div class="stat-number gold" id="stat-pending">—</div>
+<div class="stat-label">Pending</div>
+</div>
+<div class="stat-card">
+<div class="stat-number green" id="stat-approved">—</div>
+<div class="stat-label">Approved</div>
+</div>
+<div class="stat-card">
+<div class="stat-number red" id="stat-denied">—</div>
+<div class="stat-label">Denied</div>
+</div>
+</div>
+<!-- Members section -->
+<div class="section-header">
+<div class="section-title" id="section-title">Pending Review</div>
+<div class="section-count" id="section-count"></div>
+</div>
+<div class="filter-bar filter-bar-wrap">
+<button class="filter-btn active" id="filter-PENDING">Pending</button>
+<button class="filter-btn" id="filter-APPROVED">Approved</button>
+<button class="filter-btn" id="filter-DENIED">Denied</button>
+<button class="filter-btn import-btn" id="import-open-btn">↑ Import CSV</button>
+<div class="member-search-wrap">
+<input class="member-search-input" id="member-search" placeholder="Search name or phone..." type="text"/>
+<span class="member-search-icon">⌕</span>
+</div>
+</div>
+<!-- CSV Import Modal -->
+<div class="modal-overlay" hidden="" id="import-modal">
+<div class="modal-panel">
+<div class="modal-header">
+<p class="modal-kicker">Import Members</p>
+<button class="modal-close-btn" id="import-close-btn">✕</button>
+</div>
+<h3 class="modal-title">CSV Import</h3>
+<p class="modal-copy">Upload any member CSV. All imported members are set to <strong class="text-strong">Approved</strong>. Rows without a phone number are skipped. Imports do not send the Jade welcome text.</p>
+<div class="import-dropzone" id="import-drop">
+<p class="import-drop-copy">Drop CSV here or click to browse</p>
+<input accept=".csv" class="hidden-file-input" id="csv-file-input" type="file"/>
+</div>
+<div class="panel-summary" id="import-preview">
+<p class="panel-summary-text" id="import-preview-text"></p>
+</div>
+<div class="modal-actions">
+<button class="btn-secondary" id="import-cancel-btn">Cancel</button>
+<button class="btn-primary-muted" disabled="" id="import-confirm-btn">Import</button>
+</div>
+</div>
+</div>
+<div id="members-container">
+<div class="loading-state">Loading members...</div>
+</div>
+<div class="pagination-row" id="pagination"></div>
+</div>
+<div class="section-panel" hidden="" id="invite-section">
+<div class="section-header">
+<div class="section-title">Invite Blast</div>
+</div>
+<!-- Event summary pulled from Event tab -->
+<div class="panel-summary" id="invite-event-summary"></div>
+<div class="invite-form">
+<div class="invite-grid">
+<div class="invite-field">
+<label for="inv-event-id">Event ID</label>
+<input id="inv-event-id" placeholder="2026-03-march" type="text">
+</div>
+<div class="invite-field">
+<label for="inv-capacity">Capacity</label>
+<input id="inv-capacity" min="1" placeholder="200" type="number"/>
+</div>
+<div class="invite-field">
+<label for="inv-female-pct">Female % (0–100)</label>
+<input id="inv-female-pct" max="100" min="0" placeholder="60" type="number" value="60"/>
+</div>
+<div class="invite-field">
+<label for="inv-buffer">Tier 2 Ghost Buffer %</label>
+<input id="inv-buffer" max="100" min="0" placeholder="30" type="number" value="30"/>
+</div>
+<div class="invite-field">
+<label for="inv-wave-number">Wave</label>
+<select class="form-select" id="inv-wave-number">
+<option value="1">Wave 1</option>
+<option value="2">Wave 2</option>
+<option value="3">Wave 3</option>
+</select>
+</div>
+<div class="invite-field">
+<label for="inv-wave-size">Wave Size <span class="form-hint">optional override</span></label>
+<input id="inv-wave-size" min="1" placeholder="Auto" type="number"/>
+</div>
+</div>
+<!-- Gap analysis panel — shown for wave 2+ -->
+<div class="gap-panel" id="wave-gap-panel">
+<div class="gap-panel-title">Gap Analysis</div>
+<div class="gap-stats-grid" id="wave-gap-content"></div>
+<div class="gap-copy" id="wave-gap-suggestion"></div>
+</div>
+<div class="invite-actions">
+<button class="invite-btn-preview" id="preview-run-btn">Preview Invite List</button>
+<button class="invite-btn-send" disabled="" id="send-btn">Send Invites</button>
+<input id="reminder-custom-message" class="invite-field-input reminder-message-input" type="text" placeholder="e.g. Doors open at 9. Tribe. 100 Charlestown Court." maxlength="320"/>
+<button class="invite-btn-preview btn-ghost-push" id="reminder-blast-btn">Send Blast</button>
+</div>
+<div class="invite-back-row">
+<button class="back-link-btn" id="invite-back-btn">← Back to Event</button>
+</div>
+</div>
+<!-- Preview results -->
+<div class="preview-box" id="preview-box">
+<div class="preview-stats" id="preview-stats"></div>
+<div class="preview-count" id="preview-remaining-count"></div>
+<div id="preview-table-container"></div>
+</div>
+</div>
+<div class="section-panel" hidden="" id="event-section">
+<div class="section-header">
+<div class="section-title">Current Event</div>
+</div>
+<!-- Current event display -->
+<div class="event-current" id="event-current-display">
+<div class="event-current-label">Live Event Details</div>
+<div class="event-current-grid" id="event-current-grid"></div>
+</div>
+<!-- Event editor -->
+<div class="event-form">
+<div class="event-grid">
+<div class="event-field">
+<label>Event ID</label>
+<input id="ev-id" placeholder="rooftop-may2026" type="text"/>
+</div>
+<div class="event-field">
+<label>Event Label <span class="form-hint">Short name Jade uses in SMS</span></label>
+<input id="ev-label" maxlength="40" placeholder="Rooftop Night" type="text"/>
+</div>
+<div class="event-field">
+<label>Date</label>
+<input id="ev-date" placeholder="Saturday, May 15, 2026" type="text"/>
+</div>
+<div class="event-field">
+<label>Start Time</label>
+<input id="ev-time" placeholder="9:00 PM" type="text"/>
+</div>
+<div class="event-field">
+<label>City</label>
+<input id="ev-city" placeholder="Louisville, KY" type="text"/>
+</div>
+<div class="event-field">
+<label>Capacity</label>
+<input id="ev-capacity" placeholder="150" type="number"/>
+</div>
+<div class="event-field">
+<label>Event Time Zone</label>
+<select class="form-select" id="ev-timezone">
+<option value="America/New_York">Eastern Time (ET)</option>
+<option value="America/Chicago">Central Time (CT)</option>
+<option value="America/Denver">Mountain Time (MT)</option>
+<option value="America/Los_Angeles">Pacific Time (PT)</option>
+<option value="America/Phoenix">Arizona Time (MST, no DST)</option>
+<option value="America/Anchorage">Alaska Time (AKT)</option>
+<option value="Pacific/Honolulu">Hawaii Time (HT)</option>
+</select>
+</div>
+<div class="event-field">
+<label>Venue Name</label>
+<input id="ev-venue" placeholder="Venue name" type="text"/>
+</div>
+<div class="event-field">
+<label>Address</label>
+<input id="ev-address" placeholder="123 Main St, Louisville KY" type="text"/>
+</div>
+<div class="event-field">
+<label>Dress Code</label>
+<input id="ev-dresscode" placeholder="All Black Preferred" type="text"/>
+</div>
+<div class="event-field event-grid-full">
+<label>Auto Reminders <span class="microcopy">EventBridge fires these automatically on schedule</span></label>
+<div class="checkbox-row">
+<label class="checkbox-option">
+<input class="checkbox-input" id="ev-remind-day-before" type="checkbox"/>
+<span class="checkbox-label">Day Before  <span class="checkbox-time">6 PM local event time</span></span>
+</label>
+<label class="checkbox-option">
+<input class="checkbox-input" id="ev-remind-day-of" type="checkbox"/>
+<span class="checkbox-label">Day Of  <span class="checkbox-time">11 AM local event time</span></span>
+</label>
+</div>
+<div class="field-help">Check both to send both. Uncheck all for manual only via the Invite tab. Louisville stays Eastern by default; switch to Central when needed.</div>
+</div>
+<!-- Event Type + Vibe Tag -->
+<div class="event-field">
+<label>Event Type</label>
+<select class="form-select" id="ev-type">
+<option value="">Select type...</option>
+<option value="swim">Swim Party</option>
+<option value="day">Day Party</option>
+<option value="rooftop">Rooftop Night</option>
+<option value="elevated">Elevated / Artist Night</option>
+<option value="bowling">Bowling Night</option>
+<option value="karaoke">Karaoke Night</option>
+<option value="regular">Regular Party</option>
+</select>
+</div>
+<div class="event-field">
+<label>Vibe Tag <span class="form-hint">2–5 words — goes in Jade's invite</span></label>
+<select class="form-select" id="ev-vibe-tag">
+<option value="">Select event type first...</option>
+</select>
+</div>
+<div class="event-field event-grid-full toggle-row">
+<input class="toggle-input" id="ev-reveal-venue" type="checkbox"/>
+<label class="toggle-label" for="ev-reveal-venue">Reveal venue name in invite SMS</label>
+</div>
+<div class="event-field event-grid-full">
+<label>Event Description <span class="form-hint">Brief for Jade — context she uses when building messages</span></label>
+<textarea class="event-description" id="ev-description" placeholder="e.g. Rooftop at The Tribe. Open bar first hour. Dress sharp. Capacity is tight." rows="3"></textarea>
+</div>
+</div>
+<div class="event-actions">
+<button class="event-save-btn" id="event-save-btn">Save Event</button>
+<button class="event-save-btn event-preview-btn" id="event-preview-btn">Preview Jade's Messages</button>
+<button class="event-save-btn event-next-btn" id="event-next-btn">Next: Invite →</button>
+</div>
+<!-- Jade message preview + lock panel -->
+<div class="jade-preview-panel" hidden="" id="jade-preview-panel">
+<div class="panel-kicker">Jade Message Preview</div>
+<div class="panel-copy">Edit directly. Use <strong class="template-token">{name}</strong> where the member's first name should appear. Save Event to lock these in for invite, day-before, and day-of sends.</div>
+<div class="message-preview-grid">
+<div>
+<div class="field-kicker">Invite Text</div>
+<textarea class="message-preview-textarea-primary" id="jade-invite-preview" rows="5"></textarea>
+</div>
+<div>
+<div class="field-kicker-compact">Day-Before Reminder <span class="time-pill">· sends the day before</span></div>
+<textarea class="message-preview-textarea-secondary" id="jade-day-before-preview" rows="5"></textarea>
+</div>
+<div>
+<div class="field-kicker-compact">Day-Of Reminder <span class="time-pill">· sends the day of</span></div>
+<textarea class="message-preview-textarea-secondary" id="jade-day-of-preview" rows="5"></textarea>
+</div>
+</div>
+<div class="panel-actions-row">
+<button class="event-save-btn event-lock-btn" id="event-lock-btn">Save Event + Lock Templates</button>
+<span class="lock-status" id="template-lock-status"></span>
+</div>
+<div class="panel-footnote">Invite text is locked exactly. Each reminder can be tuned separately. {name} is replaced with each member's first name.</div>
+</div>
+</div>
+</div>
+<!-- ── Analytics Section ──────────────────────────────────────────────────── -->
+<div class="section-panel" hidden="" id="analytics-section">
+<div class="section-header">
+<div class="section-title">Analytics</div>
+<div class="section-count" id="analytics-subtitle">Select an event</div>
+</div>
+<!-- All-time summary — always visible -->
+<div class="block-spacer">
+<div class="analytics-block-label">All Time</div>
+</div>
+<div class="alltime-grid" id="alltime-grid">
+<div class="a-stat"><div class="a-stat-num gold" id="at-events">—</div><div class="a-stat-label">Events Run</div></div>
+<div class="a-stat"><div class="a-stat-num" id="at-members">—</div><div class="a-stat-label">Member Pool</div></div>
+<div class="a-stat"><div class="a-stat-num green" id="at-attendees">—</div><div class="a-stat-label">Unique Attendees</div></div>
+<div class="a-stat"><div class="a-stat-num" id="at-repeat">—</div><div class="a-stat-label">Repeat Attendees</div></div>
+</div>
+<!-- Event selector -->
+<div class="analytics-health" hidden="" id="analytics-health"></div>
+<div class="analytics-event-selector">
+<div class="analytics-block-label analytics-label-reset">Event</div>
+<select id="analytics-event-select">
+<option value="">— select event —</option>
+</select>
+<button class="analytics-refresh-btn" id="analytics-refresh-btn">Refresh</button>
+</div>
+<div id="event-analytics-body">
+<div class="analytics-empty">Select an event above</div>
+</div>
+</div>
+</main>
+</div>
+<div class="toast" id="toast"></div>
+<script src="./admin-app.js" type="module"></script>
+</body>
+</html>
