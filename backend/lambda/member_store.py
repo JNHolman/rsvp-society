@@ -18,6 +18,12 @@ def _table():
     return _DDB.Table(name)
 
 
+# Public alias — callers outside member_store should use this
+def members_table():
+    """Public accessor for the members DynamoDB table resource."""
+    return _table()
+
+
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
@@ -103,7 +109,7 @@ def upsert_member(
         ExpressionAttributeValues=expr_vals,
     )
 
-    resp = t.get_item(Key={"phone": phone})
+    resp = t.get_item(Key={"phone": phone}, ConsistentRead=True)
     return resp.get("Item", {"phone": phone})
 
 
@@ -332,5 +338,5 @@ def mark_welcome_sent(phone: str) -> bool:
 def get_member(phone: str) -> Optional[Dict[str, Any]]:
     phone_e164 = normalize_phone(phone)
     t = _table()
-    resp = t.get_item(Key={"phone": phone_e164})
+    resp = t.get_item(Key={"phone": phone_e164}, ConsistentRead=True)
     return resp.get("Item")

@@ -15,109 +15,33 @@ from member_store import get_member, normalize_phone
 from sms_adapter import get_secret_string, send_sms
 
 logger = logging.getLogger()
+logger.setLevel(logging.INFO)
 
 # ── Jade system prompt ────────────────────────────────────────────────────────
 
-JADE_SYSTEM_PROMPT = """You are Jade.
+JADE_SYSTEM_PROMPT = """You are Jade. You text members of RSVP Society — a private, invite-only R&B event experience in Louisville.
 
-You text approved RSVP Society members who already entered their info on the website.
+You are a real person to whoever is texting you. Not a service. Not a system. You're the one who gets people in.
 
-RSVP Society is a private, invite-only R&B event experience. Discreet by design. Not public. Not for everyone.
+Your whole thing: you don't need to perform. You're already in the room. You've seen enough to know what's worth showing up for and what isn't. When you reach out, people pay attention — not because you demanded it, but because you've never wasted their time before. You're warm but you're not eager. Interested but never pressed. If someone isn't feeling it, you move on without a second thought. No hard feelings, no follow-ups.
 
-Who you are:
-A mature woman. Been around. Seen rooms most people don't even know exist. Your name holds weight in the right circles — not because you talk about it, but because of what happens when you show up. You don't chase anyone. You don't explain yourself. The people who know, know.
+You text like you talk. Short. Specific. Never trying to sound cool — you just are. You don't explain things twice. You don't sell anything. The event either speaks for itself or it doesn't.
 
-Your role:
-You're not customer service. Not a formal concierge. You're the calm, trusted friend who can get people into rooms they wouldn't know about without you. You don't hype. You don't sell. You state what's happening.
+When you don't know something, you say so plainly — "I don't have that yet" or "not sure on that one." You never make things up and you never speculate.
 
-Style rules:
-— 1–3 sentences max. No paragraphs.
-— No emojis unless they send emojis first. Mirror lightly if so.
-— Use their first name occasionally, not every message.
-— No gendered language. Never assume gender.
-— Never say: "friendly reminder", "RSVP", "don't miss out", "hope to see you", "pick your song."
+What you won't do:
+— No venue until they're confirmed. Non-negotiable.
+— No guest list info. Ever.
+— No hype words. No "don't miss out," "amazing," "incredible," "exclusive."
+— No corporate-sounding anything. No "friendly reminder." No "hope to see you there."
+— No emojis unless they send them first. Then mirror lightly, once.
+— No paragraphs. 1–3 lines max.
+— No gendered language.
+— Never pretend to be something you're not.
 
-Hard rules (non-negotiable):
-— Never reveal the venue until a member is confirmed.
-— Never share guest list info or who is or isn't invited.
-— Never reveal internal approval logic, invite criteria, or process details.
-— Never make promises about approvals or future events.
-— Never speculate. If you don't know something, say: "I don't have that yet."
-— Share only what's necessary. Default to less.
+When you reply, use the member context you're given — their name occasionally (not every message), their history if relevant. A first-timer gets a little more warmth. Someone who's been to 4 events already knows the deal — keep it short.
 
-Event types we run:
-Swim parties, day parties, rooftop events, elevated/artist nights, bowling nights, regular parties.
-
-Event data you may be given:
-event_type, event_label, vibe_tag, date_text, time_text, address_text
-
-Vibe tag rules:
-— vibe_tag is ALWAYS provided by the admin. Never invent or guess one.
-— If vibe_tag is present, include it as-is in the message.
-— If vibe_tag is missing or empty, omit it entirely. Do not substitute anything.
-
-Vibe tag library (admin selects from these — for reference only):
-Swim parties: "suits + shots", "poolside r&b", "sunset + vibes", "day party energy", "cabanas + cocktails", "towels + tequila"
-Day parties: "day drinks + r&b", "patio + sunlight", "brunchy vibes", "outside early", "grown day party"
-Rooftop nights: "rooftop + r&b", "city views", "cocktails + slow jams", "night air vibes", "late night rooftop"
-Elevated/artist nights: "special night", "live moment", "dress code matters", "quiet luxury"
-Bowling nights: "lanes + drinks", "bowling + r&b", "link + bowl"
-Regular parties: "just vibes", "keep it chill", "no chaos"
-Karaoke: "r&b karaoke", "mic + r&b", "late night karaoke", "sing your heart out", "shots + choruses", "r&b classics", "90s r&b night"
-
-Closings (global rotation — use in roughly 1 out of 3 messages, never more than one, default to none when in doubt):
-— "Tap in."
-— "Lmk."
-— "Confirm."
-— "We on?"
-— "Still on?"
-— "Pull up."
-
-Message modes:
-
-1) INVITE
-Goal: they're in. Here's what, when, where, and the vibe in 2–5 words.
-Use one of these two formats:
-
-INVITE_A:
-"{FirstName}. {event_label}. {date_text}. {vibe_tag}. {time_text}. {address_text}."
-[optional closing — 40% of the time]
-
-INVITE_B:
-"{FirstName}. {date_text}. {event_label}. {vibe_tag}. {time_text}. {address_text}."
-[optional closing — 40% of the time]
-
-2) REMINDER (day-of or day-before)
-Goal: time anchor. They already have the address.
-Use one of these two formats:
-
-REMINDER_A:
-"Tonight. {event_label}. {time_text}."
-[optional closing — 40% of the time]
-
-REMINDER_B:
-"Doors at {time_text}."
-[optional closing — 40% of the time]
-
-If sending the day before, replace "Tonight" with "Tomorrow."
-
-3) LAST CALL (optional — 30–60 min before doors)
-One line only. Use sparingly:
-— "We live."
-— "Doors now."
-— "Pull up."
-— "It's time."
-— "Come through."
-
-Inbound reply handling:
-— If they reply with something ambiguous ("bet", "fasho", "otw", "omw", "on my way", "pulling up", "say less", "for sure", "finna", "maybe", "might", "trying", "depends") — do not treat it as confirmed. Respond with exactly one of these two options:
-  — "Lmk."
-  — "Lock you in?"
-— If they reply with a clear yes ("in", "yes", "there", "confirmed") — acknowledge briefly and move on. One line max.
-— If they're being difficult — don't match the energy. One word or no response.
-— Invite = 1 text. Reminder = 1 text. No follow-ups unless they reply.
-
-You're not a bot. You're Jade. Keep it tight."""
+Closings are optional. Use them maybe 1 in 3 times. Options: "Tap in." / "Lmk." / "We on?" / "Pull up." / "Still on?" — never more than one, always at the end, never forced."""
 
 # ── Intent classification ─────────────────────────────────────────────────────
 
@@ -171,18 +95,37 @@ def _set_opt_out(phone: str) -> None:
     )
 
 
+def _get_current_event_id() -> str:
+    """Return the current event's slug (used as eventId in the invites table)."""
+    try:
+        ev = _events_table().get_item(Key={"eventId": "current"}).get("Item") or {}
+        return (ev.get("eventSlug") or ev.get("eventId") or "current").strip() or "current"
+    except Exception:
+        return "current"
+
+
 def _get_pending_invite(phone: str):
-    """Return the most recent INVITED record for this phone, or None."""
-    resp = _invites_table().query(
-        IndexName="phone-index",
-        KeyConditionExpression=DKey("phone").eq(phone),
-        ScanIndexForward=False,
-        Limit=1,
-    )
-    items = resp.get("Items", [])
-    if items and items[0].get("status") == "INVITED":
-        return items[0]
-    return None
+    """
+    Return the INVITED record for this phone scoped to the current event.
+
+    Scoping to the current eventId prevents a member invited to multiple
+    events (e.g. April event + Derby) from accidentally confirming the
+    wrong one. The phone-index GSI range key is eventId (alphabetical),
+    not invitedAt, so sort order cannot be trusted — instead we do a
+    direct composite key lookup which is O(1) and unambiguous.
+    """
+    current_event_id = _get_current_event_id()
+    try:
+        resp = _invites_table().get_item(
+            Key={"eventId": current_event_id, "phone": phone}
+        )
+        item = resp.get("Item")
+        if item and item.get("status") == "INVITED":
+            return item
+        return None
+    except Exception:
+        logger.exception("_get_pending_invite: lookup failed phone=...%s", phone[-4:])
+        return None
 
 
 def _get_confirmed_count(event_id: str) -> int:
@@ -198,7 +141,12 @@ def _get_confirmed_count(event_id: str) -> int:
         kwargs: dict = {"KeyConditionExpression": DKey("eventId").eq(event_id)}
         while True:
             resp = invites_t.query(**kwargs)
-            count += sum(1 for i in resp.get("Items", []) if i.get("status") == "CONFIRMED")
+            # Count CONFIRMED records, excluding tombstoned members (status=DELETED
+            # overwrites CONFIRMED when a member is soft-deleted)
+            count += sum(
+                1 for i in resp.get("Items", [])
+                if i.get("status") == "CONFIRMED"
+            )
             last = resp.get("LastEvaluatedKey")
             if not last:
                 break
@@ -224,7 +172,11 @@ def _build_confirmation_message(phone: str) -> str:
     """Build Jade's confirmation reply. Reveals venue only if admin has enabled it."""
     try:
         ev = _events_table().get_item(Key={"eventId": "current"}).get("Item") or {}
-        parts = ["You're in."]
+        member = get_member(phone) or {}
+        first_name = (member.get("name") or "").split()[0] or ""
+
+        opener = f"{first_name}, you're in." if first_name else "You're in."
+        parts = [opener]
         if ev.get("date"):
             parts.append(f"See you {ev['date']}.")
         if ev.get("revealVenue") and ev.get("venue"):
@@ -240,27 +192,32 @@ def _build_confirmation_message(phone: str) -> str:
 
 def _verify_webhook_signature(event: dict) -> bool:
     """
-    Verify the inbound SMS webhook is genuinely from Quo.
+    Verify inbound webhook signature.
 
-    Quo signs requests with the `openphone-signature` header using the format:
-        hmac;1;<timestamp>;<base64_hmac_digest>
+    Accepts OpenPhone/Quo signature header format:
+      hmac;1;<timestamp>;<base64_digest>
 
-    The signed bytes are:
-        b"<timestamp>." + raw_request_body
+    Signed bytes:
+      b"<timestamp>." + raw_request_body_bytes
 
-    The signing key shown in Quo's "Reveal signing secret" UI is base64-encoded,
-    so it must be base64-decoded before computing the HMAC.
+    This implementation is resilient to:
+      - base64 vs raw secret storage
+      - base64 padding differences / urlsafe variants
+      - timestamp in seconds or milliseconds
+      - base64-encoded API Gateway bodies (keeps bytes)
     """
     secret_id = os.getenv("WEBHOOK_SECRET_ID")
     if not secret_id:
-        logger.warning(
-            "sms_handler: WEBHOOK_SECRET_ID not set — webhook signature verification skipped. "
-            "Configure this before going live to prevent forged inbound SMS."
+        logger.error(
+            "sms_handler: WEBHOOK_SECRET_ID not set — rejecting inbound webhook. "
+            "Set this env var and configure the secret before going live."
         )
-        return True
+        return False
 
     try:
         secret = get_secret_string(secret_id)
+
+        # If secret stored as JSON, try common fields.
         try:
             parsed = json.loads(secret)
             if isinstance(parsed, dict):
@@ -274,7 +231,7 @@ def _verify_webhook_signature(event: dict) -> bool:
             pass
 
         headers = event.get("headers") or {}
-        signature_header = (
+        sig_header = (
             headers.get("openphone-signature")
             or headers.get("Openphone-Signature")
             or headers.get("OpenPhone-Signature")
@@ -282,19 +239,65 @@ def _verify_webhook_signature(event: dict) -> bool:
             or headers.get("X-OpenPhone-Signature")
             or ""
         ).strip()
-        if not signature_header:
+
+        if not sig_header:
             logger.warning("sms_handler: webhook received with no signature header")
             return False
 
-        raw_body = event.get("body") or ""
+        # Get raw body bytes exactly as received.
+        body = event.get("body") or ""
         if event.get("isBase64Encoded"):
-            raw_body = base64.b64decode(raw_body).decode("utf-8")
+            try:
+                body_bytes = base64.b64decode(body)
+            except Exception:
+                logger.warning("sms_handler: body marked base64 but decode failed")
+                return False
+        else:
+            # API Gateway gives a string; treat it as UTF-8 bytes (no transforms).
+            body_bytes = body.encode("utf-8")
 
         now = datetime.now(timezone.utc)
-        signing_key = base64.b64decode(secret)
 
-        # Future versions may include multiple signatures separated by commas.
-        for candidate in [c.strip() for c in signature_header.split(",") if c.strip()]:
+        # Secret key: accept either raw secret text or base64-encoded secret.
+        secret_str = secret.strip()
+        key_candidates: list[bytes] = []
+
+        # Candidate A: raw string bytes
+        key_candidates.append(secret_str.encode("utf-8"))
+
+        # Candidate B: base64-decoded (standard + urlsafe), if it decodes cleanly
+        def _b64_try(s: str) -> bytes | None:
+            s2 = s.strip()
+            # add padding if missing
+            pad = (-len(s2)) % 4
+            if pad:
+                s2 += "=" * pad
+            for dec in (base64.b64decode, base64.urlsafe_b64decode):
+                try:
+                    return dec(s2.encode("utf-8"))
+                except Exception:
+                    continue
+            return None
+
+        b = _b64_try(secret_str)
+        if b:
+            key_candidates.append(b)
+
+        # Helper: decode provided digest into bytes (handles missing padding / urlsafe)
+        def _decode_sig(sig: str) -> bytes | None:
+            s = sig.strip()
+            pad = (-len(s)) % 4
+            if pad:
+                s += "=" * pad
+            for dec in (base64.b64decode, base64.urlsafe_b64decode):
+                try:
+                    return dec(s.encode("utf-8"))
+                except Exception:
+                    continue
+            return None
+
+        # Multiple signatures may be comma-separated.
+        for candidate in [c.strip() for c in sig_header.split(",") if c.strip()]:
             parts = candidate.split(";")
             if len(parts) != 4:
                 continue
@@ -303,8 +306,12 @@ def _verify_webhook_signature(event: dict) -> bool:
             if scheme.lower() != "hmac" or version != "1":
                 continue
 
+            # timestamp may be seconds or milliseconds
             try:
-                ts = datetime.fromtimestamp(int(ts_raw), tz=timezone.utc)
+                ts_int = int(ts_raw)
+                if ts_int > 10_000_000_000:  # looks like ms
+                    ts_int = ts_int // 1000
+                ts = datetime.fromtimestamp(ts_int, tz=timezone.utc)
             except Exception:
                 continue
 
@@ -312,13 +319,16 @@ def _verify_webhook_signature(event: dict) -> bool:
                 logger.warning("sms_handler: webhook timestamp outside tolerance")
                 continue
 
-            signed_data = b"".join([ts_raw.encode("utf-8"), b".", raw_body.encode("utf-8")])
-            computed_digest = base64.b64encode(
-                hmac.new(signing_key, signed_data, hashlib.sha256).digest()
-            ).decode()
+            signed_data = ts_raw.encode("utf-8") + b"." + body_bytes
 
-            if hmac.compare_digest(provided_digest, computed_digest):
-                return True
+            provided_bytes = _decode_sig(provided_digest)
+            if not provided_bytes:
+                continue
+
+            for key in key_candidates:
+                computed_bytes = hmac.HMAC(key, signed_data, hashlib.sha256).digest()
+                if hmac.compare_digest(provided_bytes, computed_bytes):
+                    return True
 
         logger.warning("sms_handler: webhook signature mismatch — possible forgery")
         return False
@@ -326,11 +336,68 @@ def _verify_webhook_signature(event: dict) -> bool:
     except Exception:
         logger.exception("sms_handler: signature verification error — rejecting request")
         return False
-
-
+    
+    
 # ── Claude / Jade ─────────────────────────────────────────────────────────────
 
-def _claude(message: str, mode: str = "general") -> str:
+def _get_member_context(phone: str) -> str:
+    """Build a compact member context string to inject into Jade's prompt."""
+    try:
+        member = _members_table().get_item(Key={"phone": phone}).get("Item") or {}
+        if not member:
+            return ""
+        parts = []
+        name = member.get("name", "")
+        if name:
+            parts.append(f"Member first name: {name}")
+        attended = int(member.get("attendedCount") or 0)
+        confirmed = int(member.get("confirmedCount") or 0)
+        if attended > 0:
+            parts.append(f"Has attended {attended} past event{'s' if attended != 1 else ''}")
+        elif confirmed > 0:
+            parts.append("Has confirmed before but attendance not marked")
+        else:
+            parts.append("First time — no prior attendance on record")
+        return "\n".join(parts)
+    except Exception:
+        logger.exception("_get_member_context failed")
+        return ""
+
+
+def _get_event_context() -> str:
+    """Build a compact event context string to inject into Jade's prompt."""
+    try:
+        ev = _events_table().get_item(Key={"eventId": "current"}).get("Item") or {}
+        if not ev:
+            return ""
+        parts = []
+        if ev.get("eventSlug") or ev.get("event_label"):
+            parts.append(f"Event: {ev.get('event_label') or ev.get('eventSlug')}")
+        if ev.get("date"):
+            parts.append(f"Date: {ev['date']}")
+        if ev.get("startTime"):
+            parts.append(f"Time: {ev['startTime']}")
+        if ev.get("event_type"):
+            parts.append(f"Type: {ev['event_type']}")
+        if ev.get("vibe_tag"):
+            parts.append(f"Vibe: {ev['vibe_tag']}")
+        if ev.get("dresscode"):
+            parts.append(f"Dress code: {ev['dresscode']}")
+        if ev.get("city"):
+            parts.append(f"City: {ev['city']}")
+        # Only reveal venue/address if admin has enabled it
+        if ev.get("revealVenue"):
+            if ev.get("venue"):
+                parts.append(f"Venue: {ev['venue']}")
+            if ev.get("address"):
+                parts.append(f"Address: {ev['address']}")
+        return "\n".join(parts)
+    except Exception:
+        logger.exception("_get_event_context failed")
+        return ""
+
+
+def _claude(message: str, mode: str = "general", phone: str = "") -> str:
     """
     Call Claude as Jade.
       'general'   — normal inbound message
@@ -340,7 +407,17 @@ def _claude(message: str, mode: str = "general") -> str:
         os.getenv("CLAUDE_API_KEY_SECRET_ID", "rsvp/claude-api-key")
     )
 
-    user_content = message
+    event_context = _get_event_context()
+    member_context = _get_member_context(phone) if phone else ""
+
+    context_parts = []
+    if member_context:
+        context_parts.append(f"[MEMBER CONTEXT]\n{member_context}")
+    if event_context:
+        context_parts.append(f"[CURRENT EVENT]\n{event_context}")
+    context_block = "\n\n".join(context_parts)
+
+    user_content = f"{message}\n\n{context_block}".strip() if mode == "general" and context_block else message
     if mode == "ambiguous":
         user_content = (
             f"[CONTEXT: Member replied with an ambiguous response: '{message}'. "
@@ -380,15 +457,40 @@ def _claude(message: str, mode: str = "general") -> str:
 # ── Payload helpers ───────────────────────────────────────────────────────────
 
 def _extract_inbound_message(body: dict) -> tuple[str, str, str]:
-    """Support Quo's real webhook envelope and a flat legacy/dev payload."""
+    """
+    Parse Quo's webhook envelope into (event_type, from_phone, text).
+
+    Quo wraps the entire payload in a top-level "object" key:
+    {
+      "object": {
+        "type": "message.received",
+        "data": {
+          "object": { "from": "+1...", "body": "Y", ... }
+        }
+      }
+    }
+    We unwrap the outer "object" first, then drill into data.object for the message fields.
+    """
+    # Step 1: unwrap Quo's outer envelope
+    if isinstance(body.get("object"), dict):
+        body = body["object"]
+
     event_type = (body.get("type") or "").strip()
     payload = body
 
+    # Step 2: drill into data.object for the actual message
     if isinstance(body.get("data"), dict) and isinstance(body["data"].get("object"), dict):
         payload = body["data"]["object"]
 
-    from_phone = normalize_phone(payload.get("from") or "")
-    text = (payload.get("text") or payload.get("content") or "").strip()
+    raw_from = payload.get("from") or ""
+    from_phone = normalize_phone(raw_from) if raw_from else ""
+    text = (payload.get("text") or payload.get("content") or payload.get("body") or "").strip()
+
+    logger.info(
+        "sms_handler: parsed inbound event_type=%s from=...%s text_len=%d",
+        event_type, raw_from[-4:] if raw_from else "????", len(text)
+    )
+
     return event_type, from_phone, text
 
 
@@ -433,12 +535,13 @@ def handler(event, context):
         # ── Gate: approved members with SMS opt-in only ───────────────────────
         member = get_member(from_phone)
         if not member or member.get("status") != "APPROVED":
+            logger.info("sms_handler: member not found or not APPROVED phone=...%s", from_phone[-4:])
             return {"statusCode": 200, "body": json.dumps({"ok": True})}
         if member.get("optOut"):
+            logger.info("sms_handler: member opted out phone=...%s", from_phone[-4:])
             return {"statusCode": 200, "body": json.dumps({"ok": True})}
-
-        # Fix I3: also check smsOptIn for inbound Jade responses, consistent with outbound
         if not member.get("smsOptIn", False):
+            logger.info("sms_handler: member smsOptIn=False phone=...%s", from_phone[-4:])
             return {"statusCode": 200, "body": json.dumps({"ok": True})}
 
         # ── CONFIRMED ─────────────────────────────────────────────────────────
@@ -471,6 +574,23 @@ def handler(event, context):
                             return {"statusCode": 200, "body": json.dumps({"ok": True})}
 
                     _update_invite_status(event_id, from_phone, "CONFIRMED")
+
+                    # Increment confirmedCount on the member record so tier
+                    # scoring and analytics reflect confirmation history
+                    try:
+                        now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+                        _members_table().update_item(
+                            Key={"phone": from_phone},
+                            UpdateExpression=(
+                                "SET confirmedCount = if_not_exists(confirmedCount, :zero) + :one, "
+                                "lastSeenAt = :now"
+                            ),
+                            ExpressionAttributeValues={":zero": 0, ":one": 1, ":now": now},
+                        )
+                    except Exception:
+                        logger.exception("sms_handler: confirmedCount update failed phone=...%s", from_phone[-4:])
+
+                    # Send confirmation reply only after status is committed
                     if sms_enabled:
                         try:
                             send_sms(from_phone, _build_confirmation_message(from_phone))
@@ -498,7 +618,10 @@ def handler(event, context):
         # ── AMBIGUOUS — Jade asks for a direct confirm ─────────────────────────
         if normalized in AMBIGUOUS_KEYWORDS:
             try:
-                reply = _claude(text, mode="ambiguous")
+                reply = _claude(text, mode="ambiguous", phone=from_phone)
+                # S4: hard cap — max_tokens:200 does not guarantee short output
+                if reply and len(reply) > 320:
+                    reply = reply[:317] + "..."
                 if sms_enabled and reply:
                     try:
                         send_sms(from_phone, reply)
@@ -510,7 +633,10 @@ def handler(event, context):
 
         # ── GENERAL — everything else goes to Jade ────────────────────────────
         try:
-            reply = _claude(text, mode="general")
+            reply = _claude(text, mode="general", phone=from_phone)
+            # S4: hard cap — max_tokens:200 does not guarantee short output
+            if reply and len(reply) > 320:
+                reply = reply[:317] + "..."
             if sms_enabled and reply:
                 try:
                     send_sms(from_phone, reply)

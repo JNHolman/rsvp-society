@@ -2,25 +2,11 @@ import base64
 import json
 import logging
 import os
-from member_store import upsert_member, normalize_phone
+from member_store import upsert_member, normalize_phone, mark_welcome_sent
+from sms_adapter import maybe_send_welcome
+from admin_shared import coerce_bool as _coerce_bool
 
 logger = logging.getLogger()
-
-
-def _coerce_bool(value) -> bool:
-    if isinstance(value, bool):
-        return value
-    if value is None:
-        return False
-    if isinstance(value, (int, float)):
-        return value != 0
-    if isinstance(value, str):
-        normalized = value.strip().lower()
-        if normalized in {"true", "1", "yes", "y", "on"}:
-            return True
-        if normalized in {"false", "0", "no", "n", "off", ""}:
-            return False
-    return bool(value)
 
 
 def _get_method(event: dict) -> str:
@@ -104,6 +90,17 @@ def handler(event, context):
             bool(member.get("smsOptIn", False)),
             source,
         )
+
+        # If this member is already APPROVED (e.g., legacy record or auto-approve flow),
+        # send the Jade welcome once (best-effort) and mark welcomeSentAt.
+        try:
+            if (member.get("status") or "").upper() == "APPROVED" and not member.get("welcomeSentAt"):
+                sent = maybe_send_welcome({**member, "status": "APPROVED"})
+                if sent:
+                    mark_welcome_sent(phone_e164)
+        except Exception:
+            logger.exception("access_request: welcome SMS failed phone=...%s", phone_e164[-4:])
+
 
         return _resp(200, {"ok": True}, origin)
 

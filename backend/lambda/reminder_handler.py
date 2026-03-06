@@ -131,11 +131,66 @@ def _batch_get_members(phones: list) -> dict:
     return member_map
 
 
+def send_custom_blast(event: dict, message: str, token: str = "") -> dict:
+    """
+    Send a custom one-off SMS to all confirmed members for the current event.
+    No dedup sentinel — this is an intentional out-of-cycle blast (e.g. venue
+    reveal, last call, schedule change). Skips members who have opted out or
+    lack SMS consent.
+    """
+    event_id = event.get("eventSlug") or event.get("event_label") or event.get("eventId", "current")
+    sms_enabled = (os.getenv("SMS_ENABLED", "false") or "").lower() == "true"
+
+    confirmed = _get_confirmed_invites(event_id)
+    phones = [inv.get("phone") for inv in confirmed if inv.get("phone")]
+    member_map = _batch_get_members(phones)
+
+    sent = 0
+    failed = 0
+    skipped_consent = 0
+
+    for invite in confirmed:
+        phone = invite.get("phone", "")
+        if not phone:
+            continue
+        try:
+            member = member_map.get(phone) or {}
+            if member.get("optOut") or not member.get("smsOptIn", False):
+                skipped_consent += 1
+                continue
+            if sms_enabled:
+                send_sms(phone, message)
+            sent += 1
+        except Exception:
+            logger.exception("send_custom_blast: failed phone=...%s", phone[-4:])
+            failed += 1
+
+    log_action(
+        token=token,
+        action=ACTION_REMINDER_SENT,
+        metadata={
+            "eventId":        event_id,
+            "isDayOf":        None,
+            "sent":           sent,
+            "failed":         failed,
+            "skippedConsent": skipped_consent,
+            "trigger":        "custom",
+            "smsEnabled":     sms_enabled,
+        },
+    )
+
+    return {
+        "sent":           sent,
+        "failed":         failed,
+        "skippedConsent": skipped_consent,
+    }
+
+
 def send_reminders(event: dict, is_day_of: bool, token: str = "") -> dict:
     """Send reminder SMS to all confirmed members who haven't been reminded yet."""
     # Don't mutate the caller's dict — work on a shallow copy
     event = {**event, "_is_day_of": is_day_of}
-    event_id = event.get("eventId", "current")
+    event_id = event.get("eventSlug") or event.get("event_label") or event.get("eventId", "current")
     sms_enabled = (os.getenv("SMS_ENABLED", "false") or "").lower() == "true"
 
     # C3: use separate sentinel fields for day-before and day-of so both can
@@ -280,7 +335,23 @@ def handler(event, context):
                 }
 
             manual_timing = str(body.get("timing") or "").strip().lower()
-            if manual_timing in {"day_before", "day_of"}:
+            if manual_timing == "custom":
+                # Custom one-off blast — admin provides message directly.
+                # No dedup sentinel — custom blasts are intentional out-of-cycle sends.
+                custom_message = (body.get("message") or "").strip()
+                if not custom_message:
+                    return {
+                        "statusCode": 400,
+                        "headers": _cors_headers(origin),
+                        "body": json.dumps({"ok": False, "error": "message required for custom timing"}),
+                    }
+                result = send_custom_blast(current_event, custom_message, token=token)
+                return {
+                    "statusCode": 200,
+                    "headers": _cors_headers(origin),
+                    "body": json.dumps({"ok": True, **result}),
+                }
+            elif manual_timing in {"day_before", "day_of"}:
                 is_day_of = manual_timing == "day_of"
             elif "is_day_of" in body:
                 is_day_of = bool(body["is_day_of"])

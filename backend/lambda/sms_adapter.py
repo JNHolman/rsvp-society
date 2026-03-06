@@ -327,14 +327,16 @@ def send_sms(to_phone: str, message: str) -> None:
 
     data = json.dumps(payload).encode("utf-8")
     req = urllib.request.Request(
-        "https://api.openphone.com/v1/messages",
-        data=data,
-        headers={
-            "Authorization": api_key,
-            "Content-Type": "application/json",
-        },
-        method="POST",
-    )
+    "https://api.openphone.com/v1/messages",
+    data=data,
+    headers={
+        "Authorization": api_key,
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+        "User-Agent": "Mozilla/5.0 (compatible; RSVP-Society/1.0; +https://rsvpsociety.com)",
+    },
+    method="POST",
+)
 
     try:
         with urllib.request.urlopen(req, timeout=15) as resp:

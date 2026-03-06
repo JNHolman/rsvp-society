@@ -499,6 +499,10 @@ def handle_send(body: dict, origin: str, token: str) -> dict:
                         "invitedAt":  now,
                         "waveNumber": wave_number,
                         "waveSentAt": now,
+                        # Name snapshot — check-in can show names even if
+                        # member row is later deleted or has blank fields
+                        "name":       (m.get("name") or "").strip(),
+                        "lastName":   (m.get("lastName") or "").strip(),
                     },
                     ConditionExpression="attribute_not_exists(phone)",
                 )
