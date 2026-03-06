@@ -41,7 +41,7 @@ rsvp-society/
 │       ├── invite.js           # Invite tab + reminder blast controls
 │       ├── analytics.js        # Analytics tab
 │       ├── attendance.js       # Attendance tab
-│       ├── checkin.js          # Door check-in logic (shares api.js/state.js)
+│       ├── checkin.js          # Door check-in — all logic, data fetching, auth, state, DOM rendering
 │       ├── base.css            # Shared admin typography + utility styles
 │       ├── shell.css           # Admin shell layout
 │       ├── event.css           # Event tab styles
@@ -54,12 +54,16 @@ rsvp-society/
 │       ├── access_request.py   # Handles form submissions from website
 │       ├── sms_handler.py      # Jade AI concierge + YES/NO RSVP + STOP opt-out
 │       ├── sms_adapter.py      # Quo outbound SMS adapter (live API send path)
-│       ├── admin_handler.py    # Admin API endpoints + public current-event endpoints
+│       ├── admin_handler.py    # Thin dispatcher — auth gate + route → module
+│       ├── admin_member_routes.py # All /admin/members/* route handlers
+│       ├── admin_event_routes.py  # All /admin/event/* route handlers
+│       ├── admin_shared.py     # Shared helpers: CORS, response, token, table accessors
 │       ├── member_store.py     # DynamoDB read/write layer (GSI queries)
 │       ├── invite_handler.py   # Invite math, blast preview, send
 │       ├── reminder_handler.py # EventBridge reminders + manual trigger
 │       ├── audit_log.py        # Immutable admin action audit trail
 │       └── route_contract_audit.py # Frontend/backend/Terraform contract check
+│       └── integration_tests.py    # In-process integration tests (moto, no deployed stack)
 │
 └── terraform/
     ├── main.tf                 # API Gateway, Lambda, DynamoDB, IAM, CORS, CloudWatch
@@ -96,17 +100,17 @@ NoSQL. Five tables:
 REST API routes requests from the frontend and Quo webhooks to the right Lambda. CloudFront sits in front at `api.rsvpsociety.com` — faster globally, protects against traffic spikes, handles SSL termination.
 
 ### SMS — Quo
-Carrier-compliant SMS platform. Required for 10DLC registration. Quo webhooks hit the `sms_handler` Lambda when members reply. Status: **approved / ready to wire in prod**. Compliance form lives at `https://rsvpsociety.com/#access`. Outbound sends use Quo's `POST /v1/messages` API. The Terraform default already points at Jade (`PNqC0tQSaI`). Override `TF_VAR_quo_phone_number_id` only if you change numbers, keep the webhook signing secret in Secrets Manager, and deploy.
+Carrier-compliant SMS platform. Required for 10DLC registration. Quo webhooks hit the `sms_handler` Lambda when members reply. Status: **live in production**. Compliance form lives at `https://rsvpsociety.com/#access`. Outbound sends use Quo's `POST /v1/messages` API. The Terraform default is already set to Jade's number (`PNqC0tQSaI`). Override `TF_VAR_quo_phone_number_id` only if the number changes. Webhook signing secret is in Secrets Manager. SMS is enabled.
 
 ### AI Concierge — Anthropic Claude (Jade)
-Jade is an SMS-based AI assistant for RSVP Society members. She handles RSVPs, event questions, and reminders. Built on `claude-haiku-4-5-20251001` with prompt caching (~90% token savings). Jade only responds to approved, opted-in members.
+Jade is an SMS-based AI assistant for RSVP Society members. She handles RSVPs, event questions, and general conversation. Built on `claude-haiku-4-5-20251001` with prompt caching (~90% token savings). Jade only responds to approved, opted-in members. At runtime she receives two context blocks injected into every general message: the current event details (name, date, time, vibe, dresscode, city, venue/address if `revealVenue` is enabled) and the member's profile (first name, attendance history). This means she can answer questions about the next event and adapt her tone based on whether someone is a first-timer or a regular.
 
 ### Scheduled Reminders — AWS EventBridge
 Two hourly EventBridge rules fire the `reminder_handler` Lambda:
 - **Day before rule** — checks every hour and sends at **6:00 PM local event time** when the event is tomorrow
 - **Day of rule** — checks every hour and sends at **11:00 AM local event time** when the event is today
 
-The Lambda reads the saved `event_timezone`, validates the local event date, checks the local hour, and respects the event's `reminderTiming` setting (`day_before`, `day_of`, `both`, or `manual`) before sending. Manual blast is still available from the Invite tab.
+The Lambda reads the saved `event_timezone`, validates the local event date, checks the local hour, and respects the event's `reminderTiming` setting (`day_before`, `day_of`, `both`, or `manual`) before sending. Manual blast is available from the Invite tab — type a custom message and hit Send Blast. This sends `timing=custom` with the message body to all confirmed members for the current event, bypassing the scheduled reminder logic entirely.
 
 ### Photo Storage — AWS S3 + CloudFront
 Event photos upload to S3 bucket `rsvp-society-pics-prod`. CloudFront serves them at `https://d31o74npegx00h.cloudfront.net`. Gallery in `pics.html` references this URL. No photos in the git repo ever.
@@ -233,7 +237,7 @@ Base URL: `https://api.rsvpsociety.com`
 | GET | `/admin/event/analytics` | Token | Event analytics snapshot for the current or requested event |
 | POST | `/admin/invite/preview` | Token | Preview invite list without sending |
 | POST | `/admin/invite/send` | Token | Execute SMS invite blast |
-| POST | `/admin/invite/reminder` | Token | Manual reminder blast to confirmed members (`timing=day_before/day_of`) |
+| POST | `/admin/invite/reminder` | Token | Manual custom blast to confirmed members (`timing=custom`, `message=...`) |
 
 ---
 
@@ -283,7 +287,7 @@ Login: admin token (stored in Secrets Manager — not in this file).
 
 **Event** — set event name, slug, date, time, city, timezone, venue, address, vibe tag, Jade brief, reveal venue toggle, reminder timing, capacity, and Jade message templates (invite, day-before reminder, day-of reminder). Save overwrites the single current event record in DynamoDB. The `eventSlug` field is critical — it must match the event ID used in the Invite tab. No SMS goes out on save.
 
-**Invite** — auto-populates from saved event. Set capacity, female %, ghost buffer. Preview invite list with state-based market filter pills (all 50 states + DC covered by area code). Remove individuals before sending. Send blast or trigger a manual **day-before** or **day-of** reminder blast. Next wave automatically excludes already-invited members — safe to run multiple times for the same event.
+**Invite** — auto-populates from saved event. Set capacity, female %, ghost buffer. Preview invite list with state-based market filter pills (all 50 states + DC covered by area code). Remove individuals before sending. Send blast or fire a **custom message blast** (type any message — venue update, last call, schedule change — and hit Send Blast). Next wave automatically excludes already-invited members — safe to run multiple times for the same event.
 
 **Attendance** — loads confirmed invitees for a specific event by slug. Mark attended or no-show. "Attended" increments the member's `attendedCount` and writes `attendedAt` to their invite record. "No Show" stamps `noShowAt` only — does not consume the check-in dedup guard and does not touch counters, so the person can still be checked in at the door if they show up late.
 
@@ -328,9 +332,11 @@ She handles:
 - STOP opt-out — writes `optOut: true`, member never messaged again
 - Ignores anyone not approved, opted-in, and with an active invite
 
-**Capacity protection:** When a YES reply comes in and the event has a capacity set, Jade checks current confirmed count before updating status. If the show-rate-adjusted confirmation target is already met, she replies with a polite capacity message instead of confirming.
+**Capacity protection:** When a YES reply comes in and the event has a capacity set, Jade checks current confirmed count before updating status. If the show-rate-adjusted confirmation target is already met, she replies with a polite capacity message instead of confirming. The capacity gate correctly reads the event record using `eventId: "current"`.
 
-**Webhook security:** Inbound Quo webhooks are signature-verified using the `openphone-signature` header, timestamp + raw body, and a base64-decoded signing secret fetched from Secrets Manager via `WEBHOOK_SECRET_ID` before any processing.
+**Webhook security:** Inbound Quo webhooks are HMAC-SHA256 verified. If `WEBHOOK_SECRET_ID` is not set, the handler hard-rejects all requests (does not pass through). If the header is missing or the signature doesn't match, the request is rejected. A `200 ok` is always returned to prevent SMS provider retries — failures are logged.
+
+**Jade reply length:** Replies are hard-capped at 320 characters (2 SMS segments) before send, regardless of `max_tokens`. The system prompt enforces brevity behaviorally; the cap is a mechanical fallback.
 
 **Reminder guardrail per event:**
 1. The invite blast ("You're on the list. Reply YES.")
@@ -341,7 +347,7 @@ Use restraint. The system supports separate day-before and day-of copy, but the 
 Model: `claude-haiku-4-5-20251001`
 Prompt caching: enabled (~90% token savings after first call)
 System prompt: `sms_handler.py` → `JADE_SYSTEM_PROMPT`
-Status: **SMS enabled in Terraform**. Before production apply, confirm the default sender ID (`PNqC0tQSaI`) is still correct or override `TF_VAR_quo_phone_number_id`, and ensure `WEBHOOK_SECRET_ID` points at the Quo signing secret in Secrets Manager.
+Status: **SMS enabled in Terraform**. Terraform default is already `PNqC0tQSaI` — no manual var needed unless the number changes. Ensure `WEBHOOK_SECRET_ID` points at the Quo signing secret in Secrets Manager.
 
 ---
 
@@ -352,7 +358,7 @@ Status: **SMS enabled in Terraform**. Before production apply, confirm the defau
 | `rsvp-reminder-day-before` | `cron(0 * * * ? *)` | 6:00 PM local event time | Event is tomorrow + `reminderTiming=day_before` or `both` |
 | `rsvp-reminder-day-of` | `cron(0 * * * ? *)` | 11:00 AM local event time | Event is today + `reminderTiming=day_of` or `both` |
 
-The rules now check hourly. `reminder_handler.py` reads `event_timezone`, converts to the event's local time, validates the local event date, and only sends when the correct local hour is hit. If `reminderTiming` is `manual`, nothing sends on schedule. Dedup sentinels (`dayBeforeReminderSentAt` / `dayOfReminderSentAt`) on each invite record prevent double-sending even if a rule fires twice. Manual override: **Send Reminder Blast** button on Invite tab fires immediately to all confirmed members for the current event.
+The rules now check hourly. `reminder_handler.py` reads `event_timezone`, converts to the event's local time, validates the local event date, and only sends when the correct local hour is hit. If `reminderTiming` is `manual`, nothing sends on schedule. Dedup sentinels (`dayBeforeReminderSentAt` / `dayOfReminderSentAt`) on each invite record prevent double-sending even if a rule fires twice. Manual override: type a custom message in the **Send Blast** input on the Invite tab and hit Send Blast — fires immediately to all confirmed members for the current event with `timing=custom`.
 
 ---
 
@@ -375,7 +381,7 @@ terraform apply
 # 1. Infrastructure
 cd backend/terraform
 terraform init
-terraform apply
+terraform apply   # quo_phone_number_id defaults to PNqC0tQSaI — no override needed
 
 # 2. Frontend
 # Drag frontend/ to Netlify, point rsvpsociety.com to Netlify
@@ -384,8 +390,7 @@ terraform apply
 # Register / keep 10DLC active, point webhook to api.rsvpsociety.com/sms/inbound
 # Store Quo API key in Secrets Manager at rsvp/quo-api-key
 # Store Quo signing secret in Secrets Manager at rsvp/webhook-secret
-# Optional override if you change numbers:
-# export TF_VAR_quo_phone_number_id=PN...
+# Override number only if it changes: export TF_VAR_quo_phone_number_id=PN...
 
 # 4. Seed event
 # Admin panel → Event tab → fill in details, set eventSlug carefully
@@ -427,7 +432,7 @@ Built and ready. Currently shows empty state ("Photos coming soon"). After each 
    ```
 5. Drag frontend to Netlify.
 
-CloudFront URL: `https://d31o74npegx00h.cloudfront.net`
+CloudFront URL: `https://pics.rsvpsociety.com`
 
 ---
 
@@ -454,15 +459,18 @@ CloudFront URL: `https://d31o74npegx00h.cloudfront.net`
 
 ## Known Gaps / Future Work
 
-- **Quo production config** — Terraform defaults to Jade's sender ID (`PNqC0tQSaI`). Override `TF_VAR_quo_phone_number_id` only if you change numbers, keep the API key in `rsvp/quo-api-key`, and keep the webhook signing secret in `rsvp/webhook-secret`. The code path is live; the remaining dependency is live prod config.
-- **Video in hero** — no video asset yet. Replace static hero with looping 5–10 second moody venue clip when available
-- **Event photos** — gallery built and ready, waiting on first event
-- **Jade system prompt tuning** — baseline personality set, refine tone as brand develops
+- **Quo production config** — Live. Sender ID `PNqC0tQSaI` is active. API key in `rsvp/quo-api-key`, webhook signing secret in `rsvp/webhook-secret`. Override `TF_VAR_quo_phone_number_id` only if the number changes.
+- **`loadStats` counts** — Backend now returns `total` on `/admin/members` responses. Frontend reads it directly on first page — no full pagination needed just for counts.
+- **Video in hero** — no video asset yet. Replace static hero with looping 5–10 second moody venue clip when available.
+- **Event photos** — gallery built and ready, waiting on first event.
+- **Jade system prompt tuning** — personality-first prompt live. Context injection (event + member) live. Refine tone as brand develops.
 - **`search_members()` scan** — full-table scan used for name/phone search (check-in page). Acceptable at current scale. Revisit around 5,000+ members.
-- **Multi-city simultaneous events** — current architecture supports one active event at a time. Multi-city same-night would require a different `eventId` per city — doable but not needed yet
+- **Multi-city simultaneous events** — current architecture supports one active event at a time. Multi-city same-night would require a different `eventId` per city — doable but not needed yet.
 - **Admin auth upgrade** — Cognito + MFA is the long-term play. Not needed at current scale. See Security section.
-- **Contract tests** — `route_contract_audit.py` catches route/method/body drift across frontend, backend, and Terraform. Good safety rail. Not a replacement for live integration tests.
+- **Contract tests** — `route_contract_audit.py` catches route/method/body drift across frontend, backend, and Terraform. Detects all three call patterns (`apiJson`, `apiFetch`, `requestJson`, `fetchAllPages`) and template literal route references. Good safety rail for refactors.
+- **Integration tests** — `integration_tests.py` runs 14 in-process tests via moto (no deployed stack required). Covers venue reveal logic, unauthorized rejection, first-approval welcome gate, delete tombstoning, duplicate attendance dedup, and event save validation. Run with `python integration_tests.py` or `pytest integration_tests.py -v`.
 - **Confirmation cap show-rate** — currently hardcoded at 60%. If your actual show rate diverges significantly after 3–5 events, update this value or pull it from the event record.
+- **EventBridge always-on cost** — both reminder EventBridge rules fire hourly even when there's no active event. The Lambda handles this gracefully (exits immediately if no event or wrong day/hour) but burns 2 invocations/hour. Acceptable cost at current scale.
 
 ---
 
@@ -485,7 +493,7 @@ Replaces the single shared `rsvp-lambda-role` with six separate roles, each scop
 | event_handler | All tables | events only |
 | reminder_handler | All tables | members (read), invites (scan), events (read) |
 | invite_handler | All tables | members, invites, events (no delete, no checkins) |
-| admin_handler | All tables | All (intentional — needs full access) |
+| admin_handler (dispatcher) + admin_member_routes + admin_event_routes | All tables | All (intentional — needs full access) |
 
 **Migration status: in progress.** Per-function roles are defined and attached. The legacy `lambda_role` and `lambda_policy` remain in `main.tf` and should be removed once all functions are verified on their per-function roles. See migration checklist below.
 
@@ -499,7 +507,7 @@ The members table has a GSI on the `status` field. `list_members_by_status()` qu
 
 ### 4. Audit Log (`rsvp-audit-log`)
 
-Every admin action writes an immutable record: who (last 8 chars of admin token), what (action type), to whom (target phone), and when (ISO timestamp). Records auto-expire after 1 year via TTL. PITR enabled. Three functions write to the audit log: `admin_handler`, `invite_handler`, `reminder_handler`.
+Every admin action writes an immutable record: who (last 8 chars of admin token), what (action type), to whom (target phone), and when (ISO timestamp). Records auto-expire after 1 year via TTL. PITR enabled. Three functions write to the audit log: `admin_member_routes`, `invite_handler`, `reminder_handler`.
 
 Actions logged:
 - `MEMBER_APPROVED`, `MEMBER_DENIED`, `MEMBER_RESTORED_PENDING`
@@ -529,7 +537,7 @@ Two rules on the API:
 
 ### 8. Webhook Signature Verification
 
-Inbound SMS webhooks are HMAC-SHA256 verified against the provider's signing key (fetched from Secrets Manager via `WEBHOOK_SECRET_ID`). Requests with no signature header or a mismatched digest are rejected. If `WEBHOOK_SECRET_ID` is not set, requests pass through with a warning log — configure this before going live.
+Inbound SMS webhooks are HMAC-SHA256 verified against the provider's signing key (fetched from Secrets Manager via `WEBHOOK_SECRET_ID`). Requests with no signature header or a mismatched digest are rejected. If `WEBHOOK_SECRET_ID` is not set, the request is **hard-rejected** — webhooks never pass through without a verified signature. A `200 ok` is always returned to prevent SMS provider retries; all rejections are logged.
 
 ---
 
@@ -601,11 +609,24 @@ To complete the per-function IAM migration and remove the legacy role:
 | Check-in event scoping | ✓ Door page queries the correct event bucket by slug |
 | Check-in state persistence | ✓ Checked-in state reseeds from server on refresh |
 | SMS consent enforcement | ✓ Enforced at query time in both invite and reminder paths |
-| Input validation | ✓ Bad phone/JSON → 400, not 500. CSV bool parsing safe. |
+| Input validation | ✓ Bad phone/JSON → 400, not 500. CSV bool parsing safe. Gender/tier routes now normalize phone before DB write. |
 | Attendance integrity | ✓ No-show does not burn check-in guard or skew counters |
-| Webhook signature verification | ✓ HMAC-SHA256 — configure `WEBHOOK_SECRET_ID` before go-live |
-| Confirmation cap | ✓ YES replies blocked at show-rate-adjusted target |
-| Reminder dedup | ✓ Per-invite sentinels prevent double-send |
+| Webhook signature verification | ✓ HMAC-SHA256 — live, hard-rejects when secret unset |
+| Confirmation cap | ✓ YES replies blocked at show-rate-adjusted target. Capacity gate reads `eventId: "current"` correctly. |
+| Reminder dedup | ✓ Per-invite sentinels prevent double-send. `UpdateItem` IAM granted to reminder_handler. |
+| Admin token comparison | ✓ `hmac.compare_digest` in all three handler functions |
+| Jade reply length | ✓ Hard-capped at 320 chars before SMS send |
+| HMAC call site | ✓ `hmac.HMAC(...)` — Python 3.13+ safe |
+| `skippedSmsDisabled` in reminder return | ✓ Included in both return dict and audit log |
+| CloudWatch duplicates | ✓ `rsvp-reminder-handler` deduplicated in all for_each sets and dashboard widgets |
+| Terraform apply conflicts | ✓ Duplicate `audit-log-write` policies removed — only reminder_handler keeps its own, admin/invite covered in iam_per_function.tf |
+| `sms_handler` IAM scope | ✓ `ADMIN_TOKEN_SECRET_ID` removed from env and IAM resource list |
+| `quo_phone_number_id` default | ✓ Default set to `PNqC0tQSaI` — override only if number changes |
+| `checkin.js` admin token fallback | ✓ Door kiosk no longer inherits admin session on auto-login |
+| Analytics double-fetch | ✓ `getTrackedEvents()` called once per tab load, result shared |
+| Load Attendance button | ✓ No longer auto-fires on event select |
+| `member_store` private import | ✓ `members_table()` public accessor added; `invite_handler` no longer imports `_table` |
+| `UnprocessedKeys` retry | ✓ Full `while` loop in `get_confirmed` BatchGetItem |
 | IAM least-privilege | ⚠ In progress — per-function roles defined, legacy role pending removal |
 | Admin auth | ⚠ Acceptable. Not elite. One token = full access. |
 | `search_members()` scan | ⚠ Acceptable now. Revisit at 5,000+ members. |
@@ -615,4 +636,4 @@ The system is private-facing, not public-facing. The threat model is "someone wh
 
 ---
 
-*Built February 2026. Audited and hardened March 2026. The bones are solid. The system is production-ready. Remaining go-live dependency: set the live Quo phone-number ID and signing secret in prod.*
+*Built February 2026. Audited and hardened March 2026. Full bug fix pass March 2026 (all critical, logic, and security issues resolved — see Honest Bottom Line for current status). Production go-live: March 2026. SMS live via Quo. Jade live via Anthropic Claude. The system is fully operational.*
