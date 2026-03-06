@@ -347,7 +347,8 @@ footer { padding: 36px 60px; display: flex; align-items: center; justify-content
   <h2 class="access-headline">Get access when<br><em style="font-style:italic;color:var(--gold-light);">the room opens.</em></h2>
   <p class="access-sub">Your name on the list is the difference.</p>
   <form class="phone-form" id="accessForm">
-    <input type="text" id="nameInput" required placeholder="Name" class="phone-input" />
+    <input type="text" id="firstNameInput" required placeholder="First Name" class="phone-input" />
+    <input type="text" id="lastNameInput" required placeholder="Last Name" class="phone-input" />
     <input type="tel" id="phoneInput" required placeholder="Phone Number" class="phone-input" />
     <label class="sms-opt-in-label">
       <input type="checkbox" id="smsOptIn" class="sms-opt-in-checkbox" />
@@ -416,12 +417,14 @@ smsOptInEl.addEventListener('change', () => {
 
 async function handleSubmit(e) {
   e.preventDefault();
-  const phoneEl = document.getElementById('phoneInput');
-  const nameEl  = document.getElementById('nameInput');
-  const label   = document.getElementById('submitLabel');
-  const phone   = (phoneEl?.value || '').trim();
-  const name    = (nameEl?.value  || '').trim();
-  if (!phone || !name || !smsOptInEl.checked) return;
+  const phoneEl     = document.getElementById('phoneInput');
+  const firstNameEl = document.getElementById('firstNameInput');
+  const lastNameEl  = document.getElementById('lastNameInput');
+  const label       = document.getElementById('submitLabel');
+  const phone       = (phoneEl?.value     || '').trim();
+  const firstName   = (firstNameEl?.value || '').trim();
+  const lastName    = (lastNameEl?.value  || '').trim();
+  if (!phone || !firstName || !smsOptInEl.checked) return;
 
   label.textContent = 'Adding you...';
 
@@ -429,7 +432,14 @@ async function handleSubmit(e) {
     const res = await fetch('https://api.rsvpsociety.com/access', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ phone, name, source: 'web', smsOptIn: true })
+      body: JSON.stringify({
+        phone,
+        firstName,
+        lastName,
+        name: firstName,     // backward compat with any legacy backend logic
+        source: 'web',
+        smsOptIn: true,
+      })
     });
     const text = await res.text();
     let data;
@@ -440,10 +450,11 @@ async function handleSubmit(e) {
       return;
     }
 
-    phoneEl.disabled = true;
-    nameEl.disabled  = true;
-    submitBtn.disabled = true;
-    label.textContent = 'Locked in. Next room drops soon.';
+    phoneEl.disabled     = true;
+    firstNameEl.disabled = true;
+    lastNameEl.disabled  = true;
+    submitBtn.disabled   = true;
+    label.textContent    = 'Locked in. Next room drops soon.';
 
   } catch (err) {
     label.textContent = 'Network error. Try again.';
