@@ -207,7 +207,7 @@ function normalizeSummary(rawSummary = {}, members = []) {
 export function getState(phone) {
   const digits = (phone || '').replace(/\D/g, '');
   const area = digits.length >= 10 ? digits.slice(digits.length - 10, digits.length - 7) : '???';
-  return AREA_TO_STATE[area] || `+${area}`;
+  return AREA_TO_STATE[area] || 'Other';
 }
 
 export function removeFromPreview(phone) {
@@ -497,28 +497,33 @@ export async function sendInvites() {
 
 export async function sendReminderBlast() {
   const button = $('reminder-blast-btn');
-  const modeSelect = $('reminder-mode-select');
+  const messageInput = $('reminder-custom-message');
   if (!button) return;
 
-  const reminderMode = modeSelect?.value || REMINDER_MODES.DAY_BEFORE;
-  const isDayOf = reminderMode === REMINDER_MODES.DAY_OF;
-  const reminderLabel = isDayOf ? 'day-of' : 'day-before';
+  const message = (messageInput?.value || '').trim();
+  if (!message) {
+    showToast('Enter a message before sending', 'error');
+    messageInput?.focus();
+    return;
+  }
+
+  if (message.length > 320) {
+    showToast('Message too long — keep it under 320 characters', 'error');
+    return;
+  }
 
   let eventLabel = 'current event';
-  let reminderTiming = REMINDER_MODES.MANUAL;
-
   try {
     const eventData = await apiJson(ROUTES.ADMIN_EVENT);
     if (eventData.ok && eventData.event) {
       eventLabel = eventData.event.eventSlug || eventData.event.date || 'current event';
-      reminderTiming = eventData.event.reminderTiming || REMINDER_MODES.MANUAL;
     }
   } catch {
-    // keep defaults
+    // keep default
   }
 
   const shouldContinue = window.confirm(
-    `Send ${reminderLabel} reminder blast for ${eventLabel}? Current auto-reminder setting is “${reminderTiming}”.`,
+    `Send blast to all confirmed members for ${eventLabel}?\n\n"${message}"`,
   );
   if (!shouldContinue) return;
 
@@ -528,14 +533,15 @@ export async function sendReminderBlast() {
   try {
     const data = await apiJson(ROUTES.ADMIN_INVITE_REMINDER, {
       method: 'POST',
-      body: { timing: reminderMode, is_day_of: isDayOf },
+      body: { timing: 'custom', message },
     });
     const sentCount = Number(data.sent ?? data.smsSent ?? 0);
-    showToast(`${reminderLabel} reminder blast sent — ${sentCount} SMS delivered`, 'success');
+    showToast(`Blast sent — ${sentCount} delivered`, 'success');
+    if (messageInput) messageInput.value = '';
   } catch (error) {
-    showToast(`Reminder blast failed: ${error.message}`, 'error');
+    showToast(`Blast failed: ${error.message}`, 'error');
   } finally {
     button.disabled = false;
-    button.textContent = 'Reminder Blast';
+    button.textContent = 'Send Blast';
   }
 }

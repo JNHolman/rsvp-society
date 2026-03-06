@@ -105,15 +105,26 @@ async function loadGuests() {
   try {
     const data = await requestJson(withEventId(ROUTES.ADMIN_MEMBER_CONFIRMED, currentEventId));
     allMembers = (data.members || []).sort((a, b) => {
-      return (a.name || '').toLowerCase().localeCompare((b.name || '').toLowerCase());
+      const aKey = (a.lastName || a.name || '').toLowerCase();
+      const bKey = (b.lastName || b.name || '').toLowerCase();
+      return aKey.localeCompare(bKey);
     });
     checkedIn = new Set(allMembers.filter((m) => m.checkedIn).map((m) => m.phone));
     updateCounter();
     renderAlphaBar();
     renderGuestList(allMembers);
   } catch (err) {
-    $('guest-list').innerHTML = '<div class="state-msg">Failed to load — check connection</div>';
+    renderStateMessage($('guest-list'), 'Failed to load — check connection');
   }
+}
+
+
+function renderStateMessage(container, message) {
+  container.replaceChildren();
+  const msg = document.createElement('div');
+  msg.className = 'state-msg';
+  msg.textContent = message;
+  container.appendChild(msg);
 }
 
 function updateCounter() {
@@ -127,11 +138,16 @@ function updateCounter() {
 }
 
 function renderAlphaBar() {
-  const letters = new Set(allMembers.map((m) => (m.name || '#')[0].toUpperCase()));
+  const letters = new Set(allMembers.map((m) => (m.lastName || m.name || '#')[0].toUpperCase()));
   const bar = $('alpha-bar');
-  bar.innerHTML = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('').map((l) =>
-    `<button class="alpha-btn ${letters.has(l) ? 'has-members' : ''}" onclick="jumpTo('${l}')">${l}</button>`
-  ).join('');
+  bar.replaceChildren();
+  'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('').forEach((l) => {
+    const btn = document.createElement('button');
+    btn.className = `alpha-btn ${letters.has(l) ? 'has-members' : ''}`.trim();
+    btn.dataset.jump = l;
+    btn.textContent = l;
+    bar.appendChild(btn);
+  });
 }
 
 function jumpTo(letter) {
@@ -142,41 +158,76 @@ function jumpTo(letter) {
 function renderGuestList(members) {
   const list = $('guest-list');
   if (!members.length) {
-    list.innerHTML = '<div class="state-msg">No guests found</div>';
+    renderStateMessage(list, 'No guests found');
     return;
   }
 
   const groups = {};
   members.forEach((m) => {
-    const letter = (m.name || '#')[0].toUpperCase();
+    const sortName = m.lastName || m.name || '#';
+    const letter = sortName[0].toUpperCase();
     if (!groups[letter]) groups[letter] = [];
     groups[letter].push(m);
   });
 
-  list.innerHTML = Object.keys(groups).sort().map((letter) => `
-    <div id="group-${letter}">
-      <div class="alpha-header">${letter}</div>
-      ${groups[letter].map((m) => renderRow(m)).join('')}
-    </div>
-  `).join('');
+  list.replaceChildren();
+  Object.keys(groups).sort().forEach((letter) => {
+    const group = document.createElement('div');
+    group.id = `group-${letter}`;
+
+    const header = document.createElement('div');
+    header.className = 'alpha-header';
+    header.textContent = letter;
+    group.appendChild(header);
+
+    groups[letter].forEach((member) => {
+      group.appendChild(renderRow(member));
+    });
+
+    list.appendChild(group);
+  });
+}
+
+function displayName(m) {
+  const first = (m.name || '').trim();
+  const last  = (m.lastName || '').trim();
+  if (first && last) return `${first} ${last}`;
+  return first || last || '—';
 }
 
 function renderRow(m) {
   const alreadyIn = checkedIn.has(m.phone);
   const safe = m.phone.replace(/\D/g, '');
-  return `
-    <div class="guest-row ${alreadyIn ? 'checked-in' : ''}" id="row-${safe}">
-      <div class="guest-info">
-        <div class="guest-name">${escHtml(m.name || '—')}</div>
-        <div class="guest-meta">${m.phone}</div>
-      </div>
-      <button
-        class="checkin-btn ${alreadyIn ? 'done' : ''}"
-        id="btn-${safe}"
-        onclick="checkIn('${m.phone}', ${JSON.stringify(m.name || '')})"
-        ${alreadyIn ? 'disabled' : ''}
-      >${alreadyIn ? '✓ In' : 'Check In'}</button>
-    </div>`;
+
+  const row = document.createElement('div');
+  row.className = `guest-row ${alreadyIn ? 'checked-in' : ''}`.trim();
+  row.id = `row-${safe}`;
+
+  const info = document.createElement('div');
+  info.className = 'guest-info';
+
+  const nameEl = document.createElement('div');
+  nameEl.className = 'guest-name';
+  nameEl.textContent = displayName(m);
+
+  const metaEl = document.createElement('div');
+  metaEl.className = 'guest-meta';
+  metaEl.textContent = m.phone || '—';
+
+  info.appendChild(nameEl);
+  info.appendChild(metaEl);
+
+  const button = document.createElement('button');
+  button.className = `checkin-btn ${alreadyIn ? 'done' : ''}`.trim();
+  button.id = `btn-${safe}`;
+  button.dataset.phone = m.phone || '';
+  button.dataset.name = displayName(m);
+  button.textContent = alreadyIn ? '✓ In' : 'Check In';
+  if (alreadyIn) button.disabled = true;
+
+  row.appendChild(info);
+  row.appendChild(button);
+  return row;
 }
 
 function onSearch(val) {
@@ -190,7 +241,9 @@ function onSearch(val) {
   alphaBar.style.display = 'none';
   const q = val.toLowerCase();
   renderGuestList(allMembers.filter((m) =>
-    (m.name || '').toLowerCase().includes(q) || (m.phone || '').includes(q)
+    (m.name || '').toLowerCase().includes(q) ||
+    (m.lastName || '').toLowerCase().includes(q) ||
+    (m.phone || '').includes(q)
   ));
 }
 
@@ -219,20 +272,18 @@ async function checkIn(phone, name) {
     if (btn) { btn.textContent = '✓ In'; btn.classList.add('done'); }
     if (row) row.classList.add('checked-in');
     updateCounter();
-    showToast(`${name || phone} checked in`, 'success');
+    showToast(`${name || phone} — checked in`, 'success');
   } catch (err) {
     if (btn) { btn.disabled = false; btn.textContent = 'Check In'; }
     showToast('Failed — try again', 'error');
   }
 }
 
-function escHtml(str) {
-  return String(str || '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
+function bindStaticUi() {
+  $('login-btn')?.addEventListener('click', () => { void doLogin(); });
+  $('search-input')?.addEventListener('input', (e) => onSearch(e.target.value));
+  $('clear-btn')?.addEventListener('click', clearSearch);
+  document.querySelector('.signout-btn')?.addEventListener('click', doLogout);
 }
 
 $('token-input')?.addEventListener('keydown', (e) => {
@@ -240,8 +291,9 @@ $('token-input')?.addEventListener('keydown', (e) => {
 });
 
 window.addEventListener('DOMContentLoaded', () => {
-  const saved = sessionStorage.getItem('rsvp_checkin_token') || sessionStorage.getItem('rsvp_admin_token');
-  const exp = parseInt(sessionStorage.getItem('rsvp_checkin_token_exp') || sessionStorage.getItem('rsvp_token_exp') || '0', 10);
+  bindStaticUi();
+  const saved = sessionStorage.getItem('rsvp_checkin_token');
+  const exp = parseInt(sessionStorage.getItem('rsvp_checkin_token_exp') || '0', 10);
   if (saved && Date.now() < exp) {
     $('token-input').value = saved;
     doLogin();
@@ -251,9 +303,19 @@ window.addEventListener('DOMContentLoaded', () => {
   }
 });
 
-window.doLogin = doLogin;
-window.doLogout = doLogout;
-window.onSearch = onSearch;
-window.clearSearch = clearSearch;
-window.jumpTo = jumpTo;
-window.checkIn = checkIn;
+// Delegated event listeners — no inline onclick anywhere
+document.addEventListener('click', (e) => {
+  // Alpha bar jump
+  const jumpBtn = e.target.closest('[data-jump]');
+  if (jumpBtn) {
+    jumpTo(jumpBtn.dataset.jump);
+    return;
+  }
+  // Check-in button
+  const ciBtn = e.target.closest('.checkin-btn[data-phone]');
+  if (ciBtn && !ciBtn.disabled) {
+    checkIn(ciBtn.dataset.phone, ciBtn.dataset.name);
+    return;
+  }
+});
+

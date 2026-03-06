@@ -114,7 +114,7 @@
 <div class="invite-field">
 <label for="inv-event-id">Event ID</label>
 <input id="inv-event-id" placeholder="2026-03-march" type="text">
-</input></div>
+</div>
 <div class="invite-field">
 <label for="inv-capacity">Capacity</label>
 <input id="inv-capacity" min="1" placeholder="200" type="number"/>
@@ -149,11 +149,8 @@
 <div class="invite-actions">
 <button class="invite-btn-preview" id="preview-run-btn">Preview Invite List</button>
 <button class="invite-btn-send" disabled="" id="send-btn">Send Invites</button>
-<select class="form-select invite-inline-select" id="reminder-mode-select">
-<option value="day_before">Day-Before Reminder</option>
-<option value="day_of">Day-Of Reminder</option>
-</select>
-<button class="invite-btn-preview btn-ghost-push" id="reminder-blast-btn">Send Reminder Blast</button>
+<input id="reminder-custom-message" class="invite-field-input reminder-message-input" type="text" placeholder="e.g. Doors open at 9. Tribe. 100 Charlestown Court." maxlength="320"/>
+<button class="invite-btn-preview btn-ghost-push" id="reminder-blast-btn">Send Blast</button>
 </div>
 <div class="invite-back-row">
 <button class="back-link-btn" id="invite-back-btn">← Back to Event</button>
@@ -162,6 +159,7 @@
 <!-- Preview results -->
 <div class="preview-box" id="preview-box">
 <div class="preview-stats" id="preview-stats"></div>
+<div class="preview-count" id="preview-remaining-count"></div>
 <div id="preview-table-container"></div>
 </div>
 </div>

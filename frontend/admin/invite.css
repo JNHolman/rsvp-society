@@ -141,3 +141,23 @@
   .invite-actions { flex-wrap: wrap; }
   .invite-inline-select { width: 100%; }
 }
+
+.reminder-message-input {
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid rgba(212,185,106,0.2);
+  color: var(--white);
+  font-family: 'Montserrat', sans-serif;
+  font-weight: 300;
+  font-size: 11px;
+  padding: 8px 0;
+  outline: none;
+  transition: border-color .2s;
+  width: 320px;
+  letter-spacing: 0.04em;
+}
+.reminder-message-input:focus { border-color: var(--gold); }
+.reminder-message-input::placeholder { color: rgba(248,244,236,0.25); }
+@media (max-width: 720px) {
+  .reminder-message-input { width: 100%; }
+}

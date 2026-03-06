@@ -66,7 +66,8 @@ async function fetchMembersByStatus(status, options = {}) {
   const { pages, items } = await fetchAllPages(`${ROUTES.ADMIN_MEMBERS}?status=${encodedStatus}`, (payload) => payload?.members || [], fetchOptions);
   const firstPage = pages[0] || options.initialPayload || {};
   const members = dedupeMembersByPhone(items);
-  const total = Math.max(getMemberCount(firstPage), members.length);
+  // Backend now returns total count directly — no need to count members array
+  const total = Number.isFinite(firstPage?.total) ? firstPage.total : Math.max(getMemberCount(firstPage), members.length);
   return { members, total };
 }
 
