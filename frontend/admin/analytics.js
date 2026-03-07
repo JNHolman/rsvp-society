@@ -4,8 +4,20 @@ import { loadAttendance } from './attendance.js';
 import { getKnownEvent, getKnownEvents, rememberEvent, state } from './state.js';
 import { $, appendChildren, createNode, reportError, showToast } from './ui.js';
 
-const EVENT_LIST_ENDPOINTS = [];
+const EVENT_LIST_ENDPOINTS = [ROUTES.ADMIN_EVENTS];
 const STRICT_ANALYTICS_STORAGE_KEY = 'rsvp_analytics_strict';
+
+function parseBool(value) {
+  if (typeof value === 'boolean') return value;
+  if (value == null) return false;
+  if (typeof value === 'number') return value !== 0;
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase();
+    if (['true', '1', 'yes', 'y', 'on'].includes(normalized)) return true;
+    if (['false', '0', 'no', 'n', 'off', ''].includes(normalized)) return false;
+  }
+  return Boolean(value);
+}
 
 let analyticsWarnings = [];
 
@@ -75,7 +87,7 @@ function getMemberCount(data) {
 }
 
 function getAttendedFlag(member = {}) {
-  return Boolean(
+  return parseBool(
     member.attended
     ?? member.didAttend
     ?? member.checkedIn

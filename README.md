@@ -216,7 +216,7 @@ Base URL: `https://api.rsvpsociety.com`
 | Method | Path | Auth | Purpose |
 |---|---|---|---|
 | POST | `/access` | None | Submit access request from website |
-| POST | `/sms` | Quo signature | Inbound SMS from members |
+| POST | `/sms/inbound` | Quo signature | Inbound SMS from members (Quo webhook target) |
 | GET | `/event` | None | Public current-event payload |
 | GET | `/event/current` | None | Public current-event payload (explicit path) |
 | GET | `/admin/members` | Token | List members by status (uses `status-index` GSI) |
@@ -283,7 +283,7 @@ Login: admin token (stored in Secrets Manager — not in this file).
 
 **Event** — set event name, slug, date, time, city, timezone, venue, address, vibe tag, Jade brief, reveal venue toggle, reminder timing, capacity, and Jade message templates (invite, day-before reminder, day-of reminder). Save overwrites the single current event record in DynamoDB. The `eventSlug` field is critical — it must match the event ID used in the Invite tab. No SMS goes out on save.
 
-**Invite** — auto-populates from saved event. Set capacity, female %, ghost buffer. Preview invite list with state-based market filter pills (all 50 states + DC covered by area code). Remove individuals before sending. Send blast or trigger a manual **day-before** or **day-of** reminder blast. Next wave automatically excludes already-invited members — safe to run multiple times for the same event.
+**Invite** — auto-populates from saved event. Set capacity, female %, ghost buffer. Preview invite list with state-based market filter pills (all 50 states + DC covered by area code). Remove individuals before sending. Send blast or trigger a **manual reminder blast** — type a free-form message (use `{name}` to personalize), hit Send, and it goes immediately to all confirmed members. Next wave automatically excludes already-invited members — safe to run multiple times for the same event.
 
 **Attendance** — loads confirmed invitees for a specific event by slug. Mark attended or no-show. "Attended" increments the member's `attendedCount` and writes `attendedAt` to their invite record. "No Show" stamps `noShowAt` only — does not consume the check-in dedup guard and does not touch counters, so the person can still be checked in at the door if they show up late.
 
@@ -330,7 +330,7 @@ She handles:
 
 **Capacity protection:** When a YES reply comes in and the event has a capacity set, Jade checks current confirmed count before updating status. If the show-rate-adjusted confirmation target is already met, she replies with a polite capacity message instead of confirming.
 
-**Webhook security:** Inbound Quo webhooks are signature-verified using the `openphone-signature` header, timestamp + raw body, and a base64-decoded signing secret fetched from Secrets Manager via `WEBHOOK_SECRET_ID` before any processing.
+**Webhook security:** Inbound Quo webhooks are signature-verified using the `openphone-signature` header, timestamp + raw body, and a base64-decoded signing secret fetched from Secrets Manager via `WEBHOOK_SECRET_ID` before any processing. If `WEBHOOK_SECRET_ID` is not set, all webhooks are hard-rejected. CloudFront must have `openphone-signature` in its forwarded headers list (`cloudfront_api.tf`) or the header is stripped before Lambda sees it. Quo sends webhook timestamps in milliseconds — the handler converts to seconds before the age check. Quo's inbound webhook payload puts the message text in the `body` field (not `text` or `content`).
 
 **Reminder guardrail per event:**
 1. The invite blast ("You're on the list. Reply YES.")
@@ -341,7 +341,7 @@ Use restraint. The system supports separate day-before and day-of copy, but the 
 Model: `claude-haiku-4-5-20251001`
 Prompt caching: enabled (~90% token savings after first call)
 System prompt: `sms_handler.py` → `JADE_SYSTEM_PROMPT`
-Status: **SMS enabled in Terraform**. Before production apply, confirm the default sender ID (`PNqC0tQSaI`) is still correct or override `TF_VAR_quo_phone_number_id`, and ensure `WEBHOOK_SECRET_ID` points at the Quo signing secret in Secrets Manager.
+Status: **Live in production.** Sender ID `PNqC0tQSaI`, webhook secret in Secrets Manager at `rsvp/webhook-secret`, SMS enabled. Override `TF_VAR_quo_phone_number_id` only if the sender number changes.
 
 ---
 
@@ -352,7 +352,7 @@ Status: **SMS enabled in Terraform**. Before production apply, confirm the defau
 | `rsvp-reminder-day-before` | `cron(0 * * * ? *)` | 6:00 PM local event time | Event is tomorrow + `reminderTiming=day_before` or `both` |
 | `rsvp-reminder-day-of` | `cron(0 * * * ? *)` | 11:00 AM local event time | Event is today + `reminderTiming=day_of` or `both` |
 
-The rules now check hourly. `reminder_handler.py` reads `event_timezone`, converts to the event's local time, validates the local event date, and only sends when the correct local hour is hit. If `reminderTiming` is `manual`, nothing sends on schedule. Dedup sentinels (`dayBeforeReminderSentAt` / `dayOfReminderSentAt`) on each invite record prevent double-sending even if a rule fires twice. Manual override: **Send Reminder Blast** button on Invite tab fires immediately to all confirmed members for the current event.
+The rules now check hourly. `reminder_handler.py` reads `event_timezone`, converts to the event's local time, validates the local event date, and only sends when the correct local hour is hit. If `reminderTiming` is `manual`, nothing sends on schedule. Dedup sentinels (`dayBeforeReminderSentAt` / `dayOfReminderSentAt`) on each invite record prevent double-sending even if a rule fires twice. Manual override: **Manual Blast** textarea on Invite tab fires immediately to all confirmed members for the current event with a custom message. **Important:** invite records are stored under `eventSlug` (e.g. `"Swim Test"`), not `"current"` — `reminder_handler` resolves the correct event_id from `eventSlug` before querying confirmed invites.
 
 ---
 
@@ -454,7 +454,6 @@ CloudFront URL: `https://d31o74npegx00h.cloudfront.net`
 
 ## Known Gaps / Future Work
 
-- **Quo production config** — Terraform defaults to Jade's sender ID (`PNqC0tQSaI`). Override `TF_VAR_quo_phone_number_id` only if you change numbers, keep the API key in `rsvp/quo-api-key`, and keep the webhook signing secret in `rsvp/webhook-secret`. The code path is live; the remaining dependency is live prod config.
 - **Video in hero** — no video asset yet. Replace static hero with looping 5–10 second moody venue clip when available
 - **Event photos** — gallery built and ready, waiting on first event
 - **Jade system prompt tuning** — baseline personality set, refine tone as brand develops
@@ -529,7 +528,7 @@ Two rules on the API:
 
 ### 8. Webhook Signature Verification
 
-Inbound SMS webhooks are HMAC-SHA256 verified against the provider's signing key (fetched from Secrets Manager via `WEBHOOK_SECRET_ID`). Requests with no signature header or a mismatched digest are rejected. If `WEBHOOK_SECRET_ID` is not set, requests pass through with a warning log — configure this before going live.
+Inbound SMS webhooks are HMAC-SHA256 verified against the provider's signing key (fetched from Secrets Manager via `WEBHOOK_SECRET_ID`). Requests with no signature header or a mismatched digest are rejected. If `WEBHOOK_SECRET_ID` is not set, **all requests are hard-rejected** — nothing processes without a verifiable secret. CloudFront must forward the `openphone-signature` header (configured in `cloudfront_api.tf`) or it is stripped before Lambda sees it. Quo sends webhook timestamps in milliseconds — the handler divides by 1000 before the 5-minute age check. Quo's webhook payload puts the message text in the `body` field of `data.object`.
 
 ---
 
@@ -603,10 +602,10 @@ To complete the per-function IAM migration and remove the legacy role:
 | SMS consent enforcement | ✓ Enforced at query time in both invite and reminder paths |
 | Input validation | ✓ Bad phone/JSON → 400, not 500. CSV bool parsing safe. |
 | Attendance integrity | ✓ No-show does not burn check-in guard or skew counters |
-| Webhook signature verification | ✓ HMAC-SHA256 — configure `WEBHOOK_SECRET_ID` before go-live |
+| Webhook signature verification | ✓ Live and verified in prod — HMAC-SHA256, millisecond timestamp handling, `openphone-signature` forwarded via CloudFront |
 | Confirmation cap | ✓ YES replies blocked at show-rate-adjusted target |
 | Reminder dedup | ✓ Per-invite sentinels prevent double-send |
-| IAM least-privilege | ⚠ In progress — per-function roles defined, legacy role pending removal |
+| IAM least-privilege | ✓ Per-function roles fully deployed and verified in prod. Legacy role pending removal from `main.tf`. |
 | Admin auth | ⚠ Acceptable. Not elite. One token = full access. |
 | `search_members()` scan | ⚠ Acceptable now. Revisit at 5,000+ members. |
 | SMS send (sms_adapter) | ✓ Live Quo API call via POST /v1/messages |
@@ -615,4 +614,4 @@ The system is private-facing, not public-facing. The threat model is "someone wh
 
 ---
 
-*Built February 2026. Audited and hardened March 2026. The bones are solid. The system is production-ready. Remaining go-live dependency: set the live Quo phone-number ID and signing secret in prod.*
+*Built February 2026. Audited and hardened March 2026. Live in production — confirmation flow, manual blast, scheduled reminders, and Jade AI concierge all verified end-to-end.*

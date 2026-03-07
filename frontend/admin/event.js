@@ -17,6 +17,49 @@ function timezoneLabel(value) {
   return TIMEZONE_LABELS[value] || value || 'America/New_York';
 }
 
+function formatDateForDisplay(value) {
+  const raw = (value || '').trim();
+  if (!raw) return '';
+  const date = new Date(`${raw}T00:00:00`);
+  if (Number.isNaN(date.getTime())) return raw;
+  return date.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+}
+
+function formatTimeForDisplay(value) {
+  const raw = (value || '').trim();
+  if (!raw) return '';
+  const match = raw.match(/^(\d{2}):(\d{2})$/);
+  if (!match) return raw;
+  const [_, hh, mm] = match;
+  const date = new Date(`2000-01-01T${hh}:${mm}:00`);
+  if (Number.isNaN(date.getTime())) return raw;
+  return date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+}
+
+
+function isFiveMinuteAligned(value) {
+  const raw = (value || '').trim();
+  const match = raw.match(/^(\d{2}):(\d{2})$/);
+  if (!match) return false;
+  return Number(match[2]) % 5 === 0;
+}
+
+function normalizeTimeInput(value) {
+  const raw = (value || '').trim();
+  if (!raw) return '';
+  const match = raw.match(/^(\d{1,2}):(\d{2})(?:\s*([AP]M))?$/i);
+  if (!match) return raw;
+  let hours = Number(match[1]);
+  const minutes = match[2];
+  const meridiem = (match[3] || '').toUpperCase();
+  if (meridiem) {
+    if (hours === 12) hours = 0;
+    if (meridiem === 'PM') hours += 12;
+  }
+  return `${String(hours).padStart(2, '0')}:${minutes}`;
+}
+
+
 export function updateVibeTags() {
   const type = $('ev-type').value;
   const select = $('ev-vibe-tag');
@@ -35,7 +78,7 @@ export function updateVibeTags() {
 export function previewJadeMessages() {
   const label = $('ev-label').value.trim();
   const date = $('ev-date').value.trim();
-  const time = $('ev-time').value.trim();
+  const time = formatTimeForDisplay($('ev-time').value.trim());
   const vibe = $('ev-vibe-tag').value.trim();
   const address = $('ev-address').value.trim();
   const venue = $('ev-venue').value.trim();
@@ -112,7 +155,7 @@ export async function loadCurrentEvent() {
     $('ev-id').value = event.eventSlug || event.eventId || '';
     $('ev-label').value = event.event_label || '';
     $('ev-date').value = event.date || '';
-    $('ev-time').value = event.startTime || '';
+    $('ev-time').value = normalizeTimeInput(event.startTime || '');
     $('ev-city').value = event.city || '';
     $('ev-capacity').value = event.capacity || '';
     $('ev-timezone').value = event.event_timezone || 'America/New_York';
@@ -129,6 +172,11 @@ export async function loadCurrentEvent() {
     } else {
       updateVibeTags();
     }
+
+    const dayBeforeTimeInput = $('ev-remind-day-before-time');
+    const dayOfTimeInput = $('ev-remind-day-of-time');
+    if (dayBeforeTimeInput) dayBeforeTimeInput.value = normalizeTimeInput(event.day_before_send_time || '18:00') || '18:00';
+    if (dayOfTimeInput) dayOfTimeInput.value = normalizeTimeInput(event.day_of_send_time || '11:00') || '11:00';
 
     const timing = event.reminderTiming || REMINDER_MODES.MANUAL;
     $('ev-remind-day-before').checked = timing.includes(REMINDER_MODES.DAY_BEFORE) || timing === REMINDER_MODES.BOTH;
@@ -155,12 +203,14 @@ export async function loadCurrentEvent() {
 
     renderEventCurrent([
       { label: 'Event', val: event.eventSlug || event.eventId },
-      { label: 'Date', val: event.date },
+      { label: 'Date', val: formatDateForDisplay(event.date) },
+      { label: 'Start', val: formatTimeForDisplay(event.startTime) },
       { label: 'Venue', val: event.venue ? `${event.venue}${event.revealVenue ? ' ✓ revealed' : ' — hidden'}` : '—' },
       { label: 'Address', val: event.address },
       { label: 'Dresscode', val: event.dresscode },
       { label: 'Capacity', val: event.capacity },
       { label: 'Time Zone', val: timezoneLabel(event.event_timezone || 'America/New_York') },
+      { label: 'Reminders', val: `${formatTimeForDisplay(event.day_before_send_time || '18:00')} day before / ${formatTimeForDisplay(event.day_of_send_time || '11:00')} day of` },
       { label: 'Vibe', val: event.vibe_tag },
       { label: 'Updated', val: (event.updatedAt || '').replace('T', ' ').slice(0, 16) },
     ]);
@@ -183,6 +233,8 @@ export async function saveEvent() {
     event_label: $('ev-label').value.trim(),
     date: $('ev-date').value.trim(),
     startTime: $('ev-time').value.trim(),
+    day_before_send_time: ($('ev-remind-day-before-time')?.value || '18:00'),
+    day_of_send_time: ($('ev-remind-day-of-time')?.value || '11:00'),
     city: $('ev-city').value.trim(),
     capacity: parseInt($('ev-capacity').value, 10) || 0,
     event_timezone: $('ev-timezone').value || 'America/New_York',
@@ -209,6 +261,16 @@ export async function saveEvent() {
 
   if (!body.date) {
     showToast('Date is required', 'error');
+    return;
+  }
+
+  if (!body.startTime) {
+    showToast('Start time is required', 'error');
+    return;
+  }
+
+  if (!isFiveMinuteAligned(body.day_before_send_time) || !isFiveMinuteAligned(body.day_of_send_time)) {
+    showToast('Reminder send times must use 5-minute increments', 'error');
     return;
   }
 

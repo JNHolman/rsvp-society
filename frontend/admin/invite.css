@@ -141,3 +141,37 @@
   .invite-actions { flex-wrap: wrap; }
   .invite-inline-select { width: 100%; }
 }
+
+.manual-blast-row {
+  margin-top: 28px;
+  padding-top: 24px;
+  border-top: 1px solid rgba(212,185,106,0.08);
+}
+.manual-blast-label {
+  font-size: 8px;
+  letter-spacing: 0.4em;
+  text-transform: uppercase;
+  color: rgba(212,185,106,0.8);
+  display: block;
+  margin-bottom: 10px;
+}
+.manual-blast-textarea {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid rgba(212,185,106,0.2);
+  color: var(--white);
+  font-family: 'Montserrat', sans-serif;
+  font-weight: 300;
+  font-size: 13px;
+  line-height: 1.6;
+  padding: 8px 0 10px;
+  resize: none;
+  outline: none;
+  transition: border-color .2s;
+  margin-bottom: 20px;
+}
+.manual-blast-textarea:focus { border-color: var(--gold); }
+.manual-blast-textarea::placeholder { color: rgba(248,244,236,0.2); }

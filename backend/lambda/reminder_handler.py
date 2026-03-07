@@ -1,11 +1,14 @@
+import hmac
 import json
 import logging
 import os
 import boto3
 from datetime import datetime, timezone, timedelta
 from zoneinfo import ZoneInfo
+from botocore.exceptions import ClientError
 from boto3.dynamodb.conditions import Key as DKey
 from sms_adapter import send_sms, get_secret_string
+from admin_shared import coerce_bool, normalize_event_date, normalize_event_time
 from audit_log import log_action, ACTION_REMINDER_SENT
 
 logger = logging.getLogger()
@@ -38,8 +41,23 @@ def _event_zoneinfo(event: dict):
         return ZoneInfo("America/New_York")
 
 
-def _scheduled_target_hour(is_day_of: bool) -> int:
-    return 11 if is_day_of else 18
+def _scheduled_target_time(event: dict, is_day_of: bool) -> tuple[int, int]:
+    default_value = "11:00" if is_day_of else "18:00"
+    field_name = "day_of_send_time" if is_day_of else "day_before_send_time"
+    raw_value = event.get(field_name) or default_value
+    try:
+        hhmm = normalize_event_time(raw_value, field_name=field_name, allow_blank=False)
+    except ValueError:
+        logger.warning("reminder_handler: invalid %s=%s — defaulting to %s", field_name, raw_value, default_value)
+        hhmm = default_value
+    hour_str, minute_str = hhmm.split(":", 1)
+    return int(hour_str), int(minute_str)
+
+
+def _within_scheduled_window(local_now: datetime, target_hour: int, target_minute: int, *, window_minutes: int = 5) -> bool:
+    current_total = local_now.hour * 60 + local_now.minute
+    target_total = target_hour * 60 + target_minute
+    return target_total <= current_total < (target_total + window_minutes)
 
 
 def _build_reminder(member_name: str, event: dict) -> str:
@@ -131,20 +149,24 @@ def _batch_get_members(phones: list) -> dict:
     return member_map
 
 
-def send_reminders(event: dict, is_day_of: bool, token: str = "") -> dict:
+def send_reminders(event: dict, is_day_of: bool, token: str = "", custom_message: str = None) -> dict:
     """Send reminder SMS to all confirmed members who haven't been reminded yet."""
-    # Don't mutate the caller's dict — work on a shallow copy
     event = {**event, "_is_day_of": is_day_of}
-    event_id = event.get("eventId", "current")
+    # Invites are stored under eventSlug (e.g. "Swim Test"), not "current".
+    # Fall back to eventId, then "current" only as last resort.
+    event_id = (
+        event.get("eventSlug")
+        or event.get("eventId")
+        or "current"
+    )
+    if event_id == "current":
+        event_id = event.get("eventSlug") or "current"
     sms_enabled = (os.getenv("SMS_ENABLED", "false") or "").lower() == "true"
 
-    # C3: use separate sentinel fields for day-before and day-of so both can
-    # fire for the same event without the first blocking the second.
     reminder_field = "dayOfReminderSentAt" if is_day_of else "dayBeforeReminderSentAt"
+    claim_field = "dayOfReminderClaimedAt" if is_day_of else "dayBeforeReminderClaimedAt"
 
     confirmed = _get_confirmed_invites(event_id)
-
-    # Fix #32: single BatchGetItem call instead of N+1 individual reads
     phones = [inv.get("phone") for inv in confirmed if inv.get("phone")]
     member_map = _batch_get_members(phones)
 
@@ -161,37 +183,45 @@ def send_reminders(event: dict, is_day_of: bool, token: str = "") -> dict:
         if not phone:
             continue
 
-        # C3: skip members who already received this reminder type
         if invite.get(reminder_field):
             skipped_already_sent += 1
             continue
 
         try:
             member = member_map.get(phone) or {}
-            if member.get("optOut") or not member.get("smsOptIn", False):
+            if coerce_bool(member.get("optOut", False)) or not coerce_bool(member.get("smsOptIn", False)):
                 skipped_consent += 1
                 continue
 
+            try:
+                invites_t.update_item(
+                    Key={"eventId": event_id, "phone": phone},
+                    UpdateExpression=f"SET {claim_field} = :now",
+                    ConditionExpression=f"attribute_not_exists({reminder_field}) AND attribute_not_exists({claim_field})",
+                    ExpressionAttributeValues={":now": now},
+                )
+            except ClientError as exc:
+                error_code = (exc.response.get("Error") or {}).get("Code")
+                if error_code == "ConditionalCheckFailedException":
+                    skipped_already_sent += 1
+                    continue
+                raise
+
             name = member.get("name", "")
-            message = _build_reminder(name, event)
+            if custom_message:
+                # Manual blast: use provided text, substitute {name} if present
+                message = custom_message.replace("{name}", (name or "").split()[0] or "")
+            else:
+                message = _build_reminder(name, event)
 
             if sms_enabled:
                 send_sms(phone, message)
 
-            # C3: mark as reminded so manual re-blasts don't double-send
-            try:
-                invites_t.update_item(
-                    Key={"eventId": event_id, "phone": phone},
-                    UpdateExpression=f"SET {reminder_field} = :now",
-                    ExpressionAttributeValues={":now": now},
-                )
-            except Exception:
-                logger.exception(
-                    "reminder_handler: failed to write %s for phone=...%s",
-                    reminder_field, phone[-4:],
-                )
-                # Non-fatal — message was sent, dedup just couldn't be written
-
+            invites_t.update_item(
+                Key={"eventId": event_id, "phone": phone},
+                UpdateExpression=f"SET {reminder_field} = :now REMOVE {claim_field}",
+                ExpressionAttributeValues={":now": now},
+            )
             sent += 1
 
         except Exception:
@@ -199,6 +229,15 @@ def send_reminders(event: dict, is_day_of: bool, token: str = "") -> dict:
                 "reminder_handler: failed to process phone=...%s", phone[-4:]
             )
             failed += 1
+            try:
+                invites_t.update_item(
+                    Key={"eventId": event_id, "phone": phone},
+                    UpdateExpression=f"REMOVE {claim_field}",
+                )
+            except Exception:
+                logger.exception(
+                    "reminder_handler: failed to clear %s for phone=...%s", claim_field, phone[-4:]
+                )
 
     log_action(
         token=token,
@@ -211,6 +250,7 @@ def send_reminders(event: dict, is_day_of: bool, token: str = "") -> dict:
             "skippedConsent":     skipped_consent,
             "skippedAlreadySent": skipped_already_sent,
             "trigger":            "manual" if token else "scheduled",
+            "customMessage":      bool(custom_message),
             "smsEnabled":         sms_enabled,
         },
     )
@@ -264,7 +304,7 @@ def handler(event, context):
             except Exception:
                 pass
 
-            if not token or token != expected:
+            if not token or not hmac.compare_digest(token, expected):
                 return {
                     "statusCode": 401,
                     "headers": _cors_headers(origin),
@@ -283,7 +323,7 @@ def handler(event, context):
             if manual_timing in {"day_before", "day_of"}:
                 is_day_of = manual_timing == "day_of"
             elif "is_day_of" in body:
-                is_day_of = bool(body["is_day_of"])
+                is_day_of = coerce_bool(body["is_day_of"])
             else:
                 return {
                     "statusCode": 400,
@@ -291,7 +331,8 @@ def handler(event, context):
                     "body": json.dumps({"ok": False, "error": "timing (day_before/day_of) or is_day_of (true/false) required"}),
                 }
 
-            result = send_reminders(current_event, is_day_of=is_day_of, token=token)
+            custom_message = str(body.get("custom_message") or "").strip() or None
+            result = send_reminders(current_event, is_day_of=is_day_of, token=token, custom_message=custom_message)
             return {
                 "statusCode": 200,
                 "headers": _cors_headers(origin),
@@ -314,25 +355,32 @@ def handler(event, context):
             logger.warning("reminder_handler: no event date set — skipping")
             return {"ok": True, "skipped": True, "reason": "no event date"}
 
-        event_date = None
-        for fmt in ("%Y-%m-%d", "%m/%d/%Y", "%A, %B %d, %Y"):
-            try:
-                event_date = datetime.strptime(event_date_str, fmt).date()
-                break
-            except ValueError:
-                continue
-
-        if event_date is None:
+        try:
+            event_date = datetime.strptime(normalize_event_date(event_date_str), "%Y-%m-%d").date()
+        except ValueError:
             logger.warning("reminder_handler: unparseable date '%s' — skipping", event_date_str)
             return {"ok": True, "skipped": True, "reason": "unparseable date"}
 
         trigger_timing = str(event.get("timing") or "").strip().lower()
 
         if reminder_timing == "both":
-            if trigger_timing not in {"day_before", "day_of"}:
-                logger.info("reminder_handler: timing=both but trigger timing missing — skipping")
-                return {"ok": True, "skipped": True, "reason": "missing trigger timing"}
-            is_day_of = trigger_timing == "day_of"
+            if trigger_timing in {"day_before", "day_of"}:
+                is_day_of = trigger_timing == "day_of"
+            else:
+                zone = _event_zoneinfo(current_event)
+                local_now = datetime.now(zone)
+                local_today = local_now.date()
+                before_hour, before_minute = _scheduled_target_time(current_event, False)
+                dayof_hour, dayof_minute = _scheduled_target_time(current_event, True)
+                if local_today == (event_date - timedelta(days=1)) and _within_scheduled_window(local_now, before_hour, before_minute):
+                    is_day_of = False
+                    logger.info("reminder_handler: inferred day_before trigger for timing=both")
+                elif local_today == event_date and _within_scheduled_window(local_now, dayof_hour, dayof_minute):
+                    is_day_of = True
+                    logger.info("reminder_handler: inferred day_of trigger for timing=both")
+                else:
+                    logger.info("reminder_handler: timing=both and trigger timing missing outside eligible windows — skipping")
+                    return {"ok": True, "skipped": True, "reason": "missing trigger timing"}
         elif reminder_timing == "day_before":
             if trigger_timing and trigger_timing != "day_before":
                 logger.info("reminder_handler: trigger=%s but event timing=day_before — skipping", trigger_timing)
@@ -350,7 +398,7 @@ def handler(event, context):
         zone = _event_zoneinfo(current_event)
         local_now = datetime.now(zone)
         local_today = local_now.date()
-        target_hour = _scheduled_target_hour(is_day_of)
+        target_hour, target_minute = _scheduled_target_time(current_event, is_day_of)
         expected_fire_date = event_date if is_day_of else event_date - timedelta(days=1)
 
         if local_today != expected_fire_date:
@@ -360,12 +408,12 @@ def handler(event, context):
             )
             return {"ok": True, "skipped": True, "reason": "not the right day"}
 
-        if local_now.hour != target_hour:
+        if not _within_scheduled_window(local_now, target_hour, target_minute, window_minutes=5):
             logger.info(
-                "reminder_handler: local_hour=%s target_hour=%s tz=%s trigger=%s — skipping",
-                local_now.hour, target_hour, _event_timezone_name(current_event), trigger_timing,
+                "reminder_handler: local_time=%s target_time=%02d:%02d tz=%s trigger=%s — skipping",
+                local_now.strftime("%H:%M"), target_hour, target_minute, _event_timezone_name(current_event), trigger_timing,
             )
-            return {"ok": True, "skipped": True, "reason": "not the right hour"}
+            return {"ok": True, "skipped": True, "reason": "not the right minute"}
 
         result = send_reminders(current_event, is_day_of=is_day_of, token="")
         logger.info(

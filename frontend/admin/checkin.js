@@ -20,6 +20,16 @@ function $(id) {
   return document.getElementById(id);
 }
 
+function displayName(member = {}) {
+  const first = String(member.name || '').trim();
+  const last = String(member.lastName || '').trim();
+  return [first, last].filter(Boolean).join(' ') || first || '—';
+}
+
+function alphaKey(member = {}) {
+  return displayName(member).charAt(0).toUpperCase() || '#';
+}
+
 function showToast(msg, type = '') {
   const t = $('toast');
   t.textContent = msg;
@@ -104,9 +114,7 @@ async function loadEvent() {
 async function loadGuests() {
   try {
     const data = await requestJson(withEventId(ROUTES.ADMIN_MEMBER_CONFIRMED, currentEventId));
-    allMembers = (data.members || []).sort((a, b) => {
-      return (a.name || '').toLowerCase().localeCompare((b.name || '').toLowerCase());
-    });
+    allMembers = (data.members || []).sort((a, b) => displayName(a).toLowerCase().localeCompare(displayName(b).toLowerCase()));
     checkedIn = new Set(allMembers.filter((m) => m.checkedIn).map((m) => m.phone));
     updateCounter();
     renderAlphaBar();
@@ -127,7 +135,7 @@ function updateCounter() {
 }
 
 function renderAlphaBar() {
-  const letters = new Set(allMembers.map((m) => (m.name || '#')[0].toUpperCase()));
+  const letters = new Set(allMembers.map((m) => alphaKey(m)));
   const bar = $('alpha-bar');
   bar.innerHTML = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('').map((l) =>
     `<button class="alpha-btn ${letters.has(l) ? 'has-members' : ''}" onclick="jumpTo('${l}')">${l}</button>`
@@ -148,7 +156,7 @@ function renderGuestList(members) {
 
   const groups = {};
   members.forEach((m) => {
-    const letter = (m.name || '#')[0].toUpperCase();
+    const letter = alphaKey(m);
     if (!groups[letter]) groups[letter] = [];
     groups[letter].push(m);
   });
@@ -164,16 +172,17 @@ function renderGuestList(members) {
 function renderRow(m) {
   const alreadyIn = checkedIn.has(m.phone);
   const safe = m.phone.replace(/\D/g, '');
+  const guestName = displayName(m);
   return `
     <div class="guest-row ${alreadyIn ? 'checked-in' : ''}" id="row-${safe}">
       <div class="guest-info">
-        <div class="guest-name">${escHtml(m.name || '—')}</div>
+        <div class="guest-name">${escHtml(displayName(m))}</div>
         <div class="guest-meta">${m.phone}</div>
       </div>
       <button
         class="checkin-btn ${alreadyIn ? 'done' : ''}"
         id="btn-${safe}"
-        onclick="checkIn('${m.phone}', ${JSON.stringify(m.name || '')})"
+        onclick="checkIn('${m.phone}', ${JSON.stringify(guestName)})"
         ${alreadyIn ? 'disabled' : ''}
       >${alreadyIn ? '✓ In' : 'Check In'}</button>
     </div>`;
@@ -190,7 +199,9 @@ function onSearch(val) {
   alphaBar.style.display = 'none';
   const q = val.toLowerCase();
   renderGuestList(allMembers.filter((m) =>
-    (m.name || '').toLowerCase().includes(q) || (m.phone || '').includes(q)
+    displayName(m).toLowerCase().includes(q)
+    || (m.lastName || '').toLowerCase().includes(q)
+    || (m.phone || '').includes(q)
   ));
 }
 

@@ -37,7 +37,8 @@ def _get_headers(event: dict) -> dict:
 def _resp(status: int, body: dict, origin: str | None = None) -> dict:
     allowed = os.getenv("ALLOWED_ORIGINS", "")
     origins = [o.strip() for o in allowed.split(",") if o.strip()]
-    allow_origin = origin if origin in origins else (origins[0] if origins else "*")
+    # Fail closed: never fall back to wildcard — that opens the endpoint to any domain.
+    allow_origin = origin if origin in origins else (origins[0] if origins else "")
     return {
         "statusCode": status,
         "headers": {
@@ -73,7 +74,15 @@ def handler(event, context):
         except json.JSONDecodeError:
             return _resp(400, {"ok": False, "error": "invalid JSON body"}, origin)
 
-        name = (data.get("name") or "").strip()
+        first_name = (data.get("firstName") or "").strip()
+        last_name = (data.get("lastName") or "").strip()
+        legacy_name = (data.get("name") or "").strip()
+        if not first_name and legacy_name:
+            parts = legacy_name.split()
+            first_name = parts[0].strip() if parts else ""
+            last_name = " ".join(parts[1:]).strip() if len(parts) > 1 else last_name
+        name = first_name or legacy_name
+
         phone = (data.get("phone") or "").strip()
         email = (data.get("email") or "").strip() or None
         source = (data.get("source") or "web").strip()
@@ -92,6 +101,7 @@ def handler(event, context):
         member = upsert_member(
             phone=phone_e164,
             name=name,
+            last_name=last_name or None,
             email=email,
             source=source,
             sms_opt_in=sms_opt_in,
@@ -101,7 +111,7 @@ def handler(event, context):
             "access_request: member saved phone=...%s status=%s smsOptIn=%s source=%s",
             phone_e164[-4:],
             member.get("status", "PENDING"),
-            bool(member.get("smsOptIn", False)),
+            _coerce_bool(member.get("smsOptIn", False)),
             source,
         )
 

@@ -8,14 +8,15 @@ import boto3
 from boto3.dynamodb.conditions import Key as DKey
 
 logger = logging.getLogger()
-_DDB = boto3.resource("dynamodb")
+def _ddb():
+    return boto3.resource("dynamodb")
 
 
 def _table():
     name = os.getenv("MEMBERS_TABLE_NAME")
     if not name:
         raise RuntimeError("MEMBERS_TABLE_NAME env var is not set")
-    return _DDB.Table(name)
+    return _ddb().Table(name)
 
 
 def _now_iso() -> str:
@@ -24,6 +25,28 @@ def _now_iso() -> str:
 
 def _ttl_90_days() -> int:
     return int((datetime.now(timezone.utc).timestamp()) + (90 * 24 * 60 * 60))
+
+
+def split_legacy_name(name: Optional[str], last_name: Optional[str] = None) -> tuple[str, str]:
+    first = (name or '').strip()
+    last = (last_name or '').strip()
+    if last or not first:
+        return first, last
+    parts = [part for part in first.split() if part]
+    if len(parts) < 2:
+        return first, last
+    return parts[0], ' '.join(parts[1:])
+
+
+def normalize_member_record(item: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    if not item:
+        return item
+    normalized = dict(item)
+    first, last = split_legacy_name(normalized.get('name'), normalized.get('lastName'))
+    normalized['name'] = first
+    if last:
+        normalized['lastName'] = last
+    return normalized
 
 
 def normalize_phone(raw: str) -> str:
@@ -143,6 +166,7 @@ def list_members_by_status(status: str = "PENDING", limit: int = 200) -> List[Di
             break
         kwargs["ExclusiveStartKey"] = last
 
+    items = [normalize_member_record(item) for item in items]
     items.sort(key=lambda x: (
         (x.get("lastName") or x.get("name") or "").lower(),
         (x.get("name") or "").lower(),
@@ -166,7 +190,8 @@ def search_members(query: str, limit: int = 50) -> List[Dict[str, Any]]:
 
     while True:
         resp = t.scan(**kwargs)
-        for item in resp.get("Items", []):
+        for raw_item in resp.get("Items", []):
+            item = normalize_member_record(raw_item) or {}
             first = (item.get("name") or "").lower()
             last  = (item.get("lastName") or "").lower()
             phone = (item.get("phone") or "").lower()
@@ -303,6 +328,96 @@ def record_attendance(phone: str, attended: bool, event_id: str = "current") -> 
     return True
 
 
+def claim_welcome_send(phone: str) -> bool:
+    """
+    Acquire a best-effort one-writer claim for sending the welcome SMS.
+    Returns True only for the first in-flight sender.
+
+    welcomeSendingAt older than 5 minutes is treated as a stuck/orphaned claim
+    and overwritten — a real in-flight send completes in under 15 seconds.
+    """
+    from botocore.exceptions import ClientError
+    from datetime import timedelta
+
+    phone_e164 = normalize_phone(phone)
+    t = _table()
+    now_dt = datetime.now(timezone.utc)
+    now = now_dt.isoformat(timespec="seconds")
+    expiry = (now_dt - timedelta(minutes=5)).isoformat(timespec="seconds")
+
+    # First attempt: claim only if neither sentinel exists
+    try:
+        t.update_item(
+            Key={"phone": phone_e164},
+            UpdateExpression="SET welcomeSendingAt = :now",
+            ExpressionAttributeValues={":now": now},
+            ConditionExpression="attribute_not_exists(welcomeSentAt) AND attribute_not_exists(welcomeSendingAt)",
+        )
+        return True
+    except ClientError as e:
+        if e.response.get("Error", {}).get("Code") != "ConditionalCheckFailedException":
+            raise
+
+    # welcomeSentAt or welcomeSendingAt exists.
+    # If welcomeSentAt is present, welcome was already sent — do not resend.
+    # If only welcomeSendingAt is present and it is stale (>5 min), overwrite it.
+    try:
+        t.update_item(
+            Key={"phone": phone_e164},
+            UpdateExpression="SET welcomeSendingAt = :now",
+            ExpressionAttributeValues={":now": now, ":expiry": expiry},
+            ConditionExpression=(
+                "attribute_not_exists(welcomeSentAt) AND welcomeSendingAt <= :expiry"
+            ),
+        )
+        logger.warning(
+            "claim_welcome_send: overwrote stale claim phone=...%s", phone_e164[-4:]
+        )
+        return True
+    except ClientError as e:
+        if e.response.get("Error", {}).get("Code") == "ConditionalCheckFailedException":
+            return False
+        raise
+
+
+def clear_welcome_send_claim(phone: str) -> None:
+    phone_e164 = normalize_phone(phone)
+    _table().update_item(
+        Key={"phone": phone_e164},
+        UpdateExpression="REMOVE welcomeSendingAt",
+    )
+
+
+def set_sms_opt_in(phone: str, value: bool) -> None:
+    """Explicitly set smsOptIn on a member record."""
+    phone_e164 = normalize_phone(phone)
+    _table().update_item(
+        Key={"phone": phone_e164},
+        UpdateExpression="SET smsOptIn = :v",
+        ExpressionAttributeValues={":v": value},
+    )
+
+
+def write_welcome_error(phone: str, error: str) -> None:
+    """Write the last welcome SMS error to the member record for debugging.
+
+    Readable directly in DynamoDB console without CloudWatch access.
+    Field: lastWelcomeError  — truncated error string + timestamp.
+    """
+    try:
+        phone_e164 = normalize_phone(phone)
+        _table().update_item(
+            Key={"phone": phone_e164},
+            UpdateExpression="SET lastWelcomeError = :e, lastWelcomeErrorAt = :t",
+            ExpressionAttributeValues={
+                ":e": error[:3000],
+                ":t": _now_iso(),
+            },
+        )
+    except Exception:
+        # Never let debug logging block the caller
+        logger.exception("write_welcome_error: failed to write error for phone=...%s", phone[-4:])
+
 
 def mark_welcome_sent(phone: str) -> bool:
     """
@@ -318,7 +433,7 @@ def mark_welcome_sent(phone: str) -> bool:
     try:
         t.update_item(
             Key={"phone": phone_e164},
-            UpdateExpression="SET welcomeSentAt = :now",
+            UpdateExpression="SET welcomeSentAt = :now REMOVE welcomeSendingAt",
             ExpressionAttributeValues={":now": now},
             ConditionExpression="attribute_not_exists(welcomeSentAt)",
         )
@@ -333,4 +448,4 @@ def get_member(phone: str) -> Optional[Dict[str, Any]]:
     phone_e164 = normalize_phone(phone)
     t = _table()
     resp = t.get_item(Key={"phone": phone_e164})
-    return resp.get("Item")
+    return normalize_member_record(resp.get("Item"))

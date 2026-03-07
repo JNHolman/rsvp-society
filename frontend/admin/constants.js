@@ -147,6 +147,7 @@ const ROUTES = Object.freeze({
   ADMIN_MEMBER_IMPORT: '/admin/members/import',
   ADMIN_MEMBER_CONFIRMED: '/admin/members/confirmed',
   ADMIN_EVENT: '/admin/event',
+  ADMIN_EVENTS: '/admin/events',
   ADMIN_EVENT_ANALYTICS: '/admin/event/analytics',
   ADMIN_INVITE_PREVIEW: '/admin/invite/preview',
   ADMIN_INVITE_SEND: '/admin/invite/send',

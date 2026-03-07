@@ -119,6 +119,30 @@ resource "aws_dynamodb_table" "events" {
 }
 
 # -----------------------------
+# DynamoDB — Event history
+# -----------------------------
+resource "aws_dynamodb_table" "event_history" {
+  name         = "rsvp-event-history"
+  billing_mode = "PAY_PER_REQUEST"
+  hash_key     = "historyPk"
+  range_key    = "eventKey"
+
+  attribute {
+    name = "historyPk"
+    type = "S"
+  }
+
+  attribute {
+    name = "eventKey"
+    type = "S"
+  }
+
+  point_in_time_recovery {
+    enabled = true
+  }
+}
+
+# -----------------------------
 # DynamoDB — EventInvites (composite key: eventId + phone)
 # -----------------------------
 resource "aws_dynamodb_table" "event_invites" {
@@ -182,9 +206,6 @@ resource "aws_lambda_function" "access_request" {
       ENVIRONMENT           = "prod"
       MEMBERS_TABLE_NAME    = aws_dynamodb_table.members.name
       ALLOWED_ORIGINS       = local.allowed_origins_csv
-      SMS_ENABLED           = "true"
-      QUO_API_KEY_SECRET_ID = var.quo_api_key_secret_id
-      QUO_PHONE_NUMBER_ID   = var.quo_phone_number_id
     }
   }
 }
@@ -206,6 +227,7 @@ resource "aws_lambda_function" "admin_handler" {
       MEMBERS_TABLE_NAME       = aws_dynamodb_table.members.name
       EVENTS_TABLE_NAME        = aws_dynamodb_table.events.name
       INVITES_TABLE_NAME       = aws_dynamodb_table.event_invites.name
+      EVENT_HISTORY_TABLE_NAME = aws_dynamodb_table.event_history.name
       CHECKINS_TABLE_NAME      = aws_dynamodb_table.checkins.name
       AUDIT_LOG_TABLE_NAME     = aws_dynamodb_table.audit_log.name
       ALLOWED_ORIGINS          = local.allowed_origins_csv
@@ -244,7 +266,6 @@ resource "aws_lambda_function" "sms_handler" {
       QUO_API_KEY_SECRET_ID    = var.quo_api_key_secret_id
       QUO_PHONE_NUMBER_ID      = var.quo_phone_number_id
       CLAUDE_API_KEY_SECRET_ID = "rsvp/claude-api-key"
-      ADMIN_TOKEN_SECRET_ID    = var.admin_token_secret_id
       WEBHOOK_SECRET_ID        = var.webhook_secret_id
     }
   }
@@ -957,6 +978,7 @@ resource "aws_api_gateway_deployment" "deploy" {
       filesha1("${path.module}/confirmed_endpoint.tf"),
       filesha1("${path.module}/audit_log.tf"),
       filesha1("${path.module}/analytics_endpoint.tf"),
+      filesha1("${path.module}/events_endpoint.tf"),
       filesha1("${path.module}/cloudwatch_dashboard.tf"),
     ]))
   }
@@ -1031,6 +1053,10 @@ resource "aws_api_gateway_deployment" "deploy" {
     aws_api_gateway_integration.admin_event_analytics_get,
     aws_api_gateway_integration.admin_event_analytics_options,
     aws_api_gateway_integration_response.admin_event_analytics_options_200,
+    # /admin/events
+    aws_api_gateway_integration.admin_events_get,
+    aws_api_gateway_integration.admin_events_options,
+    aws_api_gateway_integration_response.admin_events_options_200,
   ]
 
   lifecycle {
@@ -1169,6 +1195,44 @@ resource "aws_wafv2_web_acl" "api_acl" {
     visibility_config {
       cloudwatch_metrics_enabled = true
       metric_name                = "rate-limit-admin-blast"
+      sampled_requests_enabled   = true
+    }
+  }
+
+  # Protect /admin/members — bulk approval/deletion/import behind a leaked token
+  # should not run uncapped. 100 req/5min/IP is well above any legitimate admin use.
+  rule {
+    name     = "rate-limit-admin-members"
+    priority = 3
+
+    action {
+      block {}
+    }
+
+    statement {
+      rate_based_statement {
+        limit              = 100
+        aggregate_key_type = "IP"
+
+        scope_down_statement {
+          byte_match_statement {
+            search_string = "/admin/members"
+            field_to_match {
+              uri_path {}
+            }
+            positional_constraint = "STARTS_WITH"
+            text_transformation {
+              priority = 0
+              type     = "NONE"
+            }
+          }
+        }
+      }
+    }
+
+    visibility_config {
+      cloudwatch_metrics_enabled = true
+      metric_name                = "rate-limit-admin-members"
       sampled_requests_enabled   = true
     }
   }

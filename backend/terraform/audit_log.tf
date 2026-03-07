@@ -50,7 +50,7 @@ resource "aws_dynamodb_table" "audit_log" {
 # =============================================================================
 
 resource "aws_iam_role_policy" "admin_handler_audit_log" {
-  name = "audit-log-write"
+  name = "admin-handler-audit-log-write"
   role = aws_iam_role.lambda_admin_handler.id
   policy = jsonencode({
     Version = "2012-10-17"
@@ -63,7 +63,7 @@ resource "aws_iam_role_policy" "admin_handler_audit_log" {
 }
 
 resource "aws_iam_role_policy" "invite_handler_audit_log" {
-  name = "audit-log-write"
+  name = "invite-handler-audit-log-write"
   role = aws_iam_role.lambda_invite_handler.id
   policy = jsonencode({
     Version = "2012-10-17"
@@ -76,7 +76,7 @@ resource "aws_iam_role_policy" "invite_handler_audit_log" {
 }
 
 resource "aws_iam_role_policy" "reminder_handler_audit_log" {
-  name = "audit-log-write"
+  name = "reminder-handler-audit-log-write"
   role = aws_iam_role.lambda_reminder_handler.id
   policy = jsonencode({
     Version = "2012-10-17"

@@ -1,4 +1,5 @@
 import base64
+import hmac
 import json
 import math
 import os
@@ -14,6 +15,7 @@ import logging
 from audit_log import log_action, ACTION_INVITE_SENT
 from member_store import normalize_phone, _table as members_table, list_members_by_status
 from sms_adapter import get_secret_string, send_sms
+from admin_shared import coerce_bool
 
 _DDB = boto3.resource("dynamodb")
 logger = logging.getLogger()
@@ -67,7 +69,8 @@ def _get_headers(event: dict) -> dict:
 def _resp(status: int, body: dict, origin: str = None) -> dict:
     allowed = os.getenv("ALLOWED_ORIGINS", "")
     origins = [o.strip() for o in allowed.split(",") if o.strip()]
-    allow_origin = origin if origin in origins else (origins[0] if origins else "*")
+    # Fail closed: never fall back to wildcard — that opens the endpoint to any domain.
+    allow_origin = origin if origin in origins else (origins[0] if origins else "")
     return {
         "statusCode": status,
         "headers": {
@@ -499,6 +502,9 @@ def handle_send(body: dict, origin: str, token: str) -> dict:
                         "invitedAt":  now,
                         "waveNumber": wave_number,
                         "waveSentAt": now,
+                        # Snapshot names at blast time so door list works even if member is later deleted
+                        "name":       m.get("name", ""),
+                        "lastName":   m.get("lastName", ""),
                     },
                     ConditionExpression="attribute_not_exists(phone)",
                 )
@@ -516,7 +522,7 @@ def handle_send(body: dict, origin: str, token: str) -> dict:
             )
 
             if sms_enabled:
-                if m.get("optOut") or not m.get("smsOptIn", False):
+                if coerce_bool(m.get("optOut", False)) or not coerce_bool(m.get("smsOptIn", False)):
                     skipped_consent += 1
                 else:
                     message = _build_sms_message(m, current_event)
@@ -565,7 +571,8 @@ def handler(event, context):
             return _resp(200, {"ok": True}, origin)
 
         token = (headers.get("x-admin-token") or headers.get("X-Admin-Token") or "").strip()
-        if not token or token != _admin_token():
+        expected = _admin_token()
+        if not token or not hmac.compare_digest(token, expected):
             return _resp(401, {"ok": False, "error": "unauthorized"}, origin)
 
         path = event.get("path", "")

@@ -13,6 +13,7 @@ from boto3.dynamodb.conditions import Key as DKey
 
 from member_store import get_member, normalize_phone
 from sms_adapter import get_secret_string, send_sms
+from admin_shared import coerce_bool
 
 logger = logging.getLogger()
 
@@ -172,16 +173,27 @@ def _set_opt_out(phone: str) -> None:
 
 
 def _get_pending_invite(phone: str):
-    """Return the most recent INVITED record for this phone, or None."""
-    resp = _invites_table().query(
-        IndexName="phone-index",
-        KeyConditionExpression=DKey("phone").eq(phone),
-        ScanIndexForward=False,
-        Limit=1,
-    )
-    items = resp.get("Items", [])
-    if items and items[0].get("status") == "INVITED":
-        return items[0]
+    """Return the active INVITED record for this phone, or None.
+
+    Previous implementation used ScanIndexForward=False + Limit=1 which relied on
+    eventId sort order being meaningful. Since eventId is always 'current' for active
+    events the sort is arbitrary and the wrong record could be returned for a member
+    who was re-invited after a prior decline. Paginate and filter instead.
+    """
+    invites_t = _invites_table()
+    kwargs: dict = {
+        "IndexName": "phone-index",
+        "KeyConditionExpression": DKey("phone").eq(phone),
+    }
+    while True:
+        resp = invites_t.query(**kwargs)
+        for item in resp.get("Items", []):
+            if item.get("status") == "INVITED":
+                return item
+        last = resp.get("LastEvaluatedKey")
+        if not last:
+            break
+        kwargs["ExclusiveStartKey"] = last
     return None
 
 
@@ -253,27 +265,50 @@ def _verify_webhook_signature(event: dict) -> bool:
     """
     secret_id = os.getenv("WEBHOOK_SECRET_ID")
     if not secret_id:
-        logger.warning(
-            "sms_handler: WEBHOOK_SECRET_ID not set — webhook signature verification skipped. "
-            "Configure this before going live to prevent forged inbound SMS."
+        # Hard-reject: without a secret we cannot verify anything.
+        # Soft-failing open lets any actor POST forged webhooks.
+        logger.error(
+            "sms_handler: WEBHOOK_SECRET_ID not set — rejecting all inbound webhooks. "
+            "Set this env var before go-live."
         )
-        return True
+        return False
+
+    def _debug_write(reason: str, extra: dict = None):
+        """Write rejection reason to DynamoDB events table for debugging without CloudWatch."""
+        try:
+            import boto3
+            ddb = boto3.resource("dynamodb")
+            table = ddb.Table(os.getenv("EVENTS_TABLE_NAME", "rsvp-events"))
+            item = {
+                "eventId": "webhook-debug-latest",
+                "reason": reason,
+                "ts": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            }
+            if extra:
+                item.update({k: str(v)[:500] for k, v in extra.items()})
+            table.put_item(Item=item)
+        except Exception:
+            pass
 
     try:
-        secret = get_secret_string(secret_id)
+        secret_raw = get_secret_string(secret_id)
+        secret = secret_raw
         try:
-            parsed = json.loads(secret)
+            parsed = json.loads(secret_raw)
             if isinstance(parsed, dict):
                 secret = (
                     parsed.get("signing_secret")
                     or parsed.get("secret")
                     or parsed.get("token")
-                    or secret
+                    or secret_raw
                 )
         except Exception:
             pass
 
         headers = event.get("headers") or {}
+        # Log all headers for debugging
+        header_keys = list(headers.keys())
+
         signature_header = (
             headers.get("openphone-signature")
             or headers.get("Openphone-Signature")
@@ -284,6 +319,7 @@ def _verify_webhook_signature(event: dict) -> bool:
         ).strip()
         if not signature_header:
             logger.warning("sms_handler: webhook received with no signature header")
+            _debug_write("no_signature_header", {"header_keys": str(header_keys)[:400]})
             return False
 
         raw_body = event.get("body") or ""
@@ -291,25 +327,39 @@ def _verify_webhook_signature(event: dict) -> bool:
             raw_body = base64.b64decode(raw_body).decode("utf-8")
 
         now = datetime.now(timezone.utc)
-        signing_key = base64.b64decode(secret)
+
+        try:
+            signing_key = base64.b64decode(secret)
+        except Exception as e:
+            _debug_write("base64_decode_failed", {"error": str(e), "secret_prefix": secret[:20]})
+            return False
 
         # Future versions may include multiple signatures separated by commas.
         for candidate in [c.strip() for c in signature_header.split(",") if c.strip()]:
             parts = candidate.split(";")
             if len(parts) != 4:
+                _debug_write("bad_sig_format", {"sig": signature_header[:200], "parts": str(len(parts))})
                 continue
 
             scheme, version, ts_raw, provided_digest = parts
             if scheme.lower() != "hmac" or version != "1":
+                _debug_write("bad_scheme_or_version", {"scheme": scheme, "version": version})
                 continue
 
             try:
-                ts = datetime.fromtimestamp(int(ts_raw), tz=timezone.utc)
-            except Exception:
+                ts_int = int(ts_raw)
+                # Quo sends milliseconds; convert to seconds if needed
+                if ts_int > 1_000_000_000_000:
+                    ts_int = ts_int // 1000
+                ts = datetime.fromtimestamp(ts_int, tz=timezone.utc)
+            except Exception as e:
+                _debug_write("bad_timestamp", {"ts_raw": ts_raw, "error": str(e)})
                 continue
 
-            if abs((now - ts).total_seconds()) > 300:
+            age = abs((now - ts).total_seconds())
+            if age > 300:
                 logger.warning("sms_handler: webhook timestamp outside tolerance")
+                _debug_write("timestamp_too_old", {"age_seconds": str(age), "ts_raw": ts_raw})
                 continue
 
             signed_data = b"".join([ts_raw.encode("utf-8"), b".", raw_body.encode("utf-8")])
@@ -320,11 +370,20 @@ def _verify_webhook_signature(event: dict) -> bool:
             if hmac.compare_digest(provided_digest, computed_digest):
                 return True
 
+            _debug_write("digest_mismatch", {
+                "provided": provided_digest[:60],
+                "computed": computed_digest[:60],
+                "sig_header": signature_header[:200],
+                "body_prefix": raw_body[:100],
+                "secret_b64_prefix": secret[:20],
+            })
+
         logger.warning("sms_handler: webhook signature mismatch — possible forgery")
         return False
 
-    except Exception:
+    except Exception as e:
         logger.exception("sms_handler: signature verification error — rejecting request")
+        _debug_write("exception", {"error": str(e)})
         return False
 
 
@@ -340,6 +399,9 @@ def _claude(message: str, mode: str = "general") -> str:
         os.getenv("CLAUDE_API_KEY_SECRET_ID", "rsvp/claude-api-key")
     )
 
+    # Cap at 500 chars: SMS concatenation can reach ~1600 chars; crafted payloads
+    # could attempt prompt injection or inflate token spend.
+    message = message[:500]
     user_content = message
     if mode == "ambiguous":
         user_content = (
@@ -388,7 +450,7 @@ def _extract_inbound_message(body: dict) -> tuple[str, str, str]:
         payload = body["data"]["object"]
 
     from_phone = normalize_phone(payload.get("from") or "")
-    text = (payload.get("text") or payload.get("content") or "").strip()
+    text = (payload.get("body") or payload.get("text") or payload.get("content") or "").strip()
     return event_type, from_phone, text
 
 
@@ -434,11 +496,11 @@ def handler(event, context):
         member = get_member(from_phone)
         if not member or member.get("status") != "APPROVED":
             return {"statusCode": 200, "body": json.dumps({"ok": True})}
-        if member.get("optOut"):
+        if coerce_bool(member.get("optOut", False)):
             return {"statusCode": 200, "body": json.dumps({"ok": True})}
 
         # Fix I3: also check smsOptIn for inbound Jade responses, consistent with outbound
-        if not member.get("smsOptIn", False):
+        if not coerce_bool(member.get("smsOptIn", False)):
             return {"statusCode": 200, "body": json.dumps({"ok": True})}
 
         # ── CONFIRMED ─────────────────────────────────────────────────────────

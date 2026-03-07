@@ -2,6 +2,18 @@ import { API_DEFAULT } from './constants.js';
 const KNOWN_EVENTS_KEY = 'rsvp_known_events';
 const MAX_KNOWN_EVENTS = 50;
 
+function parseBool(value) {
+  if (typeof value === 'boolean') return value;
+  if (value == null) return false;
+  if (typeof value === 'number') return value !== 0;
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase();
+    if (['true', '1', 'yes', 'y', 'on'].includes(normalized)) return true;
+    if (['false', '0', 'no', 'n', 'off', ''].includes(normalized)) return false;
+  }
+  return Boolean(value);
+}
+
 export const state = {
   apiBase: (localStorage.getItem('rsvp_api_base') || API_DEFAULT).replace(/\/+$/, ''),
   adminToken: '',
@@ -75,7 +87,7 @@ export function normalizeEventRecord(event = {}) {
     capacity: event.capacity || '',
     eventId: event.eventId || slug,
     eventSlug: event.eventSlug || slug,
-    revealVenue: Boolean(event.revealVenue),
+    revealVenue: parseBool(event.revealVenue),
     updatedAt: event.updatedAt || '',
   };
 }

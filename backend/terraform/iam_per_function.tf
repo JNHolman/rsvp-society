@@ -35,6 +35,7 @@ locals {
   members_index    = "${aws_dynamodb_table.members.arn}/index/*"
   events_arn       = aws_dynamodb_table.events.arn
   invites_arn      = aws_dynamodb_table.event_invites.arn
+  event_history_arn = aws_dynamodb_table.event_history.arn
   invites_index    = "${aws_dynamodb_table.event_invites.arn}/index/*"
   checkins_arn     = aws_dynamodb_table.checkins.arn
   audit_log_arn    = aws_dynamodb_table.audit_log.arn
@@ -106,13 +107,14 @@ resource "aws_iam_role_policy" "lambda_admin_handler" {
       {
         Effect = "Allow"
         Action = [
-          "dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:UpdateItem",
+          "dynamodb:GetItem", "dynamodb:BatchGetItem", "dynamodb:PutItem", "dynamodb:UpdateItem",
           "dynamodb:DeleteItem", "dynamodb:Query", "dynamodb:Scan",
         ]
         Resource = [
           local.members_arn,
           local.members_index,
           local.events_arn,
+          local.event_history_arn,
           local.invites_arn,
           local.invites_index,
           local.checkins_arn,
@@ -160,13 +162,14 @@ resource "aws_iam_role_policy" "lambda_sms_handler" {
       },
       {
         Effect   = "Allow"
-        Action   = ["dynamodb:GetItem"]
+        Action   = ["dynamodb:GetItem", "dynamodb:PutItem"]
         Resource = [local.events_arn]
       },
       {
         Effect   = "Allow"
         Action   = ["secretsmanager:GetSecretValue"]
         Resource = [
+          "arn:aws:secretsmanager:${local.region}:${local.account}:secret:${var.webhook_secret_id}*",
           "arn:aws:secretsmanager:${local.region}:${local.account}:secret:${var.quo_api_key_secret_id}*",
           "arn:aws:secretsmanager:${local.region}:${local.account}:secret:rsvp/claude-api-key*",
         ]
@@ -210,11 +213,6 @@ resource "aws_iam_role_policy" "lambda_invite_handler" {
       },
       {
         Effect   = "Allow"
-        Action   = ["dynamodb:PutItem", "dynamodb:UpdateItem"]
-        Resource = [local.audit_log_arn]
-      },
-      {
-        Effect   = "Allow"
         Action   = ["secretsmanager:GetSecretValue"]
         Resource = [
           "arn:aws:secretsmanager:${local.region}:${local.account}:secret:${var.admin_token_secret_id}*",
@@ -245,12 +243,16 @@ resource "aws_iam_role_policy" "lambda_reminder_handler" {
       { Effect = "Allow", Action = local.log_actions, Resource = "*" },
       {
         Effect   = "Allow"
-        Action   = ["dynamodb:GetItem"]
+        # BatchGetItem: _batch_get_members() bulk consent check.
+        # Without this the call 403s, returns empty map, all members fail consent → 0 reminders sent.
+        Action   = ["dynamodb:GetItem", "dynamodb:BatchGetItem"]
         Resource = [local.members_arn, local.events_arn]
       },
       {
         Effect   = "Allow"
-        Action   = ["dynamodb:Query"]
+        # UpdateItem: dedup sentinel writes (dayBeforeReminderClaimedAt, dayOfReminderSentAt, etc.)
+        # Without this the sentinel update_item 403s and the blast fails entirely.
+        Action   = ["dynamodb:Query", "dynamodb:UpdateItem"]
         Resource = [local.invites_arn]
       },
       {

@@ -18,8 +18,24 @@ import urllib.request
 from typing import Any, Dict, List, Optional, Tuple
 
 import boto3
-
 logger = logging.getLogger()
+
+
+def coerce_bool(value) -> bool:
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return False
+    if isinstance(value, (int, float)):
+        return value != 0
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"true", "1", "yes", "y", "on"}:
+            return True
+        if normalized in {"false", "0", "no", "n", "off", ""}:
+            return False
+    return bool(value)
+
 
 # Cache the resolved sending number id to avoid extra API calls per invocation.
 _FROM_ID_CACHE: Optional[str] = None
@@ -64,7 +80,8 @@ def _digits(s: str) -> str:
 
 
 def _http_json(url: str, *, method: str = "GET", headers: Optional[dict] = None, data: Optional[bytes] = None, timeout: int = 15) -> Any:
-    req = urllib.request.Request(url, data=data, headers=headers or {}, method=method)
+    merged = {"User-Agent": "rsvp-society-lambda/1.0", **(headers or {})}
+    req = urllib.request.Request(url, data=data, headers=merged, method=method)
     with urllib.request.urlopen(req, timeout=timeout) as resp:
         raw = resp.read().decode("utf-8", errors="replace")
         return json.loads(raw) if raw else {}
@@ -179,10 +196,10 @@ def maybe_send_welcome(member: dict) -> bool:
         )
         return False
 
-    if not bool(member.get("smsOptIn", False)):
+    if not coerce_bool(member.get("smsOptIn", False)):
         logger.info("maybe_send_welcome: skipped reason=no_sms_opt_in phone=...%s", phone_suffix)
         return False
-    if bool(member.get("optOut", False)):
+    if coerce_bool(member.get("optOut", False)):
         logger.info("maybe_send_welcome: skipped reason=opted_out phone=...%s", phone_suffix)
         return False
     if member.get("welcomeSentAt"):
@@ -332,6 +349,7 @@ def send_sms(to_phone: str, message: str) -> None:
         headers={
             "Authorization": api_key,
             "Content-Type": "application/json",
+            "User-Agent": "rsvp-society-lambda/1.0",
         },
         method="POST",
     )

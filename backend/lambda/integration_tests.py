@@ -1,0 +1,777 @@
+#!/usr/bin/env python3
+"""
+integration_tests.py
+
+Local integration tests for the RSVP Society backend.
+Tests run against real Lambda handlers in-process via moto — no deployed
+stack required.
+
+Requirements:
+    pip install 'moto[dynamodb,secretsmanager]' boto3 pytest
+
+Run:
+    pytest integration_tests.py -v
+    python integration_tests.py
+"""
+from __future__ import annotations
+
+import importlib
+from datetime import datetime, timezone
+import json
+import os
+import sys
+import types
+import unittest
+from typing import Any, Dict
+from unittest.mock import MagicMock, patch
+
+# ── Region must be set before any boto3 import hits a live endpoint ───────────
+os.environ["AWS_DEFAULT_REGION"]    = "us-east-1"
+os.environ["AWS_ACCESS_KEY_ID"]     = "test"
+os.environ["AWS_SECRET_ACCESS_KEY"] = "test"
+
+try:
+    from moto import mock_aws
+except ImportError:
+    sys.exit("Install moto: pip install 'moto[dynamodb,secretsmanager]'")
+
+import boto3
+
+# ── Lambda env vars ───────────────────────────────────────────────────────────
+os.environ.setdefault("MEMBERS_TABLE_NAME",      "rsvp-members-test")
+os.environ.setdefault("INVITES_TABLE_NAME",      "rsvp-event-invites-test")
+os.environ.setdefault("EVENTS_TABLE_NAME",       "rsvp-events-test")
+os.environ.setdefault("CHECKINS_TABLE_NAME",     "rsvp-checkins-test")
+os.environ.setdefault("EVENT_HISTORY_TABLE_NAME", "rsvp-event-history-test")
+os.environ.setdefault("AUDIT_LOG_TABLE_NAME",    "rsvp-audit-log-test")
+os.environ.setdefault("ALLOWED_ORIGINS",         "https://admin.rsvpsociety.com")
+os.environ.setdefault("SMS_ENABLED",             "false")
+os.environ.setdefault("ADMIN_TOKEN_SECRET_ID",   "rsvp/admin-token-test")
+
+ADMIN_TOKEN = "test-admin-token-abc123"
+
+# ── Module names that carry module-level boto3 resources ─────────────────────
+# These must be reloaded inside each mock_aws context so they get fresh
+# moto-intercepted clients rather than the real ones created at import time.
+_RELOAD_MODULES = [
+    "member_store",
+    "audit_log",
+    "admin_shared",
+    "admin_member_routes",
+    "admin_event_routes",
+    "admin_handler",
+    "access_request",
+    "sms_adapter",
+    "invite_handler",
+    "reminder_handler",
+]
+
+
+def _reload_lambda_modules():
+    """Force-reload all Lambda modules so boto3 clients are created inside moto."""
+    for name in _RELOAD_MODULES:
+        if name in sys.modules:
+            del sys.modules[name]
+    # Now import them fresh — boto3 calls happen inside the active mock_aws context
+    import member_store      # noqa: F401
+    import audit_log         # noqa: F401
+    import admin_shared      # noqa: F401
+    import admin_member_routes  # noqa: F401
+    import admin_event_routes   # noqa: F401
+    import admin_handler     # noqa: F401
+    import sms_adapter       # noqa: F401
+    import invite_handler    # noqa: F401
+    import reminder_handler  # noqa: F401
+
+
+# ── Table provisioning ────────────────────────────────────────────────────────
+
+def _create_tables():
+    ddb = boto3.resource("dynamodb", region_name="us-east-1")
+
+    ddb.create_table(
+        TableName="rsvp-members-test",
+        KeySchema=[{"AttributeName": "phone", "KeyType": "HASH"}],
+        AttributeDefinitions=[
+            {"AttributeName": "phone",  "AttributeType": "S"},
+            {"AttributeName": "status", "AttributeType": "S"},
+        ],
+        GlobalSecondaryIndexes=[{
+            "IndexName": "status-index",
+            "KeySchema": [{"AttributeName": "status", "KeyType": "HASH"}],
+            "Projection": {"ProjectionType": "ALL"},
+        }],
+        BillingMode="PAY_PER_REQUEST",
+    )
+    ddb.create_table(
+        TableName="rsvp-event-invites-test",
+        KeySchema=[
+            {"AttributeName": "eventId", "KeyType": "HASH"},
+            {"AttributeName": "phone",   "KeyType": "RANGE"},
+        ],
+        AttributeDefinitions=[
+            {"AttributeName": "eventId", "AttributeType": "S"},
+            {"AttributeName": "phone",   "AttributeType": "S"},
+        ],
+        GlobalSecondaryIndexes=[{
+            "IndexName": "phone-index",
+            "KeySchema": [{"AttributeName": "phone", "KeyType": "HASH"}],
+            "Projection": {"ProjectionType": "ALL"},
+        }],
+        BillingMode="PAY_PER_REQUEST",
+    )
+    ddb.create_table(
+        TableName="rsvp-events-test",
+        KeySchema=[{"AttributeName": "eventId", "KeyType": "HASH"}],
+        AttributeDefinitions=[{"AttributeName": "eventId", "AttributeType": "S"}],
+        BillingMode="PAY_PER_REQUEST",
+    )
+    ddb.create_table(
+        TableName="rsvp-event-history-test",
+        KeySchema=[{"AttributeName": "historyPk", "KeyType": "HASH"}, {"AttributeName": "eventKey", "KeyType": "RANGE"}],
+        AttributeDefinitions=[{"AttributeName": "historyPk", "AttributeType": "S"}, {"AttributeName": "eventKey", "AttributeType": "S"}],
+        BillingMode="PAY_PER_REQUEST",
+    )
+    ddb.create_table(
+        TableName="rsvp-checkins-test",
+        KeySchema=[
+            {"AttributeName": "eventId", "KeyType": "HASH"},
+            {"AttributeName": "phone",   "KeyType": "RANGE"},
+        ],
+        AttributeDefinitions=[
+            {"AttributeName": "eventId", "AttributeType": "S"},
+            {"AttributeName": "phone",   "AttributeType": "S"},
+        ],
+        BillingMode="PAY_PER_REQUEST",
+    )
+    ddb.create_table(
+        TableName="rsvp-audit-log-test",
+        KeySchema=[
+            {"AttributeName": "actionId", "KeyType": "HASH"},
+        ],
+        AttributeDefinitions=[
+            {"AttributeName": "actionId", "AttributeType": "S"},
+        ],
+        BillingMode="PAY_PER_REQUEST",
+    )
+
+
+def _stub_secret(token: str = ADMIN_TOKEN):
+    sm = boto3.client("secretsmanager", region_name="us-east-1")
+    sm.create_secret(
+        Name="rsvp/admin-token-test",
+        SecretString=json.dumps({"token": token}),
+    )
+
+
+# ── Request factory ───────────────────────────────────────────────────────────
+
+def _event(
+    method: str,
+    path: str,
+    body: Any = None,
+    qs: Dict[str, str] | None = None,
+    token: str = ADMIN_TOKEN,
+) -> dict:
+    return {
+        "httpMethod": method,
+        "path": path,
+        "headers": {
+            "origin":         "https://admin.rsvpsociety.com",
+            "x-admin-token":  token,
+        },
+        "queryStringParameters": qs or {},
+        "body": json.dumps(body) if body is not None else "",
+    }
+
+
+# ── Test cases ────────────────────────────────────────────────────────────────
+
+class TestVenueReveal(unittest.TestCase):
+    """
+    Public /event endpoint must hide venue+address when revealVenue=False
+    and expose them when revealVenue=True.
+    """
+
+    def _run(self, reveal: bool) -> dict:
+        with mock_aws():
+            _create_tables()
+            _stub_secret()
+            _reload_lambda_modules()
+
+            import boto3 as _boto3
+            _boto3.resource("dynamodb").Table("rsvp-events-test").put_item(Item={
+                "eventId":    "current",
+                "eventSlug":  "Swim Test",
+                "date":       "Friday April 18, 2026",
+                "venue":      "Tribe",
+                "address":    "100 Charlestown Court",
+                "revealVenue": reveal,
+            })
+
+            from admin_handler import handler
+            resp = handler(_event("GET", "/event", token=""), None)
+            body = json.loads(resp["body"])
+            self.assertEqual(resp["statusCode"], 200)
+            self.assertTrue(body["ok"])
+            return body["event"]
+
+    def test_venue_hidden_when_reveal_false(self):
+        event = self._run(reveal=False)
+        self.assertNotIn("venue",   event, "venue must be hidden when revealVenue=False")
+        self.assertNotIn("address", event, "address must be hidden when revealVenue=False")
+
+    def test_venue_visible_when_reveal_true(self):
+        event = self._run(reveal=True)
+        self.assertIn("venue",   event)
+        self.assertIn("address", event)
+        self.assertEqual(event["venue"],   "Tribe")
+        self.assertEqual(event["address"], "100 Charlestown Court")
+
+
+class TestUnauthorizedRejection(unittest.TestCase):
+    """
+    All /admin/* endpoints must return 401 for missing or wrong token.
+    The public /event endpoint must NOT require a token.
+    OPTIONS preflight must always return 200.
+    """
+
+    def _call(self, method, path, token):
+        with mock_aws():
+            _create_tables()
+            _stub_secret()
+            _reload_lambda_modules()
+            from admin_handler import handler
+            return handler(_event(method, path, token=token), None)
+
+    def test_missing_token_returns_401(self):
+        resp = self._call("GET", "/admin/members", token="")
+        self.assertEqual(resp["statusCode"], 401)
+        self.assertFalse(json.loads(resp["body"])["ok"])
+
+    def test_wrong_token_returns_401(self):
+        resp = self._call("GET", "/admin/members", token="definitely-wrong")
+        self.assertEqual(resp["statusCode"], 401)
+
+    def test_public_event_needs_no_token(self):
+        with mock_aws():
+            _create_tables()
+            _stub_secret()
+            _reload_lambda_modules()
+            boto3.resource("dynamodb").Table("rsvp-events-test").put_item(Item={
+                "eventId": "current", "eventSlug": "Swim Test",
+                "date": "Friday April 18, 2026", "revealVenue": False,
+            })
+            from admin_handler import handler
+            resp = handler(_event("GET", "/event", token=""), None)
+            self.assertEqual(resp["statusCode"], 200)
+
+    def test_options_preflight_always_200(self):
+        resp = self._call("OPTIONS", "/admin/members", token="")
+        self.assertEqual(resp["statusCode"], 200)
+
+
+class TestFirstApprovalWelcome(unittest.TestCase):
+    """
+    Approving a member for the first time triggers maybe_send_welcome which
+    fires send_sms and stamps welcomeSentAt. Approving again does NOT re-send.
+
+    We enable SMS_ENABLED=true to exercise the real gate logic, but stub
+    send_sms at the transport layer so no real HTTP calls are made.
+    """
+
+    def _approve(self, phone: str, welcome_already_sent: bool = False) -> list:
+        with mock_aws():
+            _create_tables()
+            _stub_secret()
+            _reload_lambda_modules()
+
+            item: dict = {
+                "phone": phone, "name": "Test Member",
+                "status": "PENDING", "smsOptIn": True,
+            }
+            if welcome_already_sent:
+                item["welcomeSentAt"] = "2026-01-01T00:00:00+00:00"
+            boto3.resource("dynamodb").Table("rsvp-members-test").put_item(Item=item)
+
+            sms_calls = []
+
+            def fake_send_sms(to_phone, message):
+                sms_calls.append(to_phone)
+
+            import sms_adapter
+            with patch.dict(os.environ, {"SMS_ENABLED": "true"}):
+                with patch.object(sms_adapter, "send_sms", side_effect=fake_send_sms):
+                    from admin_handler import handler
+                    resp = handler(
+                        _event("POST", "/admin/members/status",
+                               body={"phone": phone, "status": "APPROVED"}),
+                        None,
+                    )
+
+            self.assertEqual(resp["statusCode"], 200)
+            return sms_calls
+
+    def test_first_approval_sends_welcome(self):
+        calls = self._approve("+15025550001", welcome_already_sent=False)
+        self.assertEqual(len(calls), 1, "send_sms should fire exactly once on first approval")
+
+    def test_repeat_approval_skips_welcome(self):
+        calls = self._approve("+15025550002", welcome_already_sent=True)
+        self.assertEqual(len(calls), 0, "send_sms must not fire when welcomeSentAt already set")
+
+
+class TestDeleteTombstoning(unittest.TestCase):
+    """
+    Deleting a member must wipe PII from the member row, set status=DELETED,
+    and tombstone ALL invite rows for that phone across all events.
+    """
+
+    def test_delete_wipes_pii_and_tombstones_invites(self):
+        with mock_aws():
+            _create_tables()
+            _stub_secret()
+            _reload_lambda_modules()
+
+            phone     = "+15025550003"
+            members_t = boto3.resource("dynamodb").Table("rsvp-members-test")
+            invites_t = boto3.resource("dynamodb").Table("rsvp-event-invites-test")
+
+            members_t.put_item(Item={
+                "phone": phone, "name": "Delete Me", "email": "del@test.com",
+                "status": "APPROVED", "smsOptIn": True,
+            })
+            invites_t.put_item(Item={"eventId": "current", "phone": phone, "status": "CONFIRMED"})
+            invites_t.put_item(Item={"eventId": "event-2", "phone": phone, "status": "INVITED"})
+
+            from admin_handler import handler
+            resp = handler(_event("DELETE", "/admin/members", body={"phone": phone}), None)
+            self.assertEqual(resp["statusCode"], 200)
+
+            member = members_t.get_item(Key={"phone": phone})["Item"]
+            self.assertEqual(member["status"], "DELETED")
+            self.assertNotIn("name",     member, "name must be wiped")
+            self.assertNotIn("email",    member, "email must be wiped")
+            self.assertNotIn("smsOptIn", member, "smsOptIn must be wiped")
+
+            for event_id in ("current", "event-2"):
+                invite = invites_t.get_item(Key={"eventId": event_id, "phone": phone})["Item"]
+                self.assertEqual(invite["status"], "DELETED",
+                                 f"invite for {event_id} must be tombstoned")
+
+
+class TestDuplicateAttendance(unittest.TestCase):
+    """
+    Tapping the same phone twice must not double-increment attendance.
+    Second tap returns alreadyCheckedIn=True.
+    """
+
+    def test_duplicate_checkin_flagged(self):
+        with mock_aws():
+            _create_tables()
+            _stub_secret()
+            _reload_lambda_modules()
+
+            phone     = "+15025550004"
+            members_t = boto3.resource("dynamodb").Table("rsvp-members-test")
+            invites_t = boto3.resource("dynamodb").Table("rsvp-event-invites-test")
+
+            members_t.put_item(Item={"phone": phone, "name": "Double Tap", "status": "APPROVED"})
+            invites_t.put_item(Item={"eventId": "current", "phone": phone, "status": "CONFIRMED"})
+
+            body = {"phone": phone, "attended": True, "eventId": "current"}
+
+            from admin_handler import handler
+
+            r1 = handler(_event("POST", "/admin/members/attendance", body=body), None)
+            b1 = json.loads(r1["body"])
+            self.assertEqual(r1["statusCode"], 200)
+            self.assertFalse(b1.get("alreadyCheckedIn"), "first tap must not be flagged")
+
+            r2 = handler(_event("POST", "/admin/members/attendance", body=body), None)
+            b2 = json.loads(r2["body"])
+            self.assertEqual(r2["statusCode"], 200)
+            self.assertTrue(b2.get("alreadyCheckedIn"), "second tap must be flagged as duplicate")
+
+    def test_attendance_string_false_does_not_check_in(self):
+        with mock_aws():
+            _create_tables()
+            _stub_secret()
+            _reload_lambda_modules()
+            from admin_handler import handler
+
+            phone = "+15025550123"
+            table_name = os.environ["EVENTS_TABLE_NAME"]
+            boto3.resource("dynamodb", region_name="us-east-1").Table(table_name).put_item(Item={"eventId": "current", "date": "2026-04-18"})
+
+            resp = handler(_event("POST", "/admin/members/attendance", body={"phone": phone, "attended": "false"}), None)
+            self.assertEqual(resp["statusCode"], 200)
+            body = json.loads(resp["body"])
+            self.assertFalse(body.get("checkedIn"))
+            self.assertFalse(body.get("alreadyCheckedIn"))
+
+
+
+class TestEventSaveValidation(unittest.TestCase):
+    """
+    POST /admin/event rejects invalid capacity; accepts valid payloads;
+    revealVenue is coerced to bool.
+    """
+
+    def _save(self, body: dict) -> dict:
+        with mock_aws():
+            _create_tables()
+            _stub_secret()
+            _reload_lambda_modules()
+            from admin_handler import handler
+            return handler(_event("POST", "/admin/event", body=body), None)
+
+    def test_negative_capacity_rejected(self):
+        resp = self._save({"date": "2026-04-18", "capacity": -1})
+        self.assertEqual(resp["statusCode"], 400)
+        body = json.loads(resp["body"])
+        self.assertFalse(body["ok"])
+        self.assertIn("capacity", body["error"])
+
+    def test_non_numeric_capacity_rejected(self):
+        resp = self._save({"date": "2026-04-18", "capacity": "lots"})
+        self.assertEqual(resp["statusCode"], 400)
+
+    def test_valid_event_saves(self):
+        resp = self._save({
+            "date":       "2026-04-18",
+            "eventSlug":  "Derby Night",
+            "capacity":   120,
+            "venue":      "The Venue",
+            "revealVenue": False,
+        })
+        self.assertEqual(resp["statusCode"], 200)
+        body = json.loads(resp["body"])
+        self.assertTrue(body["ok"])
+        self.assertEqual(body["event"]["eventSlug"], "Derby Night")
+        self.assertEqual(body["event"]["capacity"],  120)
+        self.assertIs(body["event"]["revealVenue"],  False)
+
+    def test_string_false_reveal_venue_is_false(self):
+        resp = self._save({
+            "date": "2026-04-18",
+            "capacity": 120,
+            "revealVenue": "false",
+        })
+        self.assertEqual(resp["statusCode"], 200)
+        body = json.loads(resp["body"])
+        self.assertIs(body["event"]["revealVenue"], False)
+
+    def test_zero_capacity_accepted(self):
+        resp = self._save({"date": "2026-04-18", "capacity": 0})
+        self.assertEqual(resp["statusCode"], 200)
+
+    def test_event_history_keeps_multiple_versions_for_same_slug(self):
+        with mock_aws():
+            _create_tables()
+            _stub_secret()
+            _reload_lambda_modules()
+            from admin_handler import handler
+
+            handler(_event("POST", "/admin/event", body={
+                "date": "2026-04-18",
+                "eventSlug": "derby-night",
+                "capacity": 120,
+                "venue": "Venue A",
+            }), None)
+            handler(_event("POST", "/admin/event", body={
+                "date": "2026-04-18",
+                "eventSlug": "derby-night",
+                "capacity": 120,
+                "venue": "Venue B",
+            }), None)
+            handler(_event("POST", "/admin/event", body={
+                "date": "2026-04-18",
+                "eventSlug": "derby-night",
+                "capacity": 120,
+                "venue": "Venue C",
+            }), None)
+
+            history = boto3.resource("dynamodb", region_name="us-east-1").Table("rsvp-event-history-test")
+            rows = history.query(KeyConditionExpression=boto3.dynamodb.conditions.Key("historyPk").eq("EVENT"))["Items"]
+            derby_rows = [row for row in rows if str(row.get("slug") or row.get("eventSlug") or row.get("eventId") or "") == "derby-night"]
+            self.assertEqual(len(derby_rows), 2)
+            venues = {row.get("venue") for row in derby_rows}
+            self.assertEqual(venues, {"Venue A", "Venue B"})
+
+    def test_event_history_archives_previous_current(self):
+        with mock_aws():
+            _create_tables()
+            _stub_secret()
+            _reload_lambda_modules()
+            from admin_handler import handler
+
+            first = handler(_event("POST", "/admin/event", body={
+                "date": "2026-04-18",
+                "eventSlug": "derby-night",
+                "capacity": 120,
+                "venue": "The Venue",
+            }), None)
+            self.assertEqual(first["statusCode"], 200)
+
+            second = handler(_event("POST", "/admin/event", body={
+                "date": "2026-05-01",
+                "eventSlug": "rooftop-fridays",
+                "capacity": 140,
+                "venue": "Skyline",
+            }), None)
+            self.assertEqual(second["statusCode"], 200)
+
+            listed = handler(_event("GET", "/admin/events"), None)
+            self.assertEqual(listed["statusCode"], 200)
+            payload = json.loads(listed["body"])
+            self.assertTrue(payload["ok"])
+            slugs = {event.get("slug") for event in payload.get("events", [])}
+            self.assertIn("derby-night", slugs)
+            self.assertIn("rooftop-fridays", slugs)
+
+
+class TestEventSchedulingNormalization(unittest.TestCase):
+    def test_event_save_normalizes_iso_date_and_send_times(self):
+        with mock_aws():
+            _create_tables()
+            _stub_secret()
+            _reload_lambda_modules()
+            from admin_handler import handler
+
+            resp = handler(_event("POST", "/admin/event", body={
+                "eventSlug": "rooftop-may-2026",
+                "event_label": "Rooftop Night",
+                "date": "Saturday, May 15, 2026",
+                "startTime": "9:00 PM",
+                "city": "Louisville, KY",
+                "capacity": 150,
+                "event_timezone": "America/New_York",
+                "venue": "Skybar",
+                "address": "123 Main",
+                "dresscode": "All Black",
+                "revealVenue": True,
+                "reminderTiming": "both",
+                "day_before_send_time": "5:30 PM",
+                "day_of_send_time": "10:15 AM",
+            }), None)
+            self.assertEqual(resp["statusCode"], 200)
+            body = json.loads(resp["body"])
+            self.assertEqual(body["event"]["date"], "2026-05-15")
+            self.assertEqual(body["event"]["startTime"], "21:00")
+            self.assertEqual(body["event"]["day_before_send_time"], "17:30")
+            self.assertEqual(body["event"]["day_of_send_time"], "10:15")
+
+    def test_event_save_rejects_bad_send_time(self):
+        with mock_aws():
+            _create_tables()
+            _stub_secret()
+            _reload_lambda_modules()
+            from admin_handler import handler
+
+            resp = handler(_event("POST", "/admin/event", body={
+                "eventSlug": "bad-time",
+                "event_label": "Bad Time",
+                "date": "2026-05-15",
+                "startTime": "21:00",
+                "city": "Louisville, KY",
+                "capacity": 20,
+                "event_timezone": "America/New_York",
+                "day_before_send_time": "banana",
+            }), None)
+            self.assertEqual(resp["statusCode"], 400)
+            self.assertIn("day_before_send_time", json.loads(resp["body"])["error"])
+
+    def test_event_save_rejects_non_aligned_send_time(self):
+        with mock_aws():
+            _create_tables()
+            _stub_secret()
+            _reload_lambda_modules()
+            from admin_handler import handler
+
+            resp = handler(_event("POST", "/admin/event", body={
+                "eventSlug": "bad-minute",
+                "event_label": "Bad Minute",
+                "date": "2026-05-15",
+                "startTime": "21:00",
+                "city": "Louisville, KY",
+                "capacity": 20,
+                "event_timezone": "America/New_York",
+                "day_before_send_time": "17:32",
+            }), None)
+            self.assertEqual(resp["statusCode"], 400)
+            self.assertIn("5-minute intervals", json.loads(resp["body"])["error"])
+
+
+class TestReminderSchedulePrecision(unittest.TestCase):
+    def test_scheduled_reminder_waits_for_exact_local_minute(self):
+        with mock_aws():
+            _create_tables()
+            _stub_secret()
+            _reload_lambda_modules()
+
+            boto3.resource("dynamodb").Table("rsvp-events-test").put_item(Item={
+                "eventId": "current",
+                "eventSlug": "precision-night",
+                "date": "2026-05-15",
+                "event_timezone": "America/New_York",
+                "reminderTiming": "day_before",
+                "day_before_send_time": "17:30",
+            })
+
+            import reminder_handler
+
+            class FakeDateTime(datetime):
+                @classmethod
+                def now(cls, tz=None):
+                    base = datetime(2026, 5, 14, 17, 25, tzinfo=timezone.utc)
+                    return base.astimezone(tz) if tz else base
+
+            with patch.object(reminder_handler, 'datetime', FakeDateTime):
+                result = reminder_handler.handler({"source": "eventbridge", "timing": "day_before"}, None)
+            self.assertTrue(result["skipped"])
+            self.assertEqual(result["reason"], "not the right minute")
+
+# ── Runner ────────────────────────────────────────────────────────────────────
+
+class TestAccessRequestNameCapture(unittest.TestCase):
+    def test_access_request_stores_last_name_from_structured_fields(self):
+        with mock_aws():
+            _create_tables()
+            _stub_secret()
+            _reload_lambda_modules()
+
+            from access_request import handler
+            resp = handler({
+                "httpMethod": "POST",
+                "path": "/access",
+                "headers": {"origin": "https://admin.rsvpsociety.com"},
+                "body": json.dumps({
+                    "firstName": "Josh",
+                    "lastName": "Holman",
+                    "phone": "2702269660",
+                    "source": "web",
+                    "smsOptIn": True,
+                }),
+            }, None)
+
+            self.assertEqual(resp["statusCode"], 200)
+            item = boto3.resource("dynamodb", region_name="us-east-1").Table("rsvp-members-test").get_item(
+                Key={"phone": "+12702269660"}
+            )["Item"]
+            self.assertEqual(item["name"], "Josh")
+            self.assertEqual(item["lastName"], "Holman")
+
+    def test_access_request_splits_legacy_name_as_fallback(self):
+        with mock_aws():
+            _create_tables()
+            _stub_secret()
+            _reload_lambda_modules()
+
+            from access_request import handler
+            resp = handler({
+                "httpMethod": "POST",
+                "path": "/access",
+                "headers": {"origin": "https://admin.rsvpsociety.com"},
+                "body": json.dumps({
+                    "name": "Josh Holman",
+                    "phone": "2702269660",
+                    "source": "web",
+                    "smsOptIn": True,
+                }),
+            }, None)
+
+            self.assertEqual(resp["statusCode"], 200)
+            item = boto3.resource("dynamodb", region_name="us-east-1").Table("rsvp-members-test").get_item(
+                Key={"phone": "+12702269660"}
+            )["Item"]
+            self.assertEqual(item["name"], "Josh")
+            self.assertEqual(item["lastName"], "Holman")
+
+
+class TestLegacyNameNormalization(unittest.TestCase):
+    def test_list_members_normalizes_legacy_full_name(self):
+        with mock_aws():
+            _create_tables()
+            _stub_secret()
+            _reload_lambda_modules()
+            boto3.resource("dynamodb", region_name="us-east-1").Table("rsvp-members-test").put_item(Item={
+                "phone": "+12702269660",
+                "name": "Josh Holman",
+                "status": "APPROVED",
+                "createdAt": "2026-03-06T12:00:00+00:00",
+            })
+
+            from admin_handler import handler
+            resp = handler(_event("GET", "/admin/members", qs={"status": "APPROVED"}), None)
+            body = json.loads(resp["body"])
+            self.assertEqual(resp["statusCode"], 200)
+            self.assertEqual(body["members"][0]["name"], "Josh")
+            self.assertEqual(body["members"][0]["lastName"], "Holman")
+
+    def test_search_members_matches_last_name_from_legacy_full_name(self):
+        with mock_aws():
+            _create_tables()
+            _stub_secret()
+            _reload_lambda_modules()
+            boto3.resource("dynamodb", region_name="us-east-1").Table("rsvp-members-test").put_item(Item={
+                "phone": "+12702269660",
+                "name": "Josh Holman",
+                "status": "APPROVED",
+                "createdAt": "2026-03-06T12:00:00+00:00",
+            })
+
+            import member_store
+            matches = member_store.search_members("holman")
+            self.assertEqual(len(matches), 1)
+            self.assertEqual(matches[0]["name"], "Josh")
+            self.assertEqual(matches[0]["lastName"], "Holman")
+
+    def test_get_confirmed_normalizes_legacy_member_name(self):
+        with mock_aws():
+            _create_tables()
+            _stub_secret()
+            _reload_lambda_modules()
+            ddb = boto3.resource("dynamodb", region_name="us-east-1")
+            ddb.Table("rsvp-members-test").put_item(Item={
+                "phone": "+12702269660",
+                "name": "Josh Holman",
+                "status": "APPROVED",
+                "createdAt": "2026-03-06T12:00:00+00:00",
+            })
+            ddb.Table("rsvp-event-invites-test").put_item(Item={
+                "eventId": "Swim Test",
+                "phone": "+12702269660",
+                "status": "CONFIRMED",
+                "confirmedAt": "2026-03-06T12:05:00+00:00",
+            })
+
+            from admin_handler import handler
+            resp = handler(_event("GET", "/admin/members/confirmed", qs={"eventId": "Swim Test"}), None)
+            body = json.loads(resp["body"])
+            self.assertEqual(resp["statusCode"], 200)
+            self.assertEqual(body["members"][0]["name"], "Josh")
+            self.assertEqual(body["members"][0]["lastName"], "Holman")
+            self.assertEqual(body["members"][0]["fullName"], "Josh Holman")
+
+
+if __name__ == "__main__":
+    loader = unittest.TestLoader()
+    suite  = unittest.TestSuite()
+    for cls in [
+        TestVenueReveal,
+        TestUnauthorizedRejection,
+        TestFirstApprovalWelcome,
+        TestDeleteTombstoning,
+        TestDuplicateAttendance,
+        TestEventSaveValidation,
+        TestEventSchedulingNormalization,
+        TestReminderSchedulePrecision,
+        TestAccessRequestNameCapture,
+        TestLegacyNameNormalization,
+    ]:
+        suite.addTests(loader.loadTestsFromTestCase(cls))
+
+    runner = unittest.TextTestRunner(verbosity=2)
+    result = runner.run(suite)
+    sys.exit(0 if result.wasSuccessful() else 1)

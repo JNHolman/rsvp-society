@@ -22,6 +22,7 @@ resource "aws_lambda_function" "reminder_handler" {
       QUO_API_KEY_SECRET_ID = var.quo_api_key_secret_id
       QUO_PHONE_NUMBER_ID   = var.quo_phone_number_id
       SMS_ENABLED           = "true"
+      AUDIT_LOG_TABLE_NAME  = aws_dynamodb_table.audit_log.name
     }
   }
 }
@@ -102,14 +103,14 @@ resource "aws_api_gateway_integration_response" "admin_invite_reminder_options_2
 # -----------------------------
 resource "aws_cloudwatch_event_rule" "reminder_day_before" {
   name                = "rsvp-reminder-day-before"
-  description         = "Checks hourly and sends day-before reminders at 6 PM local event time"
-  schedule_expression = "cron(0 * * * ? *)"
+  description         = "Every 5 min during 6 PM ET window (22-23 UTC covers EST and EDT)"
+  schedule_expression = "cron(0/5 22-23 * * ? *)"
 }
 
 resource "aws_cloudwatch_event_rule" "reminder_day_of" {
   name                = "rsvp-reminder-day-of"
-  description         = "Checks hourly and sends day-of reminders at 11 AM local event time"
-  schedule_expression = "cron(0 * * * ? *)"
+  description         = "Every 5 min during 11 AM ET window (15-16 UTC covers EST and EDT)"
+  schedule_expression = "cron(0/5 15-16 * * ? *)"
 }
 
 resource "aws_cloudwatch_event_target" "reminder_day_before" {

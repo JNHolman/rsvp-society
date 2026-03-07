@@ -497,30 +497,26 @@ export async function sendInvites() {
 
 export async function sendReminderBlast() {
   const button = $('reminder-blast-btn');
-  const modeSelect = $('reminder-mode-select');
   if (!button) return;
 
-  const reminderMode = modeSelect?.value || REMINDER_MODES.DAY_BEFORE;
-  const isDayOf = reminderMode === REMINDER_MODES.DAY_OF;
-  const reminderLabel = isDayOf ? 'day-of' : 'day-before';
+  const customMessage = ($('manual-blast-message')?.value || '').trim();
+  if (!customMessage) {
+    showToast('Enter a message before sending', 'error');
+    return;
+  }
 
   let eventLabel = 'current event';
-  let reminderTiming = REMINDER_MODES.MANUAL;
-
   try {
     const eventData = await apiJson(ROUTES.ADMIN_EVENT);
     if (eventData.ok && eventData.event) {
       eventLabel = eventData.event.eventSlug || eventData.event.date || 'current event';
-      reminderTiming = eventData.event.reminderTiming || REMINDER_MODES.MANUAL;
     }
   } catch {
-    // keep defaults
+    // keep default
   }
 
-  const shouldContinue = window.confirm(
-    `Send ${reminderLabel} reminder blast for ${eventLabel}? Current auto-reminder setting is “${reminderTiming}”.`,
-  );
-  if (!shouldContinue) return;
+  const preview = customMessage.slice(0, 120) + (customMessage.length > 120 ? '…' : '');
+  if (!window.confirm(`Send blast to all confirmed members for ${eventLabel}?\n\n"${preview}"`)) return;
 
   button.disabled = true;
   button.textContent = 'Sending...';
@@ -528,14 +524,16 @@ export async function sendReminderBlast() {
   try {
     const data = await apiJson(ROUTES.ADMIN_INVITE_REMINDER, {
       method: 'POST',
-      body: { timing: reminderMode, is_day_of: isDayOf },
+      body: { timing: 'day_before', is_day_of: false, custom_message: customMessage },
     });
     const sentCount = Number(data.sent ?? data.smsSent ?? 0);
-    showToast(`${reminderLabel} reminder blast sent — ${sentCount} SMS delivered`, 'success');
+    showToast(`Blast sent — ${sentCount} SMS delivered`, 'success');
+    const textarea = $('manual-blast-message');
+    if (textarea) textarea.value = '';
   } catch (error) {
-    showToast(`Reminder blast failed: ${error.message}`, 'error');
+    showToast(`Blast failed: ${error.message}`, 'error');
   } finally {
     button.disabled = false;
-    button.textContent = 'Reminder Blast';
+    button.textContent = 'Send Reminder Blast';
   }
 }

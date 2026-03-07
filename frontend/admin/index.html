@@ -149,11 +149,17 @@
 <div class="invite-actions">
 <button class="invite-btn-preview" id="preview-run-btn">Preview Invite List</button>
 <button class="invite-btn-send" disabled="" id="send-btn">Send Invites</button>
-<select class="form-select invite-inline-select" id="reminder-mode-select">
-<option value="day_before">Day-Before Reminder</option>
-<option value="day_of">Day-Of Reminder</option>
-</select>
-<button class="invite-btn-preview btn-ghost-push" id="reminder-blast-btn">Send Reminder Blast</button>
+</div>
+<div class="manual-blast-row">
+<label class="manual-blast-label" for="manual-blast-message">Manual Blast</label>
+<textarea
+  id="manual-blast-message"
+  class="manual-blast-textarea"
+  placeholder="Type a message and hit Send. Use {name} to personalize. Sends to all CONFIRMED members."
+  rows="3"
+  maxlength="320"
+></textarea>
+<button class="invite-btn-preview" id="reminder-blast-btn">Send Reminder Blast</button>
 </div>
 <div class="invite-back-row">
 <button class="back-link-btn" id="invite-back-btn">← Back to Event</button>
@@ -187,11 +193,11 @@
 </div>
 <div class="event-field">
 <label>Date</label>
-<input id="ev-date" placeholder="Saturday, May 15, 2026" type="text"/>
+<input id="ev-date" type="date"/>
 </div>
 <div class="event-field">
 <label>Start Time</label>
-<input id="ev-time" placeholder="9:00 PM" type="text"/>
+<input id="ev-time" step="300" type="time"/>
 </div>
 <div class="event-field">
 <label>City</label>
@@ -230,14 +236,24 @@
 <div class="checkbox-row">
 <label class="checkbox-option">
 <input class="checkbox-input" id="ev-remind-day-before" type="checkbox"/>
-<span class="checkbox-label">Day Before  <span class="checkbox-time">6 PM local event time</span></span>
+<span class="checkbox-label">Day Before</span>
 </label>
+<div class="event-field-inline reminder-time-inline">
+<label class="sr-only" for="ev-remind-day-before-time">Day before send time</label>
+<input id="ev-remind-day-before-time" step="300" type="time" value="18:00"/>
+<span class="checkbox-time">local event time</span>
+</div>
 <label class="checkbox-option">
 <input class="checkbox-input" id="ev-remind-day-of" type="checkbox"/>
-<span class="checkbox-label">Day Of  <span class="checkbox-time">11 AM local event time</span></span>
+<span class="checkbox-label">Day Of</span>
 </label>
+<div class="event-field-inline reminder-time-inline">
+<label class="sr-only" for="ev-remind-day-of-time">Day of send time</label>
+<input id="ev-remind-day-of-time" step="300" type="time" value="11:00"/>
+<span class="checkbox-time">local event time</span>
 </div>
-<div class="field-help">Check both to send both. Uncheck all for manual only via the Invite tab. Louisville stays Eastern by default; switch to Central when needed.</div>
+</div>
+<div class="field-help">Check both to send both. Uncheck all for manual only via the Invite tab. Set exact send times in 5-minute increments. Louisville stays Eastern by default; switch to Central when needed.</div>
 </div>
 <!-- Event Type + Vibe Tag -->
 <div class="event-field">
