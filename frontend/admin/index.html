@@ -283,6 +283,22 @@
 <label>Event Description <span class="form-hint">Brief for Jade — context she uses when building messages</span></label>
 <textarea class="event-description" id="ev-description" placeholder="e.g. Rooftop at The Tribe. Open bar first hour. Dress sharp. Capacity is tight." rows="3"></textarea>
 </div>
+<div class="event-field">
+<label>End Time <span class="form-hint">e.g. 2:00 AM — Jade uses if set</span></label>
+<input id="ev-end-time" step="300" type="time"/>
+</div>
+<div class="event-field">
+<label>Ticket URL <span class="form-hint">Posh / Eventbrite — Jade appends to RSVP confirmation</span></label>
+<input id="ev-ticket-url" placeholder="https://posh.vip/e/…" type="url"/>
+</div>
+<div class="event-field">
+<label>Section Info <span class="form-hint">Jade answers table/section questions with this</span></label>
+<input id="ev-section-info" placeholder="e.g. Sections available — DM for details" type="text"/>
+</div>
+<div class="event-field event-grid-full toggle-row">
+<input class="toggle-input" id="ev-allow-plus-ones" type="checkbox"/>
+<label class="toggle-label" for="ev-allow-plus-ones">Allow plus ones — Jade tells RSVP'd members they can bring one guest</label>
+</div>
 </div>
 <div class="event-actions">
 <button class="event-save-btn" id="event-save-btn">Save Event</button>
@@ -344,6 +360,7 @@
 <div class="analytics-empty">Select an event above</div>
 </div>
 </div>
+<!-- ── Attendance Section removed — use checkin.html at the door ── -->
 </main>
 </div>
 <div class="toast" id="toast"></div>

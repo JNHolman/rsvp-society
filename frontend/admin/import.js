@@ -124,7 +124,6 @@ function renderImportPreview() {
 export function openImport() {
   setHidden('import-modal', false);
   state.importRows = [];
-  state.importDetectedSource = 'csv';
   state.importSkipped = 0;
   $('import-preview')?.classList.remove('is-visible');
   setImportConfirmEnabled(false);
@@ -180,7 +179,7 @@ export function parseCSV(file) {
         return;
       }
 
-      const row = { phone };
+      const row = { phone, smsOptIn: true };
       if (nameIndex !== -1 && cells[nameIndex]) row.name = cells[nameIndex].trim();
       if (lastNameIndex !== -1 && cells[lastNameIndex]) row.lastName = cells[lastNameIndex].trim();
       if (emailIndex !== -1 && cells[emailIndex]) row.email = cells[emailIndex].trim();

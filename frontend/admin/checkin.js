@@ -172,17 +172,17 @@ function renderGuestList(members) {
 function renderRow(m) {
   const alreadyIn = checkedIn.has(m.phone);
   const safe = m.phone.replace(/\D/g, '');
-  const guestName = displayName(m);
   return `
     <div class="guest-row ${alreadyIn ? 'checked-in' : ''}" id="row-${safe}">
       <div class="guest-info">
         <div class="guest-name">${escHtml(displayName(m))}</div>
-        <div class="guest-meta">${m.phone}</div>
+        <div class="guest-meta">${escHtml(m.phone)}</div>
       </div>
       <button
         class="checkin-btn ${alreadyIn ? 'done' : ''}"
         id="btn-${safe}"
-        onclick="checkIn('${m.phone}', ${JSON.stringify(guestName)})"
+        data-phone="${escHtml(m.phone)}"
+        data-name="${escHtml(displayName(m))}"
         ${alreadyIn ? 'disabled' : ''}
       >${alreadyIn ? '✓ In' : 'Check In'}</button>
     </div>`;
@@ -246,11 +246,16 @@ function escHtml(str) {
     .replace(/'/g, '&#39;');
 }
 
-$('token-input')?.addEventListener('keydown', (e) => {
-  if (e.key === 'Enter') doLogin();
-});
-
 window.addEventListener('DOMContentLoaded', () => {
+  $('token-input')?.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') doLogin();
+  });
+
+  // Delegated listener for check-in buttons — avoids onclick injection issues
+  document.getElementById('guest-list')?.addEventListener('click', (e) => {
+    const btn = e.target.closest('.checkin-btn:not(.done):not([disabled])');
+    if (btn) checkIn(btn.dataset.phone || '', btn.dataset.name || '');
+  });
   const saved = sessionStorage.getItem('rsvp_checkin_token') || sessionStorage.getItem('rsvp_admin_token');
   const exp = parseInt(sessionStorage.getItem('rsvp_checkin_token_exp') || sessionStorage.getItem('rsvp_token_exp') || '0', 10);
   if (saved && Date.now() < exp) {

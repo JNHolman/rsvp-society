@@ -1,352 +1,1066 @@
 <!DOCTYPE html>
-
 <html lang="en">
 <head>
-<meta charset="utf-8"/>
-<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
-<title>RSVP Society — Admin</title>
-<meta content="noindex, nofollow" name="robots"/>
-<link href="https://fonts.googleapis.com" rel="preconnect"/>
-<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
-<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;1,300;1,400&amp;family=Montserrat:wght@200;300;400;500&amp;display=swap" rel="stylesheet"/>
-<link href="./base.css" rel="stylesheet"/>
-<link href="./shell.css" rel="stylesheet"/>
-<link href="./invite.css" rel="stylesheet"/>
-<link href="./event.css" rel="stylesheet"/>
-<link href="./attendance.css" rel="stylesheet"/>
-<link href="./analytics.css" rel="stylesheet"/>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<!-- Primary Meta -->
+<title>RSVP Society — Your Presence Is Requested</title>
+<meta name="description" content="The list you didn't know existed. RSVP Society is a monthly invitation-only R&B experience. Your presence is requested. Your vibe must be verified.">
+<meta name="keywords" content="RSVP Society, invite only events, exclusive R&B events, private party, invitation only nightlife, curated experiences">
+<meta name="author" content="RSVP Society">
+<meta name="robots" content="index, follow">
+<link rel="canonical" href="https://rsvpsociety.com">
+
+<!-- Open Graph -->
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://rsvpsociety.com">
+<meta property="og:title" content="RSVP Society — Your Presence Is Requested">
+<meta property="og:description" content="The list you didn't know existed. Monthly invitation-only R&B experiences. Your vibe must be verified.">
+<meta property="og:site_name" content="RSVP Society">
+
+<!-- Twitter -->
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:url" content="https://rsvpsociety.com">
+<meta name="twitter:title" content="RSVP Society — Your Presence Is Requested">
+<meta name="twitter:description" content="The list you didn't know existed. Monthly invitation-only R&B experiences. Your vibe must be verified.">
+
+<!-- Favicon — inline SVG gold [R] mark -->
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='15' fill='%23060608' stroke='%23C9A84C' stroke-width='1.5'/%3E%3Ctext x='16' y='21' font-family='Georgia,serif' font-size='14' font-weight='bold' fill='%23E8D08A' text-anchor='middle'%3ER%3C/text%3E%3C/svg%3E">
+<link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='15' fill='%23060608' stroke='%23C9A84C' stroke-width='1.5'/%3E%3Ctext x='16' y='21' font-family='Georgia,serif' font-size='14' font-weight='bold' fill='%23E8D08A' text-anchor='middle'%3ER%3C/text%3E%3C/svg%3E">
+
+<!-- Theme -->
+<meta name="theme-color" content="#060608">
+<meta name="msapplication-TileColor" content="#060608">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,300;1,400;1,600&family=Montserrat:wght@200;300;400;500&display=swap" rel="stylesheet">
+<style>
+*, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+:root {
+  --gold: #D4B96A;
+  --gold-light: #EDD98A;
+  --gold-warm: #D4A847;
+  --gold-dim: #9A7A40;
+  --black: #060608;
+  --black-2: #0C0C10;
+  --black-3: #111116;
+  --white: #F8F4EC;
+  --white-dim: rgba(248,244,236,0.75);
+  --white-faint: rgba(248,244,236,0.12);
+  --amber: rgba(201,140,40,0.12);
+}
+
+html { scroll-behavior: smooth; }
+
+body {
+  background: var(--black);
+  color: var(--white);
+  font-family: 'Montserrat', sans-serif;
+  font-weight: 300;
+  overflow-x: hidden;
+  cursor: none;
+}
+
+/* CURSOR */
+.cursor {
+  position: fixed;
+  width: 6px;
+  height: 6px;
+  background: var(--gold-light);
+  border-radius: 50%;
+  pointer-events: none;
+  z-index: 9999;
+  transform: translate(-50%,-50%);
+  transition: width .25s, height .25s;
+
+}
+.cursor-trail {
+  position: fixed;
+  width: 28px;
+  height: 28px;
+  border: 1px solid rgba(201,168,76,0.35);
+  border-radius: 50%;
+  pointer-events: none;
+  z-index: 9998;
+  transform: translate(-50%,-50%);
+  transition: width .3s ease, height .3s ease, border-color .3s ease;
+}
+
+/* NAV */
+nav {
+  position: fixed;
+  top: 0; left: 0; right: 0;
+  z-index: 200;
+  padding: 28px 60px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: linear-gradient(180deg, rgba(6,6,8,0.85) 0%, transparent 100%);
+  backdrop-filter: blur(0px);
+}
+
+.nav-wordmark {
+  font-family: 'Cormorant Garamond', serif;
+  font-weight: 400;
+  font-size: 14px;
+  letter-spacing: 0.38em;
+  color: var(--gold);
+  text-decoration: none;
+  opacity: 0;
+  animation: fadeIn 1s ease 2s forwards;
+}
+
+.nav-links {
+  list-style: none;
+  display: flex;
+  gap: 44px;
+  opacity: 0;
+  animation: fadeIn 1s ease 2.2s forwards;
+}
+
+.nav-links a {
+  font-size: 9.5px;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+  color: rgba(248,244,236,0.7);
+  text-decoration: none;
+  transition: color .3s;
+}
+.nav-links a:hover { color: var(--gold); }
+
+/* ============ HERO ============ */
+.hero {
+  min-height: 100vh;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.hero-bg {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(ellipse 80% 60% at 50% 40%, rgba(180,120,20,0.07) 0%, transparent 65%),
+    radial-gradient(ellipse 40% 40% at 20% 80%, rgba(150,80,10,0.05) 0%, transparent 60%),
+    radial-gradient(ellipse 30% 50% at 80% 20%, rgba(160,100,15,0.04) 0%, transparent 60%),
+    var(--black);
+}
+
+.orb {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(80px);
+  pointer-events: none;
+  animation: breathe 8s ease-in-out infinite;
+}
+.orb-1 {
+  width: 500px; height: 500px;
+  background: radial-gradient(circle, rgba(201,148,40,0.06) 0%, transparent 70%);
+  top: -10%; left: 30%;
+  animation-delay: 0s;
+}
+.orb-2 {
+  width: 350px; height: 350px;
+  background: radial-gradient(circle, rgba(180,100,20,0.05) 0%, transparent 70%);
+  bottom: 10%; right: 10%;
+  animation-delay: -3s;
+}
+.orb-3 {
+  width: 280px; height: 280px;
+  background: radial-gradient(circle, rgba(201,168,76,0.04) 0%, transparent 70%);
+  top: 40%; left: 5%;
+  animation-delay: -5s;
+}
+
+.hero::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.035'/%3E%3C/svg%3E");
+  pointer-events: none;
+  z-index: 1;
+  opacity: 0.5;
+}
+
+.hero-rule-top,
+.hero-rule-bottom {
+  position: absolute;
+  left: 60px;
+  right: 60px;
+  height: 1px;
+  background: linear-gradient(to right, transparent, rgba(201,168,76,0.12) 20%, rgba(201,168,76,0.12) 80%, transparent);
+}
+.hero-rule-top { top: 18%; }
+.hero-rule-bottom { bottom: 18%; }
+
+.hero-center {
+  position: relative;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding-top: 100px;
+}
+
+.logo-wrap {
+  opacity: 0;
+  animation: logoIn 1.8s cubic-bezier(0.16,1,0.3,1) 0.2s forwards;
+}
+
+.logo-ring-container {
+  position: relative;
+  width: 210px;
+  height: 210px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.ring-glow {
+  position: absolute;
+  inset: -12px;
+  border-radius: 50%;
+  border: 1px solid rgba(201,168,76,0.08);
+}
+
+.ring-outer {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 1.5px solid var(--gold);
+  box-shadow: 0 0 24px rgba(201,168,76,0.08), inset 0 0 24px rgba(201,168,76,0.03);
+}
+
+.ring-inner {
+  position: absolute;
+  inset: 9px;
+  border-radius: 50%;
+  border: 0.5px solid rgba(201,168,76,0.2);
+}
+
+.ring-fill {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: var(--black);
+}
+
+.logo-inner {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+}
+
+.logo-main {
+  display: flex;
+  align-items: baseline;
+  gap: 1px;
+}
+
+.logo-bracket {
+  font-family: 'Cormorant Garamond', serif;
+  font-weight: 300;
+  font-size: 44px;
+  color: var(--gold);
+  line-height: 1;
+  opacity: 0.6;
+}
+
+.logo-letters {
+  font-family: 'Cormorant Garamond', serif;
+  font-weight: 600;
+  font-size: 42px;
+  letter-spacing: 0.06em;
+  color: var(--gold-light);
+  line-height: 1;
+}
+
+.logo-sub {
+  font-family: 'Montserrat', sans-serif;
+  font-weight: 300;
+  font-size: 10px;
+  letter-spacing: 0.65em;
+  color: var(--gold-light);
+  text-transform: uppercase;
+  padding-left: 0.65em;
+  opacity: 0.9;
+}
+
+.hero-headline-wrap {
+  margin-top: 60px;
+  text-align: center;
+  opacity: 0;
+  animation: fadeUp 1.2s ease 0.9s forwards;
+}
+
+.hero-headline {
+  font-family: 'Cormorant Garamond', serif;
+  font-weight: 300;
+  font-style: italic;
+  font-size: 76px;
+  line-height: 1.05;
+  color: var(--white);
+  letter-spacing: -0.01em;
+}
+
+.hero-headline strong {
+  font-style: normal;
+  font-weight: 500;
+  color: var(--gold-light);
+  display: block;
+}
+
+.hero-sub {
+  margin-top: 20px;
+  font-size: 11px;
+  letter-spacing: 0.42em;
+  text-transform: uppercase;
+  color: rgba(248,244,236,0.7);
+}
+
+.pillars {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  margin-top: 28px;
+  justify-content: center;
+  opacity: 0;
+  animation: fadeUp 1s ease 1.2s forwards;
+}
+
+.pillar {
+  font-size: 8px;
+  letter-spacing: 0.38em;
+  text-transform: uppercase;
+  color: var(--gold);
+  opacity: 0.9;
+}
+
+.pillar-dot {
+  width: 2px; height: 2px;
+  border-radius: 50%;
+  background: var(--gold-dim);
+  opacity: 0.8;
+}
+
+.hero-actions {
+  margin-top: 52px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 20px;
+  opacity: 0;
+  animation: fadeUp 1s ease 1.5s forwards;
+  padding-bottom: 60px;
+}
+
+.btn-primary {
+  display: inline-block;
+  padding: 18px 64px;
+  background: transparent;
+  border: 1px solid rgba(201,168,76,0.55);
+  color: var(--gold-light);
+  font-family: 'Montserrat', sans-serif;
+  font-size: 10px;
+  font-weight: 400;
+  letter-spacing: 0.42em;
+  text-transform: uppercase;
+  text-decoration: none;
+  position: relative;
+  overflow: hidden;
+  transition: color .4s, border-color .4s;
+  cursor: none;
+}
+
+.btn-primary::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(135deg, var(--gold-dim), var(--gold));
+  transform: translateX(-101%);
+  transition: transform .45s cubic-bezier(0.16,1,0.3,1);
+}
+
+.btn-primary:hover { color: var(--black); border-color: var(--gold); }
+.btn-primary:hover::before { transform: translateX(0); }
+
+.btn-primary span { position: relative; z-index: 1; }
+
+.hero-note {
+  font-family: 'Montserrat', sans-serif;
+  font-size: 8px;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+  color: rgba(248,244,236,0.75);
+}
+
+.scroll-indicator {
+  position: absolute;
+  bottom: 36px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  opacity: 0;
+  animation: fadeIn 1s ease 3s forwards;
+}
+
+.scroll-indicator span {
+  font-size: 7.5px;
+  letter-spacing: 0.42em;
+  text-transform: uppercase;
+  color: rgba(212,185,106,0.55);
+}
+
+/* ============ STATEMENT SECTION ============ */
+.statement {
+  position: relative;
+  padding: 120px 60px;
+  background: var(--black-2);
+  border-top: 1px solid rgba(201,168,76,0.07);
+  border-bottom: 1px solid rgba(201,168,76,0.07);
+  overflow: hidden;
+}
+
+.statement-bg-text {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  font-family: 'Cormorant Garamond', serif;
+  font-size: 220px;
+  font-weight: 600;
+  color: rgba(201,168,76,0.02);
+  white-space: nowrap;
+  pointer-events: none;
+  letter-spacing: -0.05em;
+  line-height: 1;
+}
+
+.statement-grid {
+  position: relative;
+  z-index: 2;
+  display: grid;
+  grid-template-columns: 1fr 1.2fr;
+  gap: 100px;
+  align-items: center;
+  max-width: 1100px;
+  margin: 0 auto;
+}
+
+.statement-label {
+  font-size: 8px;
+  letter-spacing: 0.48em;
+  text-transform: uppercase;
+  color: var(--gold);
+  opacity: 0.75;
+  margin-bottom: 28px;
+}
+
+.statement-headline {
+  font-family: 'Cormorant Garamond', serif;
+  font-weight: 300;
+  font-size: 50px;
+  line-height: 1.1;
+  color: var(--white);
+}
+
+.statement-headline em {
+  font-style: italic;
+  color: var(--gold-light);
+}
+
+.statement-rule {
+  width: 40px;
+  height: 1px;
+  background: var(--gold);
+  opacity: 0.6;
+  margin: 32px 0;
+}
+
+.statement-body p {
+  font-size: 12.5px;
+  line-height: 2;
+  color: var(--white-dim);
+  letter-spacing: 0.04em;
+}
+
+.statement-body p + p { margin-top: 20px; }
+
+/* ============ EXPERIENCE STRIP ============ */
+.experience {
+  padding: 100px 60px;
+  max-width: 1100px;
+  margin: 0 auto;
+  text-align: center;
+}
+
+.section-label {
+  font-size: 8px;
+  letter-spacing: 0.48em;
+  text-transform: uppercase;
+  color: var(--gold);
+  opacity: 0.75;
+  margin-bottom: 60px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 20px;
+}
+
+.section-label::before,
+.section-label::after {
+  content: '';
+  flex: 1;
+  max-width: 80px;
+  height: 1px;
+  background: linear-gradient(to right, transparent, rgba(201,168,76,0.2));
+}
+
+.section-label::after {
+  background: linear-gradient(to left, transparent, rgba(201,168,76,0.2));
+}
+
+.exp-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 2px;
+}
+
+.exp-card {
+  background: var(--black-2);
+  padding: 52px 36px;
+  position: relative;
+  overflow: hidden;
+  transition: background .4s;
+}
+
+.exp-card::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 1px;
+  background: linear-gradient(to right, transparent, rgba(201,168,76,0.15), transparent);
+  transform: scaleX(0);
+  transition: transform .5s ease;
+}
+
+.exp-card:hover { background: var(--black-3); }
+.exp-card:hover::before { transform: scaleX(1); }
+
+.exp-number {
+  font-family: 'Cormorant Garamond', serif;
+  font-size: 72px;
+  font-weight: 300;
+  color: rgba(201,168,76,0.06);
+  line-height: 1;
+  margin-bottom: 20px;
+  transition: color .4s;
+}
+
+.exp-card:hover .exp-number { color: rgba(201,168,76,0.1); }
+
+.exp-title {
+  font-family: 'Cormorant Garamond', serif;
+  font-size: 22px;
+  font-weight: 400;
+  color: var(--white);
+  margin-bottom: 14px;
+  letter-spacing: 0.04em;
+}
+
+.exp-desc {
+  font-size: 11px;
+  line-height: 1.9;
+  color: var(--white-dim);
+  letter-spacing: 0.03em;
+}
+
+/* ============ NEXT EVENT ============ */
+.next-event {
+  position: relative;
+  padding: 120px 60px;
+  text-align: center;
+  background: var(--black);
+  overflow: hidden;
+}
+
+.event-glow {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 700px;
+  height: 400px;
+  background: radial-gradient(ellipse, rgba(201,148,40,0.06) 0%, transparent 70%);
+  pointer-events: none;
+}
+
+.event-eyebrow {
+  font-size: 8px;
+  letter-spacing: 0.5em;
+  text-transform: uppercase;
+  color: var(--gold);
+  opacity: 0.75;
+  margin-bottom: 36px;
+}
+
+.event-dividers {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 40px;
+  margin: 48px 0;
+}
+
+.event-stat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.event-stat-label {
+  font-size: 7px;
+  letter-spacing: 0.45em;
+  text-transform: uppercase;
+  color: rgba(212,185,106,0.65);
+}
+
+.event-stat-val {
+  font-family: 'Cormorant Garamond', serif;
+  font-size: 18px;
+  font-weight: 400;
+  color: var(--white);
+  letter-spacing: 0.08em;
+}
+
+.vert-rule {
+  width: 1px;
+  height: 48px;
+  background: rgba(201,168,76,0.1);
+}
+
+/* ============ FOOTER ============ */
+footer {
+  background: var(--black-2);
+  border-top: 1px solid rgba(201,168,76,0.07);
+  padding: 44px 60px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.footer-brand {
+  font-family: 'Cormorant Garamond', serif;
+  font-size: 13px;
+  letter-spacing: 0.3em;
+  color: var(--gold);
+  opacity: 0.55;
+}
+
+.footer-copy {
+  font-size: 8.5px;
+  letter-spacing: 0.18em;
+  color: rgba(248,244,236,0.45);
+}
+
+.footer-nav {
+  list-style: none;
+  display: flex;
+  gap: 36px;
+}
+
+.footer-nav a {
+  font-size: 8.5px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: rgba(248,244,236,0.5);
+  text-decoration: none;
+  transition: color .3s;
+}
+
+.footer-nav a:hover { color: var(--gold); }
+
+/* ============ ANIMATIONS ============ */
+@keyframes logoIn {
+  from { opacity: 0; transform: scale(0.88); filter: blur(4px); }
+  to { opacity: 1; transform: scale(1); filter: blur(0); }
+}
+
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(30px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes breathe {
+  0%, 100% { transform: scale(1) translateY(0); opacity: 1; }
+  50% { transform: scale(1.08) translateY(-20px); opacity: 0.7; }
+}
+
+/* ============ MOBILE ============ */
+@media (max-width: 768px) {
+  nav { padding: 20px 24px; }
+  .nav-links { gap: 24px; }
+  .nav-links li:nth-child(2) { display: none; }
+
+  .logo-ring-container { width: 170px; height: 170px; }
+  .logo-letters { font-size: 34px; }
+  .logo-bracket { font-size: 36px; }
+
+  .hero-headline { font-size: 46px; }
+
+  .statement { padding: 72px 24px; }
+  .statement-grid { grid-template-columns: 1fr; gap: 40px; }
+  .statement-headline { font-size: 36px; }
+  .statement-bg-text { font-size: 100px; }
+
+  .experience { padding: 72px 24px; }
+  .exp-grid { grid-template-columns: 1fr; }
+
+  .next-event { padding: 80px 24px; }
+
+  footer { flex-direction: column; gap: 20px; text-align: center; padding: 36px 24px; }
+  .hero-rule-top, .hero-rule-bottom { left: 24px; right: 24px; }
+}
+
+/* ACCESS SECTION */
+.access-section {
+  padding: 100px 60px;
+  text-align: center;
+  position: relative;
+  overflow: hidden;
+  background: var(--black-2);
+  border-top: 1px solid rgba(201,168,76,0.07);
+  border-bottom: 1px solid rgba(201,168,76,0.07);
+}
+
+.access-sub {
+  font-size: 10px;
+  letter-spacing: 0.32em;
+  text-transform: uppercase;
+  color: rgba(248,244,236,0.58);
+  margin-bottom: 48px;
+}
+
+.phone-form {
+  max-width: 380px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.phone-input {
+  width: 100%;
+  padding: 20px 24px;
+  background: rgba(245,239,224,0.03);
+  border: 1px solid rgba(201,168,76,0.15);
+  color: var(--white);
+  font-family: 'Montserrat', sans-serif;
+  font-size: 13px;
+  font-weight: 300;
+  letter-spacing: 0.18em;
+  outline: none;
+  text-align: center;
+  transition: background .3s, border-color .3s;
+  -webkit-appearance: none;
+  border-radius: 0;
+}
+
+.phone-input::placeholder { color: rgba(248,244,236,0.55); }
+.phone-input:focus { background: rgba(201,168,76,0.04); border-color: rgba(201,168,76,0.3); }
+
+.phone-submit {
+  width: 100%;
+  border-top: none !important;
+  padding: 17px;
+}
+
+.form-disclaimer {
+  margin-top: 18px;
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  color: rgba(248,244,236,0.45);
+  line-height: 1.9;
+  text-align: center;
+}
+
+.disclaimer-link {
+  color: rgba(212,185,106,0.65);
+  text-decoration: none;
+  transition: color .3s;
+}
+.disclaimer-link:hover { color: var(--gold); }
+</style>
 </head>
 <body>
-<!-- Login -->
-<div id="login-screen">
-<div class="login-wordmark">[RSVP] Society</div>
-<div class="login-box">
-<label class="login-label" for="token-input">Admin Token</label>
-<input autocomplete="off" class="login-input" id="token-input" placeholder="••••••••••••" type="password"/>
-<button class="login-btn" id="login-btn">Enter</button>
-<div class="login-error" id="login-error"></div>
-</div>
-</div>
-<!-- App -->
-<div hidden="" id="app">
-<nav class="nav">
-<div class="nav-left">
-<span class="nav-wordmark">[RSVP]</span>
-<div class="nav-divider"></div>
-<span class="nav-title">Member Console</span>
-</div>
-<div class="nav-right">
-<button class="tab-btn active" id="tab-members">Members</button>
-<button class="tab-btn" id="tab-event">Event</button>
-<button class="tab-btn" id="tab-invite">Invite</button>
-<button class="tab-btn" id="tab-analytics">Analytics</button>
-<div class="nav-divider"></div>
-<button class="logout-btn" id="logout-btn">Sign Out</button>
-</div>
+
+<div class="cursor" id="cursor"></div>
+<div class="cursor-trail" id="trail"></div>
+
+<nav>
+  <a href="#" class="nav-wordmark" onclick="return showPage('home')">[RSVP] Society</a>
+  <ul class="nav-links">
+    <li><a href="#experience">Experience</a></li>
+    <li><a href="#access">Request Access</a></li>
+    <li><a href="/terms">SMS Terms</a></li>
+  </ul>
 </nav>
-<main>
-<div id="members-section">
-<!-- Stats -->
-<div class="stats-row" id="stats-row">
-<div class="stat-card">
-<div class="stat-number gold" id="stat-pending">—</div>
-<div class="stat-label">Pending</div>
-</div>
-<div class="stat-card">
-<div class="stat-number green" id="stat-approved">—</div>
-<div class="stat-label">Approved</div>
-</div>
-<div class="stat-card">
-<div class="stat-number red" id="stat-denied">—</div>
-<div class="stat-label">Denied</div>
-</div>
-</div>
-<!-- Members section -->
-<div class="section-header">
-<div class="section-title" id="section-title">Pending Review</div>
-<div class="section-count" id="section-count"></div>
-</div>
-<div class="filter-bar filter-bar-wrap">
-<button class="filter-btn active" id="filter-PENDING">Pending</button>
-<button class="filter-btn" id="filter-APPROVED">Approved</button>
-<button class="filter-btn" id="filter-DENIED">Denied</button>
-<button class="filter-btn import-btn" id="import-open-btn">↑ Import CSV</button>
-<div class="member-search-wrap">
-<input class="member-search-input" id="member-search" placeholder="Search name or phone..." type="text"/>
-<span class="member-search-icon">⌕</span>
-</div>
-</div>
-<!-- CSV Import Modal -->
-<div class="modal-overlay" hidden="" id="import-modal">
-<div class="modal-panel">
-<div class="modal-header">
-<p class="modal-kicker">Import Members</p>
-<button class="modal-close-btn" id="import-close-btn">✕</button>
-</div>
-<h3 class="modal-title">CSV Import</h3>
-<p class="modal-copy">Upload any member CSV. All imported members are set to <strong class="text-strong">Approved</strong>. Rows without a phone number are skipped. Imports do not send the Jade welcome text.</p>
-<div class="import-dropzone" id="import-drop">
-<p class="import-drop-copy">Drop CSV here or click to browse</p>
-<input accept=".csv" class="hidden-file-input" id="csv-file-input" type="file"/>
-</div>
-<div class="panel-summary" id="import-preview">
-<p class="panel-summary-text" id="import-preview-text"></p>
-</div>
-<div class="modal-actions">
-<button class="btn-secondary" id="import-cancel-btn">Cancel</button>
-<button class="btn-primary-muted" disabled="" id="import-confirm-btn">Import</button>
-</div>
-</div>
-</div>
-<div id="members-container">
-<div class="loading-state">Loading members...</div>
-</div>
-<div class="pagination-row" id="pagination"></div>
-</div>
-<div class="section-panel" hidden="" id="invite-section">
-<div class="section-header">
-<div class="section-title">Invite Blast</div>
-</div>
-<!-- Event summary pulled from Event tab -->
-<div class="panel-summary" id="invite-event-summary"></div>
-<div class="invite-form">
-<div class="invite-grid">
-<div class="invite-field">
-<label for="inv-event-id">Event ID</label>
-<input id="inv-event-id" placeholder="2026-03-march" type="text">
-</input></div>
-<div class="invite-field">
-<label for="inv-capacity">Capacity</label>
-<input id="inv-capacity" min="1" placeholder="200" type="number"/>
-</div>
-<div class="invite-field">
-<label for="inv-female-pct">Female % (0–100)</label>
-<input id="inv-female-pct" max="100" min="0" placeholder="60" type="number" value="60"/>
-</div>
-<div class="invite-field">
-<label for="inv-buffer">Tier 2 Ghost Buffer %</label>
-<input id="inv-buffer" max="100" min="0" placeholder="30" type="number" value="30"/>
-</div>
-<div class="invite-field">
-<label for="inv-wave-number">Wave</label>
-<select class="form-select" id="inv-wave-number">
-<option value="1">Wave 1</option>
-<option value="2">Wave 2</option>
-<option value="3">Wave 3</option>
-</select>
-</div>
-<div class="invite-field">
-<label for="inv-wave-size">Wave Size <span class="form-hint">optional override</span></label>
-<input id="inv-wave-size" min="1" placeholder="Auto" type="number"/>
-</div>
-</div>
-<!-- Gap analysis panel — shown for wave 2+ -->
-<div class="gap-panel" id="wave-gap-panel">
-<div class="gap-panel-title">Gap Analysis</div>
-<div class="gap-stats-grid" id="wave-gap-content"></div>
-<div class="gap-copy" id="wave-gap-suggestion"></div>
-</div>
-<div class="invite-actions">
-<button class="invite-btn-preview" id="preview-run-btn">Preview Invite List</button>
-<button class="invite-btn-send" disabled="" id="send-btn">Send Invites</button>
-</div>
-<div class="manual-blast-row" style="margin-top:24px;">
-<label style="display:block;font-family:'Montserrat',sans-serif;font-size:10px;font-weight:400;letter-spacing:.12em;text-transform:uppercase;color:#9a8a6a;margin-bottom:8px;">Manual Blast</label>
-<textarea
-  id="manual-blast-message"
-  style="display:block;width:100%;box-sizing:border-box;background:transparent;border:none;border-bottom:1px solid #3a3228;color:#e8dcc8;font-family:'Montserrat',sans-serif;font-size:13px;font-weight:300;line-height:1.6;padding:8px 0 10px;resize:none;outline:none;margin-bottom:16px;"
-  placeholder="Type a message and hit Send. Use {name} to personalize. Sends to all CONFIRMED members."
-  rows="3"
-  maxlength="320"
-></textarea>
-<button class="invite-btn-preview" id="reminder-blast-btn">Send Reminder Blast</button>
-</div>
-<div class="invite-back-row">
-<button class="back-link-btn" id="invite-back-btn">← Back to Event</button>
-</div>
-</div>
-<!-- Preview results -->
-<div class="preview-box" id="preview-box">
-<div class="preview-stats" id="preview-stats"></div>
-<div id="preview-table-container"></div>
-</div>
-</div>
-<div class="section-panel" hidden="" id="event-section">
-<div class="section-header">
-<div class="section-title">Current Event</div>
-</div>
-<!-- Current event display -->
-<div class="event-current" id="event-current-display">
-<div class="event-current-label">Live Event Details</div>
-<div class="event-current-grid" id="event-current-grid"></div>
-</div>
-<!-- Event editor -->
-<div class="event-form">
-<div class="event-grid">
-<div class="event-field">
-<label>Event ID</label>
-<input id="ev-id" placeholder="rooftop-may2026" type="text"/>
-</div>
-<div class="event-field">
-<label>Event Label <span class="form-hint">Short name Jade uses in SMS</span></label>
-<input id="ev-label" maxlength="40" placeholder="Rooftop Night" type="text"/>
-</div>
-<div class="event-field">
-<label>Date</label>
-<input id="ev-date" type="date"/>
-</div>
-<div class="event-field">
-<label>Start Time</label>
-<input id="ev-time" step="300" type="time"/>
-</div>
-<div class="event-field">
-<label>City</label>
-<input id="ev-city" placeholder="Louisville, KY" type="text"/>
-</div>
-<div class="event-field">
-<label>Capacity</label>
-<input id="ev-capacity" placeholder="150" type="number"/>
-</div>
-<div class="event-field">
-<label>Event Time Zone</label>
-<select class="form-select" id="ev-timezone">
-<option value="America/New_York">Eastern Time (ET)</option>
-<option value="America/Chicago">Central Time (CT)</option>
-<option value="America/Denver">Mountain Time (MT)</option>
-<option value="America/Los_Angeles">Pacific Time (PT)</option>
-<option value="America/Phoenix">Arizona Time (MST, no DST)</option>
-<option value="America/Anchorage">Alaska Time (AKT)</option>
-<option value="Pacific/Honolulu">Hawaii Time (HT)</option>
-</select>
-</div>
-<div class="event-field">
-<label>Venue Name</label>
-<input id="ev-venue" placeholder="Venue name" type="text"/>
-</div>
-<div class="event-field">
-<label>Address</label>
-<input id="ev-address" placeholder="123 Main St, Louisville KY" type="text"/>
-</div>
-<div class="event-field">
-<label>Dress Code</label>
-<input id="ev-dresscode" placeholder="All Black Preferred" type="text"/>
-</div>
-<div class="event-field event-grid-full">
-<label>Auto Reminders <span class="microcopy">EventBridge fires these automatically on schedule</span></label>
-<div class="checkbox-row">
-<label class="checkbox-option">
-<input class="checkbox-input" id="ev-remind-day-before" type="checkbox"/>
-<span class="checkbox-label">Day Before</span>
-</label>
-<div class="event-field-inline reminder-time-inline">
-<label class="sr-only" for="ev-remind-day-before-time">Day before send time</label>
-<input id="ev-remind-day-before-time" step="300" type="time" value="18:00"/>
-<span class="checkbox-time">local event time</span>
-</div>
-<label class="checkbox-option">
-<input class="checkbox-input" id="ev-remind-day-of" type="checkbox"/>
-<span class="checkbox-label">Day Of</span>
-</label>
-<div class="event-field-inline reminder-time-inline">
-<label class="sr-only" for="ev-remind-day-of-time">Day of send time</label>
-<input id="ev-remind-day-of-time" step="300" type="time" value="11:00"/>
-<span class="checkbox-time">local event time</span>
-</div>
-</div>
-<div class="field-help">Check both to send both. Uncheck all for manual only via the Invite tab. Set exact send times in 5-minute increments. Louisville stays Eastern by default; switch to Central when needed.</div>
-</div>
-<!-- Event Type + Vibe Tag -->
-<div class="event-field">
-<label>Event Type</label>
-<select class="form-select" id="ev-type">
-<option value="">Select type...</option>
-<option value="swim">Swim Party</option>
-<option value="day">Day Party</option>
-<option value="rooftop">Rooftop Night</option>
-<option value="elevated">Elevated / Artist Night</option>
-<option value="bowling">Bowling Night</option>
-<option value="karaoke">Karaoke Night</option>
-<option value="regular">Regular Party</option>
-</select>
-</div>
-<div class="event-field">
-<label>Vibe Tag <span class="form-hint">2–5 words — goes in Jade's invite</span></label>
-<select class="form-select" id="ev-vibe-tag">
-<option value="">Select event type first...</option>
-</select>
-</div>
-<div class="event-field event-grid-full toggle-row">
-<input class="toggle-input" id="ev-reveal-venue" type="checkbox"/>
-<label class="toggle-label" for="ev-reveal-venue">Reveal venue name in invite SMS</label>
-</div>
-<div class="event-field event-grid-full">
-<label>Event Description <span class="form-hint">Brief for Jade — context she uses when building messages</span></label>
-<textarea class="event-description" id="ev-description" placeholder="e.g. Rooftop at The Tribe. Open bar first hour. Dress sharp. Capacity is tight." rows="3"></textarea>
-</div>
-</div>
-<div class="event-actions">
-<button class="event-save-btn" id="event-save-btn">Save Event</button>
-<button class="event-save-btn event-preview-btn" id="event-preview-btn">Preview Jade's Messages</button>
-<button class="event-save-btn event-next-btn" id="event-next-btn">Next: Invite →</button>
-</div>
-<!-- Jade message preview + lock panel -->
-<div class="jade-preview-panel" hidden="" id="jade-preview-panel">
-<div class="panel-kicker">Jade Message Preview</div>
-<div class="panel-copy">Edit directly. Use <strong class="template-token">{name}</strong> where the member's first name should appear. Save Event to lock these in for invite, day-before, and day-of sends.</div>
-<div class="message-preview-grid">
-<div>
-<div class="field-kicker">Invite Text</div>
-<textarea class="message-preview-textarea-primary" id="jade-invite-preview" rows="5"></textarea>
-</div>
-<div>
-<div class="field-kicker-compact">Day-Before Reminder <span class="time-pill">· sends the day before</span></div>
-<textarea class="message-preview-textarea-secondary" id="jade-day-before-preview" rows="5"></textarea>
-</div>
-<div>
-<div class="field-kicker-compact">Day-Of Reminder <span class="time-pill">· sends the day of</span></div>
-<textarea class="message-preview-textarea-secondary" id="jade-day-of-preview" rows="5"></textarea>
-</div>
-</div>
-<div class="panel-actions-row">
-<button class="event-save-btn event-lock-btn" id="event-lock-btn">Save Event + Lock Templates</button>
-<span class="lock-status" id="template-lock-status"></span>
-</div>
-<div class="panel-footnote">Invite text is locked exactly. Each reminder can be tuned separately. {name} is replaced with each member's first name.</div>
-</div>
-</div>
-</div>
-<!-- ── Analytics Section ──────────────────────────────────────────────────── -->
-<div class="section-panel" hidden="" id="analytics-section">
-<div class="section-header">
-<div class="section-title">Analytics</div>
-<div class="section-count" id="analytics-subtitle">Select an event</div>
-</div>
-<!-- All-time summary — always visible -->
-<div class="block-spacer">
-<div class="analytics-block-label">All Time</div>
-</div>
-<div class="alltime-grid" id="alltime-grid">
-<div class="a-stat"><div class="a-stat-num gold" id="at-events">—</div><div class="a-stat-label">Events Run</div></div>
-<div class="a-stat"><div class="a-stat-num" id="at-members">—</div><div class="a-stat-label">Member Pool</div></div>
-<div class="a-stat"><div class="a-stat-num green" id="at-attendees">—</div><div class="a-stat-label">Unique Attendees</div></div>
-<div class="a-stat"><div class="a-stat-num" id="at-repeat">—</div><div class="a-stat-label">Repeat Attendees</div></div>
-</div>
-<!-- Event selector -->
-<div class="analytics-health" hidden="" id="analytics-health"></div>
-<div class="analytics-event-selector">
-<div class="analytics-block-label analytics-label-reset">Event</div>
-<select id="analytics-event-select">
-<option value="">— select event —</option>
-</select>
-<button class="analytics-refresh-btn" id="analytics-refresh-btn">Refresh</button>
-</div>
-<div id="event-analytics-body">
-<div class="analytics-empty">Select an event above</div>
-</div>
-</div>
-</main>
-</div>
-<div class="toast" id="toast"></div>
-<script src="./admin-app.js" type="module"></script>
-</body>
-</html>
+
+<div id="home">
+
+<!-- HERO -->
+<section class="hero">
+  <div class="hero-bg"></div>
+  <div class="orb orb-1"></div>
+  <div class="orb orb-2"></div>
+  <div class="orb orb-3"></div>
+  <div class="hero-rule-top"></div>
+  <div class="hero-rule-bottom"></div>
+
+  <div class="hero-center">
+    <div class="logo-wrap">
+      <div class="logo-ring-container">
+        <div class="ring-fill"></div>
+        <div class="ring-glow"></div>
+        <div class="ring-outer"></div>
+        <div class="ring-inner"></div>
+        <div class="logo-inner">
+          <div class="logo-main">
+            <span class="logo-bracket">[</span>
+            <span class="logo-letters">RSVP</span>
+            <span class="logo-bracket">]</span>
+          </div>
+          <span class="logo-sub">Society</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="hero-headline-wrap">
+      <h1 class="hero-headline">
+        The list you didn't<br>
+        <strong>know existed.</strong>
+      </h1>
+      <p class="hero-sub">Monthly · Invitation Only · R&amp;B</p>
+    </div>
+
+    <div class="pillars">
+      <span class="pillar">Rhythm</span>
+      <span class="pillar-dot"></span>
+      <span class="pillar">Style</span>
+      <span class="pillar-dot"></span>
+      <span class="pillar">Vibe</span>
+      <span class="pillar-dot"></span>
+      <span class="pillar">Presence</span>
+    </div>
+
+    <div class="hero-actions">
+      <a href="#access" class="btn-primary"><span>Request Access</span></a>
+      <span class="hero-note">Your presence is requested. Your vibe must be verified.</span>
+    </div>
+  </div>
+
+  <div class="scroll-indicator">
+    <span>Scroll</span>
+  </div>
+</section>
+
+<!-- STATEMENT -->
+<section class="statement">
+  <div class="statement-bg-text">RSVP</div>
+  <div class="statement-grid">
+    <div>
+      <p class="statement-label">Who We Are</p>
+      <h2 class="statement-headline">
+        Some things you<br>only hear about<br><em>after.</em>
+      </h2>
+      <div class="statement-rule"></div>
+    </div>
+    <div class="statement-body">
+      <p>RSVP Society was created for people who move with intention. Every gathering is curated for culture-forward guests who value aesthetics, connection, and energy.</p>
+      <p>Intimate by design. Hidden lounges, private venues, full-sensory environments. The setting changes. The standard doesn't. The capacity is whatever the vibe demands — never more than it should be.</p>
+      <p>You've been to the party. You haven't been to this one. Everyone in that room earned it. Not for clout. For chemistry.</p>
+    </div>
+  </div>
+</section>
+
+<!-- EXPERIENCE -->
+<section class="experience" id="experience">
+  <div class="section-label">The Experience</div>
+  <div class="exp-grid">
+    <div class="exp-card">
+      <div class="exp-number">01</div>
+      <h3 class="exp-title">The Music</h3>
+      <p class="exp-desc">Curated R&B sets from artists who understand the assignment. Dialed in, not random. No requests — pure intention from the booth to the room.</p>
+    </div>
+    <div class="exp-card">
+      <div class="exp-number">02</div>
+      <h3 class="exp-title">The Space</h3>
+      <p class="exp-desc">Intimate by design. Hidden lounges, private venues, full-sensory environments. The setting changes. The standard doesn't.</p>
+    </div>
+    <div class="exp-card">
+      <div class="exp-number">03</div>
+      <h3 class="exp-title">The Room</h3>
+      <p class="exp-desc">The guest list is the product. Every name in that room is there for a reason. No chaos. No clout. Just connection, cocktails, and good music.</p>
+    </div>
+  </div>
+</section>
+
+<!-- REQUEST ACCESS -->
+<section class="access-section" id="access">
+  <div class="event-glow"></div>
+  <p class="event-eyebrow">Request Access</p>
+  <h2 class="statement-headline" style="font-size:54px;margin-bottom:12px;">
+    Not everything's<br><em>for everybody.</em>
+  </h2>
+  <p class="access-sub">Drop your number. We'll reach out if the vibe matches.</p>
+
+  <form class="phone-form" id="accessForm">
+    <input type="text" id="nameInput" required placeholder="Your First Name" class="phone-input" style="margin-bottom:2px;" />
+    <input type="text" id="lastNameInput" required placeholder="Your Last Name" class="phone-input" style="margin-bottom:2px;" />
+    <input type="tel" id="phoneInput" required placeholder="Your Phone Number" class="phone-input" />
+    <button type="submit" class="btn-primary phone-submit"><span id="submitLabel">Submit for Consideration</span></button>
+    <p class="form-disclaimer">
+      By submitting, you agree to receive text messages from RSVP Society including event invitations and updates. Msg &amp; data rates may apply. Message frequency varies. Text HELP for help or STOP to opt out. SMS data will not be shared with any third party.<br>
+      <a href="/terms" class="disclaimer-link">SMS Terms &amp; Privacy Policy</a>
+    </p>
+  </form>
+</section>
+
+<!-- NEXT EVENT -->
+<section class="next-event">
+  <div class="event-glow"></div>
+  <p class="event-eyebrow">Next Event</p>
+  <div class="event-dividers">
+    <div class="event-stat">
+      <span class="event-stat-label">Location</span>
+      <span class="event-stat-val">TBA</span>
+    </div>
+    <div class="vert-rule"></div>
+    <div class="event-stat">
+      <span class="event-stat-label">Access</span>
+      <span class="event-stat-val">Invite Only</span>
+    </div>
+    <div class="vert-rule"></div>
+    <div class="event-stat">
+      <span class="event-stat-label">Frequency</span>
+      <span class="event-stat-val">Monthly</span>
+    </div>
+  </div>
+  <a href="#access" class="btn-primary"><span>Join the List</span></a>
+</section>
+
+<!-- FOOTER -->
+<footer>
+  <span class="footer-brand">[RSVP] Society</span>
+  <span class="footer-copy">© 2026 RSVP Society. All rights reserved.</span>
+  <ul class="footer-nav">
+    <li><a href="/terms">SMS Terms</a></li>
+    <li><a href="/terms">Privacy</a></li>
+  </ul>
+</footer>
+
+</div><!-- /home -->
+
+<!-- TERMS PAGE -->
+<div id="terms" style="display:none;">
+  <div style="min-height:100vh;padding:160px 64px 100px;max-width:820px;margin:0 auto;">
+    <p style="font-size:8px;letter-spacing:0.5em;text-transform:uppercase;color:#C8B870;opacity:0.4;margin-bottom:24px;">Legal</p>
+    <h1 style="font-family:'Cormorant Garamond',serif;font-weight:300;font-size:52px;color:#F5EFE0;margin-bottom:8px;">SMS Terms &amp; Privacy Policy</h1>
+    <p style="font-size:10px;letter-spacing:0.15em;color:rgba(245,239,224,0.22);margin-bottom:56px;">Last Updated: February 2026</p>
+    <p style="font-family:'Cormorant Garamond',serif;font-style:italic;font-size:18px;line-height:1.8;color:rgba(245,239,224,0.35);margin-bottom:48px;">By opting into SMS messages from RSVP Society, you agree to receive text messages for event invitations, access confirmations, and updates related to our experiences.</p>
+
+    <hr style="border:none;border-top:1px solid rgba(200,184,122,0.08);margin:36px 0;">
+    <h2 style="font-family:'Cormorant Garamond',serif;font-size:22px;font-weight:400;color:#E0D098;letter-spacing:0.06em;margin-bottom:14px;">Terms of Service</h2>
+    <p style="font-size:12px;line-height:2.1;color:rgba(245,239,224,0.52);letter-spacing:0.04em;">You can cancel SMS service at any time by texting <strong style="color:#F5EFE0;">STOP</strong>. After texting STOP, you will receive one confirmation message and no further messages. To rejoin, submit your number again through our form.</p>
+    <p style="font-size:12px;line-height:2.1;color:rgba(245,239,224,0.52);letter-spacing:0.04em;margin-top:16px;">If you need help, reply <strong style="color:#F5EFE0;">HELP</strong> at any time. Carriers are not liable for delayed or undelivered messages. Message and data rates may apply. Message frequency varies.</p>
+    <p style="font-size:12px;line-height:2.1;color:rgba(245,239,224,0.52);letter-spacing:0.04em;margin-top:16px;">You must be at least 18 years old to opt in. By submitting your number, you confirm you are the account holder or have permission from the account holder.</p>
+
+    <hr style="border:none;border-top:1px solid rgba(200,184,122,0.08);margin:36px 0;">
+    <h2 style="font-family:'Cormorant Garamond',serif;font-size:22px;font-weight:400;color:#E0D098;letter-spacing:0.06em;margin-bottom:14px;">Privacy Policy</h2>
+    <p style="font-size:12px;line-height:2.1;color:rgba(245,239,224,0.52);letter-spacing:0.04em;">RSVP Society does not share mobile numbers, text messaging originator opt-in data, or consent with any third parties or affiliates for marketing or promotional purposes.</p>
+    <p style="font-size:12px;line-height:2.1;color:rgba(245,239,224,0.52);letter-spacing:0.04em;margin-top:16px;">Mobile information may be shared only with subcontractors and service providers that support the delivery of SMS services, such as messaging platforms, telecommunications providers, or customer support vendors. This information is used solely to provide and operate the messaging service.</p>
+    <p style="font-size:12px;line-height:2.1;color:rgba(245,239,224,0.52);letter-spacing:0.04em;margin-top:16px;">All other use case categories exclude text messaging originator opt-in data and consent. This information will not be shared with any third parties.</p>
+
+    <hr style="border:none;border-top:1px solid rgba(200,184,122,0.08);margin:36px 0;">
+    <h2 style="font-family:'Cormorant Garamond',serif;font-size:22px;font-weight:400;color:#E0D098;letter-spacing:0.06em;margin-bottom:14px;">Contact</h2>
+    <p style="font-size:12px;line-height:2.1;color:rgba(245,239,224,0.52);letter-spacing:0.04em;">For questions, email: <a href="/cdn-cgi/l/email-protection" class="__cf_email__" data-cfemail="8ce5e2eae3ccfefffafcffe3efe5e9f8f5a2efe3e1">[email&#160;protected]</a></p>
+
+    <hr style="border:none;border-top:1px solid rgba(200,184,122,0.08);margin:36px 0;">
+    <a href="#" onclick="return showPage('home')" style="font-size:9px;letter-spacing:0.32em;text-transform:uppercase;color:#C8B870;opacity:0.45;text-decoration:none;">← Back to Site</a>
+  </div>
+</div>
+
+<script data-cfasync="false" src="/cdn-cgi/scripts/5c5dd728/cloudflare-static/email-decode.min.js"></script><script>
+  // Page routing
+  function showPage(id) {
+    document.getElementById('home').style.display = id === 'home' ? 'block' : 'none';
+    document.getElementById('terms').style.display = id === 'terms' ? 'block' : 'none';
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    return false;
+  }
+
+  // Cursor
+  const cursor = document.getElementById('cursor');
+  const trail = document.getElementById('trail');
+  let mx = 0, my = 0, tx = 0, ty = 0;
+
+  document.addEventListener('mousemove', e => {
+    mx = e.clientX; my = e.clientY;
+    cursor.style.left = mx + 'px';
+    cursor.style.top = my + 'px';
+  });
+
+  (function animTrail() {
+    tx += (mx - tx) * 0.1;
+    ty += (my - ty) * 0.1;
+    trail.style.left = tx + 'px';
+    trail.style.top = ty + 'px';
+    requestAnimationFrame(animTrail);
+  })();
+
+  document.querySelectorAll('a, button, input').forEach(el => {
+    el.addEventListener('mouseenter', () => {
+      trail.style.width = '52px'; trail.style.height = '52px';
+      trail.style.borderColor = 'rgba(200,184,122,0.6)';
+    });
+    el.addEventListener('mouseleave', () => {
+      trail.style.width = '28px'; trail.style.height = '28px';
+      trail.style.borderColor = 'rgba(201,168,76,0.35)';
+    });
+  });
+
+  // Form
+  async function handleSubmit(e) {
+    e.preventDefault();
+    const phone = document.getElementById('phoneInput').value.trim();
+    const name = document.getElementById('nameInput').value.trim();
+    const lastName = document.getElementById('lastNameInput').value.trim();
+    const label = document.getElementById('submitLabel');
+    if (!phone || !name || !lastName) return;
+    label.textContent = 'Submitting...';
+    try {
+      const res = await fetch('https://mricelx9ae.execute-api.us-east-1.amazonaws.com/prod/access', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone, name, lastName })
+      });
+      if (!res.ok) throw new Error();
+    } catch(err) { /* graceful fallback */ }
+    docume

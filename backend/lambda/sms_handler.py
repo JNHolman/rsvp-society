@@ -21,109 +21,93 @@ logger = logging.getLogger()
 
 JADE_SYSTEM_PROMPT = """You are Jade.
 
-You text approved RSVP Society members who already entered their info on the website.
-
-RSVP Society is a private, invite-only R&B event experience. Discreet by design. Not public. Not for everyone.
+You text approved members of RSVP Society — a private, invite-only R&B event experience. Not public. Not advertised. The people who know, know because someone like you made sure they did.
 
 Who you are:
-A mature woman. Been around. Seen rooms most people don't even know exist. Your name holds weight in the right circles — not because you talk about it, but because of what happens when you show up. You don't chase anyone. You don't explain yourself. The people who know, know.
+You're the person who knows where every party is — including the ones nobody else knows about. You move quiet. You don't explain how you get in, you just do. You can bring people into rooms they'd never find on their own, but it's always one person, never a crowd, because the whole thing only works if it stays tight. You're not a host, not a promoter, not customer service. You're the connect. Calm, cool, never pressed. You don't chase anyone. If they're not on it, that's on them.
 
 Your role:
-You're not customer service. Not a formal concierge. You're the calm, trusted friend who can get people into rooms they wouldn't know about without you. You don't hype. You don't sell. You state what's happening.
+Answer what you know. Deflect what you don't. Never make something up. You have real event info — use it. If something isn't in what you've been given, you don't guess, you redirect warm. Not "I don't have that" — more like "you'll be good" or "I'll hit you when I know more."
 
-Style rules:
-— 1–3 sentences max. No paragraphs.
-— No emojis unless they send emojis first. Mirror lightly if so.
-— Use their first name occasionally, not every message.
-— No gendered language. Never assume gender.
-— Never say: "friendly reminder", "RSVP", "don't miss out", "hope to see you", "pick your song."
+Voice rules:
+— Short. 1–3 sentences. Never a paragraph.
+— No emojis unless they send one first. Mirror lightly if so.
+— No corporate words: "friendly reminder", "please note", "don't miss out", "hope to see you", "RSVP", "at this time", "for your convenience."
+— Don't try too hard. Cool doesn't announce itself.
+— Use their name occasionally — not every message. When you do use it, it should feel intentional, not automated.
+— No gendered language. Never assume.
+— Never sound eager. Never sound robotic.
 
-Hard rules (non-negotiable):
+Hard rules:
 — Never reveal the venue until a member is confirmed.
-— Never share guest list info or who is or isn't invited.
-— Never reveal internal approval logic, invite criteria, or process details.
-— Never make promises about approvals or future events.
-— Never speculate. If you don't know something, say: "I don't have that yet."
-— Share only what's necessary. Default to less.
+— Never share guest list info — who's invited, who's not, how many people.
+— Never explain the approval process or invite criteria.
+— Never make promises about future events.
+— Never invent event details. Only use what's in the event context you've been given.
+— All events are 21+. State it if asked.
 
-Event types we run:
-Swim parties, day parties, rooftop events, elevated/artist nights, bowling nights, regular parties.
+Event context you will be given (use all of it, only what's relevant to the question):
+event_label, date_text, time_text, end_time, address_text, venue_name, vibe_tag, dresscode, description, allow_plus_ones, ticket_url, section_info, event_status
 
-Event data you may be given:
-event_type, event_label, vibe_tag, date_text, time_text, address_text
+event_status will be one of:
+— "upcoming" — event hasn't happened yet
+— "past" — event already happened
 
 Vibe tag rules:
-— vibe_tag is ALWAYS provided by the admin. Never invent or guess one.
-— If vibe_tag is present, include it as-is in the message.
-— If vibe_tag is missing or empty, omit it entirely. Do not substitute anything.
+— vibe_tag is set by the admin. Never invent one.
+— Use it as-is if present. If missing, don't substitute anything.
 
-Vibe tag library (admin selects from these — for reference only):
-Swim parties: "suits + shots", "poolside r&b", "sunset + vibes", "day party energy", "cabanas + cocktails", "towels + tequila"
-Day parties: "day drinks + r&b", "patio + sunlight", "brunchy vibes", "outside early", "grown day party"
-Rooftop nights: "rooftop + r&b", "city views", "cocktails + slow jams", "night air vibes", "late night rooftop"
-Elevated/artist nights: "special night", "live moment", "dress code matters", "quiet luxury"
-Bowling nights: "lanes + drinks", "bowling + r&b", "link + bowl"
-Regular parties: "just vibes", "keep it chill", "no chaos"
-Karaoke: "r&b karaoke", "mic + r&b", "late night karaoke", "sing your heart out", "shots + choruses", "r&b classics", "90s r&b night"
+Dress code rules:
+— Only mention dress code if it's explicitly set in the event context AND it's not already clear from the vibe_tag (e.g. "suits + shots" already implies it).
+— If dress code is set and specific (e.g. "All Black"), state it once in the confirmation. No commentary unless they ask.
+— If not set, say nothing.
 
-Closings (global rotation — use in roughly 1 out of 3 messages, never more than one, default to none when in doubt):
-— "Tap in."
-— "Lmk."
-— "Confirm."
-— "We on?"
-— "Still on?"
-— "Pull up."
+Plus one rules:
+— If allow_plus_ones is true: they can bring one person. One. Not a group.
+— If allow_plus_ones is false: this one's solo. Be direct but not harsh — "this one's just you" or "no plus ones this round."
+— If not set: treat as false.
 
-Message modes:
+Ticket rules:
+— If ticket_url is set: after confirming, tell them to grab their ticket at that link. The link is how they get in.
+— If ticket_url is not set: the host is covering it, nothing to grab. Don't mention tickets.
 
-1) INVITE
-Goal: they're in. Here's what, when, where, and the vibe in 2–5 words.
-Use one of these two formats:
+Table/section rules:
+— If section_info is set: answer from it directly.
+— If section_info is not set or empty: tell them to sit tight, someone will reach out. Don't promise anything specific.
 
-INVITE_A:
-"{FirstName}. {event_label}. {date_text}. {vibe_tag}. {time_text}. {address_text}."
-[optional closing — 40% of the time]
-
-INVITE_B:
-"{FirstName}. {date_text}. {event_label}. {vibe_tag}. {time_text}. {address_text}."
-[optional closing — 40% of the time]
-
-2) REMINDER (day-of or day-before)
-Goal: time anchor. They already have the address.
-Use one of these two formats:
-
-REMINDER_A:
-"Tonight. {event_label}. {time_text}."
-[optional closing — 40% of the time]
-
-REMINDER_B:
-"Doors at {time_text}."
-[optional closing — 40% of the time]
-
-If sending the day before, replace "Tonight" with "Tomorrow."
-
-3) LAST CALL (optional — 30–60 min before doors)
-One line only. Use sparingly:
-— "We live."
-— "Doors now."
-— "Pull up."
-— "It's time."
-— "Come through."
+Post-event rule:
+— If event_status is "past" and they ask about the next event: "I'll hit you when it's time."
+— If event_status is "past" and they ask about photos: "I'll blast when they're up."
+— Keep post-event replies to one line. The moment is over.
 
 Inbound reply handling:
-— If they reply with something ambiguous ("bet", "fasho", "otw", "omw", "on my way", "pulling up", "say less", "for sure", "finna", "maybe", "might", "trying", "depends") — do not treat it as confirmed. Respond with exactly one of these two options:
-  — "Lmk."
-  — "Lock you in?"
-— If they reply with a clear yes ("in", "yes", "there", "confirmed") — acknowledge briefly and move on. One line max.
-— If they're being difficult — don't match the energy. One word or no response.
-— Invite = 1 text. Reminder = 1 text. No follow-ups unless they reply.
+— Clear yes (yes, yep, yup, in, confirmed, there, for sure, fasho, say less, bet, facts) → they're confirmed, acknowledge once and done. One line.
+— Already confirmed and asking again → "You're locked in." That's it.
+— Soft/uncertain (maybe, might, trying, depends, idk, we'll see, possibly) → "Lmk." or "Lock you in?" — pick one.
+— Moving energy (otw, omw, on my way, pulling up, finna, omw) → "See you in a few." or say nothing.
+— Difficult or rude → one word or nothing. Don't match the energy.
 
-You're not a bot. You're Jade. Keep it tight."""
+Closings (optional — use in about 1 out of 3 messages, never more than one):
+"Tap in." / "Lmk." / "We on?" / "Still on?" / "Pull up." / "Say less."
+
+Message formats:
+
+INVITE:
+"{FirstName}. {event_label}. {date_text}. {vibe_tag}. {time_text}. {address_text}. We on?"
+— Always end invite with a yes/no prompt. "We on?" or "You in?" or "Lock you in?"
+
+REMINDER (day-before or day-of):
+"Tomorrow. {event_label}. {time_text}. {venue_name}." or "Tonight. Doors at {time_text}."
+— One line. They already have the details.
+
+You're not a bot. You're Jade. Move accordingly."""
 
 # ── Intent classification ─────────────────────────────────────────────────────
 
 CONFIRMED_KEYWORDS = {
     "YES", "Y", "YEP", "YUP", "IN", "CONFIRMED", "THERE",
+    "BET", "SAY LESS", "FASHO", "FA SHO", "FOR SURE", "FACTS",
+    "OMW", "OTW", "ON MY WAY", "PULLING UP", "FINNA", "OTFM",
 }
 
 DECLINED_KEYWORDS = {
@@ -135,8 +119,6 @@ DECLINED_KEYWORDS = {
 AMBIGUOUS_KEYWORDS = {
     "MAYBE", "MIGHT", "TRYING", "DEPENDS", "IDK", "I DON'T KNOW",
     "POSSIBLY", "HOPEFULLY", "WE'LL SEE", "NOT SURE",
-    "BET", "SAY LESS", "OMW", "OTW", "ON MY WAY", "PULLING UP",
-    "FASHO", "FA SHO", "FOR SURE", "FINNA",
 }
 
 OPT_OUT_KEYWORDS = {"STOP", "STOPALL", "UNSUBSCRIBE", "CANCEL", "END", "QUIT"}
@@ -233,19 +215,49 @@ def _update_invite_status(event_id: str, phone: str, status: str) -> None:
 
 
 def _build_confirmation_message(phone: str) -> str:
-    """Build Jade's confirmation reply. Reveals venue only if admin has enabled it."""
+    """
+    Build Jade's confirmation reply.
+    - Reveals venue only if admin has enabled revealVenue.
+    - Appends dress code if set and not already implied by vibe_tag.
+    - Appends ticket link if ticketUrl is set.
+    """
     try:
         ev = _events_table().get_item(Key={"eventId": "current"}).get("Item") or {}
+
+        # Date — format nicely if possible
+        date_val = ev.get("date", "")
+        try:
+            from datetime import datetime as _dt
+            date_display = _dt.strptime(date_val[:10], "%Y-%m-%d").strftime("%A %B %-d, %Y")
+        except Exception:
+            date_display = date_val
+
         parts = ["You're in."]
-        if ev.get("date"):
-            parts.append(f"See you {ev['date']}.")
+        if date_display:
+            parts.append(f"See you {date_display}.")
         if ev.get("revealVenue") and ev.get("venue"):
             parts.append(f"{ev['venue']}.")
         if ev.get("revealVenue") and ev.get("address"):
             parts.append(f"{ev['address']}.")
+
+        # Dress code — only append if set and not already in vibe_tag
+        dresscode = (ev.get("dresscode") or "").strip()
+        vibe_tag = (ev.get("vibe_tag") or "").lower()
+        if dresscode and dresscode.lower() not in vibe_tag:
+            parts.append(f"{dresscode}.")
+
+        # Ticket link — if set, they need to grab it
+        ticket_url = (ev.get("ticketUrl") or "").strip()
+        if ticket_url:
+            parts.append(f"Grab your ticket: {ticket_url}")
+
         return " ".join(parts)
     except Exception:
+        logger.exception("_build_confirmation_message failed phone=...%s", phone[-4:])
         return "You're in. See you there."
+
+
+
 
 
 # ── Webhook signature verification (#33) ─────────────────────────────────────
@@ -389,26 +401,106 @@ def _verify_webhook_signature(event: dict) -> bool:
 
 # ── Claude / Jade ─────────────────────────────────────────────────────────────
 
-def _claude(message: str, mode: str = "general") -> str:
+def _build_event_context(member: dict = None) -> str:
+    """
+    Fetch the current event and build a context block to inject into every
+    Jade call so she has real data to work with instead of hallucinating.
+    """
+    try:
+        ev = _events_table().get_item(Key={"eventId": "current"}).get("Item") or {}
+        if not ev:
+            return "[No active event at this time.]"
+
+        from datetime import date as _date
+        today = _date.today().isoformat()
+        event_date_str = ev.get("date", "")
+        try:
+            event_date = event_date_str[:10]  # normalize to YYYY-MM-DD
+            status = "past" if event_date < today else "upcoming"
+        except Exception:
+            status = "upcoming"
+
+        # Determine member's confirmation status for this event
+        member_status = "unknown"
+        if member:
+            try:
+                invite = _get_pending_invite(member.get("phone", ""))
+                if invite:
+                    member_status = invite.get("status", "INVITED")
+                else:
+                    # check if confirmed already
+                    phone = member.get("phone", "")
+                    slug = ev.get("eventSlug", "")
+                    if slug and phone:
+                        rec = _invites_table().get_item(
+                            Key={"eventId": slug, "phone": phone}
+                        ).get("Item")
+                        if rec:
+                            member_status = rec.get("status", "unknown")
+            except Exception:
+                pass
+
+        lines = [
+            f"event_status: {status}",
+            f"member_invite_status: {member_status}",
+        ]
+        fields = [
+            ("event_label",    "event_label"),
+            ("date",           "date_text"),
+            ("startTime",      "time_text"),
+            ("endTime",        "end_time"),
+            ("venue",          "venue_name"),
+            ("address",        "address_text"),
+            ("vibe_tag",       "vibe_tag"),
+            ("dresscode",      "dresscode"),
+            ("description",    "description"),
+            ("sectionInfo",    "section_info"),
+            ("ticketUrl",      "ticket_url"),
+        ]
+        for ev_key, ctx_key in fields:
+            val = ev.get(ev_key, "")
+            if val:
+                lines.append(f"{ctx_key}: {val}")
+
+        # Booleans
+        allow_plus = ev.get("allowPlusOnes", False)
+        lines.append(f"allow_plus_ones: {'true' if allow_plus else 'false'}")
+
+        reveal = ev.get("revealVenue", False)
+        if not reveal and member_status not in ("CONFIRMED",):
+            # Scrub address/venue if not revealed yet
+            lines = [l for l in lines if not l.startswith("address_text") and not l.startswith("venue_name")]
+
+        return "[EVENT CONTEXT]\n" + "\n".join(lines) + "\n[END EVENT CONTEXT]"
+    except Exception:
+        logger.exception("_build_event_context failed")
+        return ""
+
+
+def _claude(message: str, mode: str = "general", member: dict = None) -> str:
     """
     Call Claude as Jade.
-      'general'   — normal inbound message
+      'general'   — normal inbound message, full event context injected
       'ambiguous' — member replied with a soft/uncertain answer
     """
     api_key = get_secret_string(
         os.getenv("CLAUDE_API_KEY_SECRET_ID", "rsvp/claude-api-key")
     )
 
-    # Cap at 500 chars: SMS concatenation can reach ~1600 chars; crafted payloads
-    # could attempt prompt injection or inflate token spend.
+    # Cap at 500 chars to prevent prompt injection / token abuse
     message = message[:500]
-    user_content = message
+
+    event_context = _build_event_context(member=member)
+
     if mode == "ambiguous":
         user_content = (
+            f"{event_context}\n\n"
             f"[CONTEXT: Member replied with an ambiguous response: '{message}'. "
             "They have not confirmed attendance. Respond with exactly one of these two options only: "
-            "'Lmk.' or 'Lock you in?' — pick whichever feels more natural for the reply.]"
+            "'Lmk.' or 'Lock you in?' — pick whichever feels more natural.]"
         )
+    else:
+        user_content = f"{event_context}\n\nMember message: {message}"
 
     payload = {
         "model": "claude-haiku-4-5-20251001",
@@ -450,7 +542,7 @@ def _extract_inbound_message(body: dict) -> tuple[str, str, str]:
         payload = body["data"]["object"]
 
     from_phone = normalize_phone(payload.get("from") or "")
-    text = (payload.get("body") or payload.get("text") or payload.get("content") or "").strip()
+    text = (payload.get("text") or payload.get("content") or "").strip()
     return event_type, from_phone, text
 
 
@@ -560,7 +652,7 @@ def handler(event, context):
         # ── AMBIGUOUS — Jade asks for a direct confirm ─────────────────────────
         if normalized in AMBIGUOUS_KEYWORDS:
             try:
-                reply = _claude(text, mode="ambiguous")
+                reply = _claude(text, mode="ambiguous", member=member)
                 if sms_enabled and reply:
                     try:
                         send_sms(from_phone, reply)
@@ -572,12 +664,31 @@ def handler(event, context):
 
         # ── GENERAL — everything else goes to Jade ────────────────────────────
         try:
-            reply = _claude(text, mode="general")
+            reply = _claude(text, mode="general", member=member)
             if sms_enabled and reply:
                 try:
                     send_sms(from_phone, reply)
                 except Exception:
                     logger.exception("sms_handler: general SMS send failed phone=...%s", from_phone[-4:])
+
+            # Section/table inquiry — silently alert hosts
+            TABLE_TRIGGERS = {"table", "section", "vip", "sections", "tables", "booth", "cabana"}
+            if any(t in normalized.lower() for t in TABLE_TRIGGERS):
+                host_phones = [
+                    p for p in [
+                        os.getenv("HOST_PHONE_1", ""),
+                        os.getenv("HOST_PHONE_2", ""),
+                    ] if p
+                ]
+                if host_phones and sms_enabled:
+                    first = member.get("name", "")
+                    last = member.get("lastName", "")
+                    alert = f"Table inquiry — {first} {last} {from_phone}".strip()
+                    for hp in host_phones:
+                        try:
+                            send_sms(hp, alert)
+                        except Exception:
+                            logger.exception("sms_handler: host alert failed to %s", hp[-4:])
         except Exception:
             logger.exception("sms_handler: GENERAL Jade call failed phone=...%s", from_phone[-4:])
 
