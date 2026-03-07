@@ -575,7 +575,7 @@ def handler(event, context):
     try:
         # Fix #33: verify the request is genuinely from our SMS provider
         if not _verify_webhook_signature(event):
-            logger.warning("sms_handler: rejected request with invalid signature")
+            logger.error("sms_handler: rejected request with invalid signature — see webhook-debug-latest in DDB")
             return {"statusCode": 200, "body": json.dumps({"ok": True})}
 
         raw_body = event.get("body") or "{}"
@@ -585,6 +585,7 @@ def handler(event, context):
         body = json.loads(raw_body or "{}")
         event_type, from_phone, text = _extract_inbound_message(body)
         normalized = text.upper().strip()
+        logger.info("sms_handler: inbound event_type=%s from_phone=%s text=%s", event_type, from_phone, repr(text))
 
         # Ignore delivery/status webhooks — only inbound member messages should trigger Jade logic.
         if event_type and event_type != "message.received":
@@ -607,6 +608,7 @@ def handler(event, context):
 
         # ── Host approval commands ────────────────────────────────────────────
         host_phones = [p for p in [os.getenv("HOST_PHONE_1", ""), os.getenv("HOST_PHONE_2", "")] if p]
+        logger.info("sms_handler: from_phone=%s normalized=%s host_phones=%s", from_phone, normalized, host_phones)
         if from_phone in host_phones:
             if normalized in ("Y", "N"):
                 try:
