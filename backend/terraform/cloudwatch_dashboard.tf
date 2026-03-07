@@ -31,8 +31,7 @@ resource "aws_cloudwatch_dashboard" "rsvp_operations" {
             ["AWS/Lambda", "Invocations", "FunctionName", "rsvp-sms-handler", { label = "sms_handler" }],
             ["AWS/Lambda", "Invocations", "FunctionName", "rsvp-admin-handler", { label = "admin_handler" }],
             ["AWS/Lambda", "Invocations", "FunctionName", "rsvp-reminder-handler", { label = "reminder_handler" }],
-            ["AWS/Lambda", "Invocations", "FunctionName", "rsvp-invite-handler", { label = "invite_handler" }],
-            ["AWS/Lambda", "Invocations", "FunctionName", "rsvp-reminder-handler", { label = "reminder_handler" }]
+            ["AWS/Lambda", "Invocations", "FunctionName", "rsvp-invite-handler", { label = "invite_handler" }]
           ]
           yAxis = { left = { min = 0 } }
         }
@@ -55,8 +54,7 @@ resource "aws_cloudwatch_dashboard" "rsvp_operations" {
             ["AWS/Lambda", "Errors", "FunctionName", "rsvp-sms-handler", { label = "sms_handler", color = "#ff7f0e" }],
             ["AWS/Lambda", "Errors", "FunctionName", "rsvp-admin-handler", { label = "admin_handler", color = "#9467bd" }],
             ["AWS/Lambda", "Errors", "FunctionName", "rsvp-reminder-handler", { label = "reminder_handler", color = "#8c564b" }],
-            ["AWS/Lambda", "Errors", "FunctionName", "rsvp-invite-handler", { label = "invite_handler", color = "#e377c2" }],
-            ["AWS/Lambda", "Errors", "FunctionName", "rsvp-reminder-handler", { label = "reminder_handler", color = "#2ca02c" }]
+            ["AWS/Lambda", "Errors", "FunctionName", "rsvp-invite-handler", { label = "invite_handler", color = "#e377c2" }]
           ]
           yAxis = { left = { min = 0 } }
         }
@@ -79,8 +77,7 @@ resource "aws_cloudwatch_dashboard" "rsvp_operations" {
             ["AWS/Lambda", "Duration", "FunctionName", "rsvp-sms-handler", { label = "sms_handler" }],
             ["AWS/Lambda", "Duration", "FunctionName", "rsvp-admin-handler", { label = "admin_handler" }],
             ["AWS/Lambda", "Duration", "FunctionName", "rsvp-reminder-handler", { label = "reminder_handler" }],
-            ["AWS/Lambda", "Duration", "FunctionName", "rsvp-invite-handler", { label = "invite_handler" }],
-            ["AWS/Lambda", "Duration", "FunctionName", "rsvp-reminder-handler", { label = "reminder_handler" }]
+            ["AWS/Lambda", "Duration", "FunctionName", "rsvp-invite-handler", { label = "invite_handler" }]
           ]
         }
       },
@@ -102,8 +99,7 @@ resource "aws_cloudwatch_dashboard" "rsvp_operations" {
             ["AWS/Lambda", "Throttles", "FunctionName", "rsvp-sms-handler", { label = "sms_handler", color = "#ff7f0e" }],
             ["AWS/Lambda", "Throttles", "FunctionName", "rsvp-admin-handler", { label = "admin_handler", color = "#9467bd" }],
             ["AWS/Lambda", "Throttles", "FunctionName", "rsvp-reminder-handler", { label = "reminder_handler", color = "#8c564b" }],
-            ["AWS/Lambda", "Throttles", "FunctionName", "rsvp-invite-handler", { label = "invite_handler", color = "#e377c2" }],
-            ["AWS/Lambda", "Throttles", "FunctionName", "rsvp-reminder-handler", { label = "reminder_handler", color = "#2ca02c" }]
+            ["AWS/Lambda", "Throttles", "FunctionName", "rsvp-invite-handler", { label = "invite_handler", color = "#e377c2" }]
           ]
           yAxis = { left = { min = 0 } }
         }
@@ -294,7 +290,6 @@ resource "aws_cloudwatch_metric_alarm" "lambda_errors" {
     "rsvp-admin-handler",
     "rsvp-reminder-handler",
     "rsvp-invite-handler",
-    "rsvp-reminder-handler"
   ])
 
   alarm_name          = "rsvp-lambda-errors-${each.key}"
@@ -349,7 +344,6 @@ resource "aws_cloudwatch_metric_alarm" "lambda_throttles" {
     "rsvp-admin-handler",
     "rsvp-reminder-handler",
     "rsvp-invite-handler",
-    "rsvp-reminder-handler"
   ])
 
   alarm_name          = "rsvp-lambda-throttles-${each.key}"
@@ -379,7 +373,6 @@ resource "aws_cloudwatch_metric_alarm" "lambda_latency" {
     "rsvp-sms-handler",
     "rsvp-admin-handler",
     "rsvp-reminder-handler",
-    "rsvp-reminder-handler"
   ])
 
   alarm_name          = "rsvp-lambda-latency-${each.key}"

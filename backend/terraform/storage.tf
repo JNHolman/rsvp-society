@@ -6,6 +6,31 @@
 # -----------------------------
 
 # -----------------------------
+# ACM Certificate for pics.rsvpsociety.com
+# Must be in us-east-1 for CloudFront
+# -----------------------------
+resource "aws_acm_certificate" "pics" {
+  domain_name       = "pics.rsvpsociety.com"
+  validation_method = "DNS"
+
+  lifecycle {
+    create_before_destroy = true
+  }
+}
+
+# Terraform will block here until the cert is issued.
+# Before running terraform apply, add the CNAME from
+# pics_acm_dns_validation_record output to Squarespace DNS.
+resource "aws_acm_certificate_validation" "pics" {
+  certificate_arn = aws_acm_certificate.pics.arn
+}
+
+output "pics_acm_dns_validation_record" {
+  value       = aws_acm_certificate.pics.domain_validation_options
+  description = "Add this CNAME record to Squarespace DNS to validate the pics certificate"
+}
+
+# -----------------------------
 # S3 Bucket (private — CloudFront only)
 # -----------------------------
 resource "aws_s3_bucket" "pics" {
@@ -46,6 +71,9 @@ resource "aws_cloudfront_distribution" "pics" {
   comment             = "RSVP Society — event photos"
   default_root_object = "index.html"
   price_class         = "PriceClass_100" # US + Europe only — cheapest
+  aliases             = ["pics.rsvpsociety.com"]
+
+  depends_on = [aws_acm_certificate_validation.pics]
 
   origin {
     domain_name              = aws_s3_bucket.pics.bucket_regional_domain_name
@@ -80,7 +108,9 @@ resource "aws_cloudfront_distribution" "pics" {
   }
 
   viewer_certificate {
-    cloudfront_default_certificate = true
+    acm_certificate_arn      = aws_acm_certificate_validation.pics.certificate_arn
+    ssl_support_method       = "sni-only"
+    minimum_protocol_version = "TLSv1.2_2021"
   }
 }
 
@@ -115,7 +145,7 @@ resource "aws_s3_bucket_policy" "pics" {
 # Outputs
 # -----------------------------
 output "pics_cloudfront_url" {
-  value       = "https://${aws_cloudfront_distribution.pics.domain_name}"
+  value       = "https://pics.rsvpsociety.com"
   description = "Base URL for event photos. Append /YYYY-MM-event-name/filename.jpg"
 }
 
@@ -123,3 +153,4 @@ output "pics_s3_bucket" {
   value       = aws_s3_bucket.pics.bucket
   description = "Upload photos here: aws s3 cp ./photos s3://rsvp-society-pics-prod/YYYY-MM-event-name/ --recursive"
 }
+

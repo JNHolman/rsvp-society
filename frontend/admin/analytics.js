@@ -535,13 +535,27 @@ function renderEventAnalyticsView({
 }
 
 export async function loadAnalyticsTab() {
-  await Promise.all([loadEventSelector(), loadAllTimeStats()]);
+  // Fetch tracked events once and share the result — avoids two parallel
+  // /admin/event requests on every tab open (FE-L2)
+  let sharedEvents = null;
+  try {
+    sharedEvents = await getTrackedEvents();
+  } catch (_) {
+    // each child will handle its own error if events is null
+  }
+  await Promise.all([
+    loadEventSelector(sharedEvents),
+    loadAllTimeStats(sharedEvents),
+  ]);
 }
 
-export async function loadAllTimeStats() {
+export async function loadAllTimeStats(prefetchedEvents = null) {
   resetAnalyticsWarnings();
   try {
-    const [events, memberPool] = await Promise.all([getTrackedEvents(), fetchMemberPools()]);
+    const [events, memberPool] = await Promise.all([
+      prefetchedEvents !== null ? Promise.resolve(prefetchedEvents) : getTrackedEvents(),
+      fetchMemberPools(),
+    ]);
 
     const membersWithCounts = dedupeMembersByPhone(memberPool.members)
       .filter((member) => getAttendanceCountFromMember(member) !== null);
@@ -577,12 +591,12 @@ export async function loadAllTimeStats() {
   }
 }
 
-export async function loadEventSelector() {
+export async function loadEventSelector(prefetchedEvents = null) {
   const select = $('analytics-event-select');
   if (!select) return;
 
   try {
-    const trackedEvents = await getTrackedEvents();
+    const trackedEvents = prefetchedEvents !== null ? prefetchedEvents : await getTrackedEvents();
     const selectedValue = select.value;
 
     select.replaceChildren(createNode('option', { text: '— select event —', attrs: { value: '' } }));
@@ -656,7 +670,8 @@ export async function loadEventAnalytics(eventId) {
       attendedFunnelPct,
     });
 
-    await loadAttendance();
+    // Attendance is loaded on demand via the "Load Attendance" button —
+    // not auto-fired here to keep the button meaningful and avoid extra API calls
   } catch (error) {
     const message = reportError('Event analytics failed', error, {
       fallback: 'Unable to load event analytics.',
