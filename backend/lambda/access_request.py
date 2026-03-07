@@ -2,8 +2,9 @@ import base64
 import json
 import logging
 import os
+import boto3
 from member_store import upsert_member, normalize_phone, mark_welcome_sent
-from sms_adapter import maybe_send_welcome
+from sms_adapter import maybe_send_welcome, send_sms
 from admin_shared import coerce_bool as _coerce_bool
 
 logger = logging.getLogger()
@@ -100,6 +101,29 @@ def handler(event, context):
             _coerce_bool(member.get("smsOptIn", False)),
             source,
         )
+
+        # Notify hosts of new pending member and store pending approval record for Y/N reply
+        try:
+            sms_enabled = (os.getenv("SMS_ENABLED", "false") or "").lower() == "true"
+            host_phones = [p for p in [os.getenv("HOST_PHONE_1", ""), os.getenv("HOST_PHONE_2", "")] if p]
+            if sms_enabled and host_phones and (member.get("status") or "PENDING") == "PENDING":
+                display_name = f"{name} {last_name}".strip()
+                events_table = boto3.resource("dynamodb").Table(os.getenv("EVENTS_TABLE_NAME", "rsvp-events"))
+                from datetime import datetime, timezone
+                for hp in host_phones:
+                    try:
+                        # Store pending approval so Y/N can resolve it
+                        events_table.put_item(Item={
+                            "eventId": f"pending_approval:{hp}",
+                            "memberPhone": phone_e164,
+                            "memberName": display_name,
+                            "storedAt": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                        })
+                        send_sms(hp, f"New request: {display_name}\nY to approve, N to deny")
+                    except Exception:
+                        logger.exception("access_request: host notification failed to %s", hp[-4:])
+        except Exception:
+            logger.exception("access_request: host notification block failed")
 
         # If this member is already APPROVED (e.g., legacy record or auto-approve flow),
         # send the Jade welcome once (best-effort) and mark welcomeSentAt.

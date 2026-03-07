@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 import boto3
 from boto3.dynamodb.conditions import Key as DKey
 
-from member_store import get_member, normalize_phone
+from member_store import get_member, normalize_phone, set_status
 from sms_adapter import get_secret_string, send_sms
 from admin_shared import coerce_bool
 
@@ -143,6 +143,27 @@ def _invites_table():
 def _events_table():
     name = os.getenv("EVENTS_TABLE_NAME", "rsvp-events")
     return _DDB.Table(name)
+
+
+def _store_pending_approval(host_phone: str, member_phone: str, member_name: str) -> None:
+    """Store the last pending approval request for a host so Y/N can resolve it."""
+    _events_table().put_item(Item={
+        "eventId": f"pending_approval:{host_phone}",
+        "memberPhone": member_phone,
+        "memberName": member_name,
+        "storedAt": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+    })
+
+
+def _get_pending_approval(host_phone: str) -> dict | None:
+    """Retrieve the last pending approval request for a host."""
+    resp = _events_table().get_item(Key={"eventId": f"pending_approval:{host_phone}"})
+    return resp.get("Item")
+
+
+def _clear_pending_approval(host_phone: str) -> None:
+    """Clear the pending approval record after it's been acted on."""
+    _events_table().delete_item(Key={"eventId": f"pending_approval:{host_phone}"})
 
 
 def _set_opt_out(phone: str) -> None:
@@ -583,6 +604,48 @@ def handler(event, context):
                 except Exception:
                     logger.exception("sms_handler: opt-out write failed phone=...%s", from_phone[-4:])
             return {"statusCode": 200, "body": json.dumps({"ok": True})}
+
+        # ── Host approval commands ────────────────────────────────────────────
+        host_phones = [p for p in [os.getenv("HOST_PHONE_1", ""), os.getenv("HOST_PHONE_2", "")] if p]
+        if from_phone in host_phones:
+            if normalized in ("Y", "N"):
+                try:
+                    pending = _get_pending_approval(from_phone)
+                    if not pending:
+                        if sms_enabled:
+                            send_sms(from_phone, "No pending request to act on.")
+                        return {"statusCode": 200, "body": json.dumps({"ok": True})}
+
+                    target_phone = pending["memberPhone"]
+                    target_name = pending["memberName"]
+                    new_status = "APPROVED" if normalized == "Y" else "DENIED"
+                    set_status(target_phone, new_status)
+                    _clear_pending_approval(from_phone)
+
+                    if sms_enabled:
+                        send_sms(from_phone, f"{target_name} has been {new_status.lower()}.")
+
+                    if new_status == "APPROVED":
+                        try:
+                            target_member = get_member(target_phone)
+                            if target_member and not target_member.get("welcomeSentAt"):
+                                from member_store import mark_welcome_sent, claim_welcome_send, clear_welcome_send_claim
+                                from sms_adapter import maybe_send_welcome
+                                if claim_welcome_send(target_phone):
+                                    try:
+                                        sent = maybe_send_welcome({**target_member, "status": "APPROVED"})
+                                        if sent:
+                                            mark_welcome_sent(target_phone)
+                                        else:
+                                            clear_welcome_send_claim(target_phone)
+                                    except Exception:
+                                        clear_welcome_send_claim(target_phone)
+                                        raise
+                        except Exception:
+                            logger.exception("sms_handler: welcome SMS failed after host approval phone=...%s", target_phone[-4:])
+                except Exception:
+                    logger.exception("sms_handler: Y/N approval failed from=%s", from_phone[-4:])
+                return {"statusCode": 200, "body": json.dumps({"ok": True})}
 
         # ── Gate: approved members with SMS opt-in only ───────────────────────
         member = get_member(from_phone)
