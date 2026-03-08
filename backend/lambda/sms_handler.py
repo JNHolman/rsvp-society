@@ -813,6 +813,10 @@ def handler(event, context):
                 logger.exception("sms_handler: plus one name collection failed phone=...%s", from_phone[-4:])
             return {"statusCode": 200, "body": json.dumps({"ok": True})}
 
+        # ── IGNORE — social acknowledgments, no response needed ──────────────
+        if normalized in IGNORE_KEYWORDS:
+            return {"statusCode": 200, "body": json.dumps({"ok": True})}
+
         # ── CONFIRMED ─────────────────────────────────────────────────────────
         if normalized in CONFIRMED_KEYWORDS:
             try:
@@ -876,10 +880,6 @@ def handler(event, context):
                 logger.exception("sms_handler: DECLINED branch failed phone=...%s", from_phone[-4:])
             return {"statusCode": 200, "body": json.dumps({"ok": True})}
 
-        # ── IGNORE — social acknowledgments, no response needed ──────────────
-        if normalized in IGNORE_KEYWORDS:
-            return {"statusCode": 200, "body": json.dumps({"ok": True})}
-
         # ── PLUS ONE UPDATE ANYTIME ────────────────────────────────────────────
         # Detect "my plus one is X", "change my plus one to X", "plus one is X"
         import re as _re
@@ -927,6 +927,29 @@ def handler(event, context):
             except Exception:
                 logger.exception("sms_handler: AMBIGUOUS Jade call failed phone=...%s", from_phone[-4:])
             return {"statusCode": 200, "body": json.dumps({"ok": True})}
+
+        # ── PLUS ONE UPDATE INTENT — natural language like "can I update who I'm bringing" ──
+        # Detect intent without a name — set the flag and ask for the name
+        _plus_intent_match = _re.search(
+            r"(?:update|change|switch|swap|edit|who(?:'?s| is) (?:my )?(?:plus\s*one|guest)|(?:plus\s*one|guest).*(?:update|change))",
+            text.strip(),
+            _re.IGNORECASE,
+        )
+        if _plus_intent_match and confirmed_invite:
+            try:
+                event_id = confirmed_invite["eventId"]
+                ev = _events_table().get_item(Key={"eventId": "current"}).get("Item") or {}
+                if ev.get("allowPlusOnes"):
+                    _set_awaiting_plus_one(event_id, from_phone)
+                    if sms_enabled:
+                        send_sms(from_phone, random.choice([
+                            "+1 welcome — who are you bringing?",
+                            "+1's allowed. Who's coming with you?",
+                            "You can bring someone. Who's coming with you?",
+                        ]))
+                    return {"statusCode": 200, "body": json.dumps({"ok": True})}
+            except Exception:
+                logger.exception("sms_handler: plus one intent detection failed phone=...%s", from_phone[-4:])
 
         # ── GENERAL — everything else goes to Jade ────────────────────────────
         try:
