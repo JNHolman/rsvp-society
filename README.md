@@ -1,6 +1,6 @@
 # RSVP Society — Project Runbook
 
-**Private R&B rooms. Invite only. No flyers.**
+**A private, invite-only series built around good music, style, and the kind of presence that changes a room.**
 
 This document is the single source of truth for the project. If it ever needs to be rebuilt from scratch — on a new machine, in a new session, or by someone new — everything needed to understand it, recreate it, and continue it is right here. Security posture and hardening notes are at the bottom.
 
@@ -180,6 +180,11 @@ Backend deploys automatically on push to `main`. Builds the Lambda bundle and de
 | `attendedAt` | String | ISO timestamp — set when physically checked in |
 | `noShowAt` | String | ISO timestamp — set when marked No Show in admin |
 | `waveNumber` | Number | Which blast wave this invite came from |
+| `plusOneName` | String | Plus one's full name |
+| `plusOneIsMember` | Boolean | True if plus one matched a member record |
+| `plusOnePhone` | String | Plus one's phone if they are a member |
+| `awaitingPlusOneName` | Boolean | True while Jade is waiting for a plus one name |
+| `awaitingPlusOneLastName` | String | Stores first name while waiting for last name reply |
 | `dayBeforeReminderSentAt` | String | Dedup guard — prevents double-sending day-before reminder |
 | `dayOfReminderSentAt` | String | Dedup guard — prevents double-sending day-of reminder |
 
@@ -456,7 +461,7 @@ CloudFront URL: `https://d31o74npegx00h.cloudfront.net`
 
 - **Video in hero** — no video asset yet. Replace static hero with looping 5–10 second moody venue clip when available
 - **Event photos** — gallery built and ready, waiting on first event
-- **Jade system prompt tuning** — baseline personality set, refine tone as brand develops
+- **Jade system prompt tuning** — ✓ Complete. Full voice overhaul March 2026. Random response variants on all hardcoded reply strings. Confirmation message stripped to just "You're in." Jade-generated vibe line in invite preview via `_generate_vibe_line()`. Banned language enforced. Routing order corrected (IGNORE before CONFIRMED).
 - **`search_members()` scan** — full-table scan used for name/phone search (check-in page). Acceptable at current scale. Revisit around 5,000+ members.
 - **Multi-city simultaneous events** — current architecture supports one active event at a time. Multi-city same-night would require a different `eventId` per city — doable but not needed yet
 - **Admin auth upgrade** — Cognito + MFA is the long-term play. Not needed at current scale. See Security section.
@@ -480,7 +485,7 @@ Replaces the single shared `rsvp-lambda-role` with six separate roles, each scop
 | Function | Tables before | Tables after |
 |---|---|---|
 | access_request | All tables | members only |
-| sms_handler | All tables | members, invites, events (read/update only) |
+| sms_handler | All tables | members (read/update/scan/query), invites (read/update/query), events (read) |
 | event_handler | All tables | events only |
 | reminder_handler | All tables | members (read), invites (scan), events (read) |
 | invite_handler | All tables | members, invites, events (no delete, no checkins) |
@@ -609,9 +614,12 @@ To complete the per-function IAM migration and remove the legacy role:
 | Admin auth | ⚠ Acceptable. Not elite. One token = full access. |
 | `search_members()` scan | ⚠ Acceptable now. Revisit at 5,000+ members. |
 | SMS send (sms_adapter) | ✓ Live Quo API call via POST /v1/messages |
+| Jade voice | ✓ Full overhaul — random response variants, stripped confirmation, vibe line generation, IGNORE routing fix |
+| Plus one duplicate prevention | ✓ Checks invites table at name collection time — already-invited members blocked |
+| Plus one phone stored | ✓ `plusOnePhone` written to invite record when plus one is a matched member |
 
 The system is private-facing, not public-facing. The threat model is "someone who gets hold of the admin token" and "member data staying out of places it shouldn't be." Both are addressed at an acceptable level for current scale. The path to elite is Cognito + per-function IAM fully migrated.
 
 ---
 
-*Built February 2026. Audited and hardened March 2026. Live in production — confirmation flow, manual blast, scheduled reminders, and Jade AI concierge all verified end-to-end.*
+*Built February 2026. Audited and hardened March 2026. Jade voice overhaul and plus one flow completed March 2026. Live in production — confirmation flow, manual blast, scheduled reminders, invite vibe generation, and Jade AI concierge all verified end-to-end.*
