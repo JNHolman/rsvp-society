@@ -563,7 +563,7 @@ def _extract_inbound_message(body: dict) -> tuple[str, str, str]:
         payload = body["data"]["object"]
 
     from_phone = normalize_phone(payload.get("from") or "")
-    text = (payload.get("text") or payload.get("content") or "").strip()
+    text = (payload.get("body") or payload.get("text") or payload.get("content") or "").strip()
     return event_type, from_phone, text
 
 
@@ -592,7 +592,7 @@ def handler(event, context):
             return {"statusCode": 200, "body": json.dumps({"ok": True})}
 
         if not from_phone or not text:
-            logger.info("sms_handler: no inbound message payload to process")
+            logger.info("sms_handler: no inbound message payload to process — from_phone=%s text=%s", from_phone, repr(text))
             return {"statusCode": 200, "body": json.dumps({"ok": True})}
 
         sms_enabled = (os.getenv("SMS_ENABLED", "false") or "").lower() == "true"
