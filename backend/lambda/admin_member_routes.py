@@ -96,14 +96,16 @@ def get_confirmed(event: dict, headers: dict, token: str) -> dict:
         last_name  = (m.get("lastName") or invite.get("lastName") or "").strip()
         full_name  = " ".join(part for part in (first_name, last_name) if part).strip()
         members_out.append({
-            "phone":       phone,
-            "name":        first_name,
-            "lastName":    last_name,
-            "fullName":    full_name,
-            "gender":      (m.get("gender") or invite.get("gender") or "").strip(),
-            "confirmedAt": invite.get("confirmedAt", ""),
-            "attendedAt":  invite.get("attendedAt", ""),
-            "checkedIn":   bool(invite.get("attendedAt")),
+            "phone":           phone,
+            "name":            first_name,
+            "lastName":        last_name,
+            "fullName":        full_name,
+            "gender":          (m.get("gender") or invite.get("gender") or "").strip(),
+            "confirmedAt":     invite.get("confirmedAt", ""),
+            "attendedAt":      invite.get("attendedAt", ""),
+            "checkedIn":       bool(invite.get("attendedAt")),
+            "plusOneName":     invite.get("plusOneName", ""),
+            "plusOneIsMember": coerce_bool(invite.get("plusOneIsMember", False)),
         })
 
     members_out.sort(key=lambda x: (
