@@ -389,10 +389,11 @@ def handle_preview(body: dict, origin: str) -> dict:
     preview_members = []
     for m in result["members"]:
         preview_members.append({
-            "phone":        m.get("phone", ""),
-            "name":         m.get("name", ""),
-            "gender":       m.get("gender", "?"),
-            "tier":         m["_tier"],
+            "phone":         m.get("phone", ""),
+            "name":          m.get("name", ""),
+            "lastName":      m.get("lastName", ""),
+            "gender":        m.get("gender", "?"),
+            "tier":          m["_tier"],
             "attendedCount": int(m.get("attendedCount", 0)),
             "invitedCount":  int(m.get("invitedCount", 0)),
         })

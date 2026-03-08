@@ -132,7 +132,7 @@ def _batch_get_members(phones: list) -> dict:
         request_items = {
             members_t.name: {
                 "Keys": [{"phone": p} for p in batch],
-                "ProjectionExpression": "phone, #n, smsOptIn, optOut",
+                "ProjectionExpression": "phone, #n, lastName, smsOptIn, optOut",
                 "ExpressionAttributeNames": {"#n": "name"},
             }
         }
