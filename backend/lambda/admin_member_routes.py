@@ -95,22 +95,18 @@ def get_confirmed(event: dict, headers: dict, token: str) -> dict:
         first_name = (m.get("name")     or invite.get("name")     or "").strip()
         last_name  = (m.get("lastName") or invite.get("lastName") or "").strip()
         full_name  = " ".join(part for part in (first_name, last_name) if part).strip()
-        # Live check against full members table — not just confirmed invites
+        # Live check — is the plus one name already in the members table?
         plus_one_name = invite.get("plusOneName", "")
         plus_one_is_member = False
         if plus_one_name:
             plus_one_clean = plus_one_name.strip().lower()
-            try:
-                results = search_members(plus_one_clean, limit=5)
-                for r in results:
-                    mfirst = (r.get("name") or "").strip().lower()
-                    mlast  = (r.get("lastName") or "").strip().lower()
-                    mfull  = f"{mfirst} {mlast}".strip()
-                    if plus_one_clean in (mfirst, mlast, mfull):
-                        plus_one_is_member = True
-                        break
-            except Exception:
-                logger.exception("get_confirmed: plus one member lookup failed name=%s", plus_one_name[:30])
+            for mp in member_map.values():
+                mfirst = (mp.get("name") or "").strip().lower()
+                mlast  = (mp.get("lastName") or "").strip().lower()
+                mfull  = f"{mfirst} {mlast}".strip()
+                if plus_one_clean in (mfirst, mlast, mfull):
+                    plus_one_is_member = True
+                    break
 
         members_out.append({
             "phone":           phone,
@@ -283,12 +279,16 @@ def set_member_tier(event: dict, headers: dict, token: str) -> dict:
     if not phone_raw or tier is None:
         return resp(headers, 400, {"ok": False, "error": "phone and tier required"})
     try:
+        tier_int = int(tier)
+    except (TypeError, ValueError):
+        return resp(headers, 400, {"ok": False, "error": "tier must be an integer (0–3)"})
+    try:
         phone = normalize_phone(phone_raw)
     except ValueError as e:
         return resp(headers, 400, {"ok": False, "error": str(e)})
-    set_tier_override(phone, int(tier))
+    set_tier_override(phone, tier_int)
     log_action(token=token, action=ACTION_MEMBER_TIER_SET,
-               target_phone=phone, metadata={"tier": int(tier)})
+               target_phone=phone, metadata={"tier": tier_int})
     return resp(headers, 200, {"ok": True})
 
 

@@ -127,7 +127,15 @@ def normalize_event_date(value: str) -> str:
     raw = str(value or "").strip()
     if not raw:
         return ""
-    for fmt in ("%Y-%m-%d", "%m/%d/%Y", "%A, %B %d, %Y", "%a, %B %d, %Y", "%B %d, %Y"):
+    for fmt in (
+        "%Y-%m-%d",
+        "%m/%d/%Y",
+        "%A, %B %d, %Y",   # "Saturday, March 7, 2026"
+        "%A %B %d, %Y",    # "Saturday March 7, 2026"  (no comma after weekday)
+        "%a, %B %d, %Y",   # "Sat, March 7, 2026"
+        "%a %B %d, %Y",    # "Sat March 7, 2026"
+        "%B %d, %Y",        # "March 7, 2026"
+    ):
         try:
             return datetime.strptime(raw, fmt).date().isoformat()
         except ValueError:

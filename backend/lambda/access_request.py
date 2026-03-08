@@ -3,8 +3,8 @@ import json
 import logging
 import os
 import boto3
-from member_store import upsert_member, normalize_phone
-from sms_adapter import send_sms
+from member_store import upsert_member, normalize_phone, mark_welcome_sent
+from sms_adapter import maybe_send_welcome, send_sms
 from admin_shared import coerce_bool as _coerce_bool
 
 logger = logging.getLogger()
@@ -102,7 +102,10 @@ def handler(event, context):
             source,
         )
 
-        # Notify hosts of new pending member and store pending approval record for Y/N reply
+        # Notify hosts of new pending member.
+        # Each approval record is keyed by (host_phone, member_phone) so burst signups
+        # never overwrite each other. The host sees one notification per person.
+        # Y/N in sms_handler resolves against the oldest un-finalized request.
         try:
             sms_enabled = (os.getenv("SMS_ENABLED", "false") or "").lower() == "true"
             host_phones = [p for p in [os.getenv("HOST_PHONE_1", ""), os.getenv("HOST_PHONE_2", "")] if p]
@@ -112,11 +115,15 @@ def handler(event, context):
                 from datetime import datetime, timezone
                 for hp in host_phones:
                     try:
-                        # Store pending approval so Y/N can resolve it
+                        # Key includes member phone so each request gets its own slot.
+                        # sms_handler reads by querying pending_approval:{hp}:* prefix
+                        # (or by scanning with FilterExpression) to find the oldest.
                         events_table.put_item(Item={
-                            "eventId": f"pending_approval:{hp}",
+                            "eventId": f"pending_approval:{hp}:{phone_e164}",
                             "memberPhone": phone_e164,
                             "memberName": display_name,
+                            "hostPhone": hp,
+                            "finalized": False,
                             "storedAt": datetime.now(timezone.utc).isoformat(timespec="seconds"),
                         })
                         send_sms(hp, f"New request: {display_name}\nY to approve, N to deny")
@@ -125,10 +132,15 @@ def handler(event, context):
         except Exception:
             logger.exception("access_request: host notification block failed")
 
-        # Welcome SMS is sent by sms_handler.py after the host approves via Y/N reply.
-        # We intentionally do not auto-send here — upsert_member always resets status
-        # to PENDING on submit, so any member going through this endpoint needs host
-        # approval before Jade fires, regardless of prior history.
+        # If this member is already APPROVED (e.g., legacy record or auto-approve flow),
+        # send the Jade welcome once (best-effort) and mark welcomeSentAt.
+        try:
+            if (member.get("status") or "").upper() == "APPROVED" and not member.get("welcomeSentAt"):
+                sent = maybe_send_welcome({**member, "status": "APPROVED"})
+                if sent:
+                    mark_welcome_sent(phone_e164)
+        except Exception:
+            logger.exception("access_request: welcome SMS failed phone=...%s", phone_e164[-4:])
 
 
         return _resp(200, {"ok": True}, origin)

@@ -298,7 +298,6 @@ def record_attendance(phone: str, attended: bool, event_id: str = "current") -> 
             Key={"phone": phone_e164},
             UpdateExpression=(
                 "SET attendedCount = if_not_exists(attendedCount, :zero) + :one, "
-                "confirmedCount = if_not_exists(confirmedCount, :zero) + :one, "
                 "lastSeenAt = :ls"
             ),
             ExpressionAttributeValues={":zero": 0, ":one": 1, ":ls": _now_iso()},

@@ -298,37 +298,47 @@ function init() {
 function loadFolder(folderId, btn) {
   currentFolder = folderId;
 
-  // Update active tab
   document.querySelectorAll('.folder-btn').forEach(b => b.classList.remove('active'));
   btn.classList.add('active');
 
   const manifest = PHOTO_MANIFEST.find(m => m.folder === folderId);
   const files = manifest ? manifest.files : [];
   const container = document.getElementById('gallery-container');
+  container.textContent = '';
 
   if (!files.length) {
-    container.innerHTML = `
-      <div class="empty-gallery">
-        No photos yet.
-        <div class="empty-sub">Photos from this event coming soon.</div>
-      </div>`;
+    const empty = document.createElement('div');
+    empty.className = 'empty-gallery';
+    empty.textContent = 'No photos yet.';
+    const sub = document.createElement('div');
+    sub.className = 'empty-sub';
+    sub.textContent = 'Photos from this event coming soon.';
+    empty.appendChild(sub);
+    container.appendChild(empty);
     return;
   }
 
   lightboxPhotos = files.map(f => `${CLOUDFRONT_BASE}/${folderId}/${f}`);
 
-  container.innerHTML = `<div class="gallery-grid">${
-    files.map((f, i) => `
-      <div class="photo-item" onclick="openLightbox(${i})">
-        <img
-          src="${CLOUDFRONT_BASE}/${folderId}/${f}"
-          alt="RSVP Society event photo"
-          loading="lazy"
-          onload="this.classList.add('loaded')"
-        />
-      </div>
-    `).join('')
-  }</div>`;
+  const grid = document.createElement('div');
+  grid.className = 'gallery-grid';
+
+  files.forEach((f, i) => {
+    const item = document.createElement('div');
+    item.className = 'photo-item';
+    item.addEventListener('click', () => openLightbox(i));
+
+    const img = document.createElement('img');
+    img.src = `${CLOUDFRONT_BASE}/${folderId}/${f}`;
+    img.alt = 'RSVP Society event photo';
+    img.loading = 'lazy';
+    img.addEventListener('load', () => img.classList.add('loaded'));
+
+    item.appendChild(img);
+    grid.appendChild(item);
+  });
+
+  container.appendChild(grid);
 }
 
 // ── Lightbox ──

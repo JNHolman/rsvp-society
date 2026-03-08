@@ -1,20 +1,8 @@
 # =============================================================================
 # iam_per_function.tf
 #
-# Replaces the single shared rsvp-lambda-role with per-function IAM roles,
-# each scoped to only the tables and secrets that function actually needs.
-#
-# WHY: The shared role meant a compromise of any one Lambda (e.g. sms_handler
-# receiving a malicious payload) could read/write every table and secret.
-# Per-function roles limit blast radius to only what that function touches.
-#
-# HOW TO MIGRATE:
-#   1. Add this file to your terraform directory.
-#   2. Update each aws_lambda_function resource in main.tf to reference the
-#      matching per-function role ARN (substitutions listed below).
-#   3. Remove the old aws_iam_role.lambda_role and aws_iam_policy.lambda_policy
-#      resources from main.tf once all Lambdas are migrated.
-#   4. terraform plan → review → apply.
+# Per-function IAM roles — each scoped to only the tables and secrets that
+# function actually needs.
 #
 # LAMBDA ROLE SUBSTITUTIONS (replace `role` in each aws_lambda_function):
 #   access_request   → aws_iam_role.lambda_access_request.arn
@@ -30,20 +18,19 @@ locals {
     "logs:CreateLogStream",
     "logs:PutLogEvents",
   ]
-  # All table ARNs for reference in each policy block
-  members_arn      = aws_dynamodb_table.members.arn
-  members_index    = "${aws_dynamodb_table.members.arn}/index/*"
-  events_arn       = aws_dynamodb_table.events.arn
-  invites_arn      = aws_dynamodb_table.event_invites.arn
+  members_arn       = aws_dynamodb_table.members.arn
+  members_index     = "${aws_dynamodb_table.members.arn}/index/*"
+  events_arn        = aws_dynamodb_table.events.arn
+  invites_arn       = aws_dynamodb_table.event_invites.arn
   event_history_arn = aws_dynamodb_table.event_history.arn
-  invites_index    = "${aws_dynamodb_table.event_invites.arn}/index/*"
-  checkins_arn     = aws_dynamodb_table.checkins.arn
-  audit_log_arn    = aws_dynamodb_table.audit_log.arn
-  region           = data.aws_region.current.name
-  account          = data.aws_caller_identity.current.account_id
+  invites_index     = "${aws_dynamodb_table.event_invites.arn}/index/*"
+  checkins_arn      = aws_dynamodb_table.checkins.arn
+  audit_log_arn     = aws_dynamodb_table.audit_log.arn
+  region            = data.aws_region.current.name
+  account           = data.aws_caller_identity.current.account_id
 }
 
-# ── Shared assume-role policy (all Lambdas use this) ──────────────────────
+# ── Shared assume-role policy ──────────────────────────────────────────────
 data "aws_iam_policy_document" "lambda_assume" {
   statement {
     effect  = "Allow"
@@ -57,7 +44,6 @@ data "aws_iam_policy_document" "lambda_assume" {
 
 # =============================================================================
 # access_request — public sign-up endpoint
-# Needs: members (write), Secrets Manager (QUO key for welcome SMS)
 # =============================================================================
 resource "aws_iam_role" "lambda_access_request" {
   name               = "rsvp-fn-access-request"
@@ -94,8 +80,6 @@ resource "aws_iam_role_policy" "lambda_access_request" {
 
 # =============================================================================
 # admin_handler — internal admin panel backend
-# Needs: members (full), events (full), invites (full), checkins (write),
-#        Secrets Manager (admin token + QUO key for any triggered SMS)
 # =============================================================================
 resource "aws_iam_role" "lambda_admin_handler" {
   name               = "rsvp-fn-admin-handler"
@@ -114,6 +98,7 @@ resource "aws_iam_role_policy" "lambda_admin_handler" {
         Action = [
           "dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:UpdateItem",
           "dynamodb:DeleteItem", "dynamodb:Query", "dynamodb:Scan",
+          "dynamodb:BatchGetItem",
         ]
         Resource = [
           local.members_arn,
@@ -123,6 +108,7 @@ resource "aws_iam_role_policy" "lambda_admin_handler" {
           local.invites_arn,
           local.invites_index,
           local.checkins_arn,
+          local.audit_log_arn,
         ]
       },
       {
@@ -139,9 +125,10 @@ resource "aws_iam_role_policy" "lambda_admin_handler" {
 
 # =============================================================================
 # sms_handler — inbound SMS / Jade AI replies
-# Needs: members (read + opt-out write), invites (read + status write),
-#        events (read), Secrets Manager (QUO key + Claude API key)
-# Does NOT need checkins or admin token.
+# Needs: members (read + opt-out write + scan for plus-one lookup),
+#        invites (read + status write + query by phone-index),
+#        events (read + pending approval write/delete),
+#        Secrets Manager (QUO key + Claude API key + webhook secret)
 # =============================================================================
 resource "aws_iam_role" "lambda_sms_handler" {
   name               = "rsvp-fn-sms-handler"
@@ -185,9 +172,6 @@ resource "aws_iam_role_policy" "lambda_sms_handler" {
 
 # =============================================================================
 # invite_handler — blast invites to approved members
-# Needs: members (read + invitedCount update), invites (write), events (read),
-#        Secrets Manager (admin token + QUO key)
-# Does NOT need checkins or member delete.
 # =============================================================================
 resource "aws_iam_role" "lambda_invite_handler" {
   name               = "rsvp-fn-invite-handler"
@@ -235,9 +219,13 @@ resource "aws_iam_role_policy" "lambda_invite_handler" {
 
 # =============================================================================
 # reminder_handler — scheduled + manual reminder SMS
-# Needs: members (read), invites (read), events (read),
-#        Secrets Manager (admin token + QUO key)
-# Does NOT need checkins, member write, or invite write.
+#
+# Needs:
+#   members  — BatchGetItem (batch member lookup), GetItem (individual fallback)
+#   invites  — Query (get confirmed list), UpdateItem (claim/stamp sentinel fields)
+#   events   — GetItem (load current event)
+#   Secrets  — admin token (manual HTTP trigger), QUO key (send SMS)
+#   audit    — PutItem/UpdateItem (log reminder blast)
 # =============================================================================
 resource "aws_iam_role" "lambda_reminder_handler" {
   name               = "rsvp-fn-reminder-handler"
@@ -252,14 +240,26 @@ resource "aws_iam_role_policy" "lambda_reminder_handler" {
     Statement = [
       { Effect = "Allow", Action = local.log_actions, Resource = "*" },
       {
+        # BatchGetItem for batch member lookup; GetItem for individual fallback
         Effect   = "Allow"
-        Action   = ["dynamodb:GetItem"]
-        Resource = [local.members_arn, local.events_arn]
+        Action   = ["dynamodb:GetItem", "dynamodb:BatchGetItem"]
+        Resource = [local.members_arn]
+      },
+      {
+        # Query to get confirmed invites; UpdateItem to claim/stamp reminder sentinels
+        Effect   = "Allow"
+        Action   = ["dynamodb:Query", "dynamodb:UpdateItem"]
+        Resource = [local.invites_arn, local.invites_index]
       },
       {
         Effect   = "Allow"
-        Action   = ["dynamodb:Query"]
-        Resource = [local.invites_arn]
+        Action   = ["dynamodb:GetItem"]
+        Resource = [local.events_arn]
+      },
+      {
+        Effect   = "Allow"
+        Action   = ["dynamodb:PutItem", "dynamodb:UpdateItem"]
+        Resource = [local.audit_log_arn]
       },
       {
         Effect   = "Allow"
@@ -272,5 +272,3 @@ resource "aws_iam_role_policy" "lambda_reminder_handler" {
     ]
   })
 }
-
-

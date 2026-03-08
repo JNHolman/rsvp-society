@@ -132,7 +132,7 @@ def _batch_get_members(phones: list) -> dict:
         request_items = {
             members_t.name: {
                 "Keys": [{"phone": p} for p in batch],
-                "ProjectionExpression": "phone, #n, lastName, smsOptIn, optOut",
+                "ProjectionExpression": "phone, #n, smsOptIn, optOut",
                 "ExpressionAttributeNames": {"#n": "name"},
             }
         }
@@ -171,12 +171,24 @@ def send_reminders(event: dict, is_day_of: bool, token: str = "", custom_message
     sent = 0
     failed = 0
     skipped_already_sent = 0
+    skipped_opt_out = 0
 
     now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+    # Batch-fetch member records so we can enforce opt-out without N+1 reads.
+    all_phones = [inv.get("phone", "") for inv in confirmed if inv.get("phone")]
+    member_map = _batch_get_members(all_phones)
 
     for invite in confirmed:
         phone = invite.get("phone", "")
         if not phone:
+            continue
+
+        # Opt-out enforcement — never text someone who sent STOP, regardless of
+        # whether they're still marked CONFIRMED on an invite record.
+        member = member_map.get(phone)
+        if member and member.get("optOut"):
+            skipped_opt_out += 1
             continue
 
         # Manual blasts (custom_message) are free-send update texts — no dedup guard,
@@ -247,6 +259,7 @@ def send_reminders(event: dict, is_day_of: bool, token: str = "", custom_message
             "sent":               sent,
             "failed":             failed,
             "skippedAlreadySent": skipped_already_sent,
+            "skippedOptOut":      skipped_opt_out,
             "trigger":            "manual" if token else "scheduled",
             "customMessage":      bool(custom_message),
             "smsEnabled":         sms_enabled,
@@ -257,13 +270,15 @@ def send_reminders(event: dict, is_day_of: bool, token: str = "", custom_message
         "sent":               sent,
         "failed":             failed,
         "skippedAlreadySent": skipped_already_sent,
+        "skippedOptOut":      skipped_opt_out,
     }
 
 
 def _cors_headers(origin=None):
     allowed_raw = os.getenv("ALLOWED_ORIGINS", "")
     origins = [o.strip() for o in allowed_raw.split(",") if o.strip()]
-    allow_origin = origin if origin in origins else (origins[0] if origins else "*")
+    # Fail closed: never fall back to wildcard — that opens the endpoint to any domain.
+    allow_origin = origin if origin in origins else (origins[0] if origins else "")
     return {
         "content-type": "application/json",
         "access-control-allow-origin": allow_origin,
