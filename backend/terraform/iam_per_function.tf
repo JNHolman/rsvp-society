@@ -157,8 +157,8 @@ resource "aws_iam_role_policy" "lambda_sms_handler" {
       { Effect = "Allow", Action = local.log_actions, Resource = "*" },
       {
         Effect   = "Allow"
-        Action   = ["dynamodb:GetItem", "dynamodb:UpdateItem"]
-        Resource = [local.members_arn]
+        Action   = ["dynamodb:GetItem", "dynamodb:UpdateItem", "dynamodb:Scan", "dynamodb:Query"]
+        Resource = [local.members_arn, local.members_index]
       },
       {
         Effect   = "Allow"

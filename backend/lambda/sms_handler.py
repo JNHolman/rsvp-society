@@ -796,13 +796,16 @@ def handler(event, context):
         if confirmed_invite and confirmed_invite.get("awaitingPlusOneName"):
             try:
                 event_id = confirmed_invite["eventId"]
-                member_first = member.get("name", "them")
                 UNKNOWN_REPLIES = {"IDK", "I DON'T KNOW", "I DONT KNOW", "NOT SURE", "I'M NOT SURE", "IM NOT SURE", "NO", "N", "NONE", "SKIP", "NOT YET", "IDK YET"}
                 if normalized in UNKNOWN_REPLIES:
-                    placeholder = f"Guest of {member_first}".strip()
-                    _set_plus_one(event_id, from_phone, placeholder, is_member=False)
+                    # Close the flag — no placeholder stored
+                    _invites_table().update_item(
+                        Key={"eventId": event_id, "phone": from_phone},
+                        UpdateExpression="SET awaitingPlusOneName = :f",
+                        ExpressionAttributeValues={":f": False},
+                    )
                     if sms_enabled:
-                        send_sms(from_phone, "I'll hold a spot. Let me know their name before you get there.")
+                        send_sms(from_phone, "No worries. Text me 'my plus one is [name]' when you know.")
                 else:
                     name_parts = text.strip().split()
                     if len(name_parts) < 2:
@@ -901,14 +904,15 @@ def handler(event, context):
         # Detect "my plus one is X", "change my plus one to X", "plus one is X"
         import re as _re
         _plus_update_match = _re.match(
-            r"^(?:my\s+)?(?:change\s+my\s+)?plus\s+one\s+(?:is|to)\s+(.+)$",
+        _plus_update_match = _re.match(
+            r"^(?:(?:my\s+)?(?:change\s+my\s+)?plus\s+one\s+(?:is|to)\s+(.+)|\+1\s+(?:is\s+)?(.+)|bringing\s+(.+)|i(?:'?m)?\s+bringing\s+(.+))$",
             text.strip(),
             _re.IGNORECASE,
         )
         if _plus_update_match and confirmed_invite:
             try:
                 event_id = confirmed_invite["eventId"]
-                raw_name = _plus_update_match.group(1).strip()
+                raw_name = next(g for g in _plus_update_match.groups() if g).strip()
                 name_parts = raw_name.split()
                 if len(name_parts) < 2:
                     _invites_table().update_item(
