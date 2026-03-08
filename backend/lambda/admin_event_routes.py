@@ -66,6 +66,10 @@ def _set_current_event(data: dict) -> dict:
         "reminder_template": shared_reminder,
         "day_before_template": day_before_template,
         "day_of_template": day_of_template,
+        "endTime": normalize_event_time(data.get("endTime"), field_name="endTime") if data.get("endTime") else "",
+        "allowPlusOnes": coerce_bool(data.get("allowPlusOnes", False)),
+        "ticketUrl": (data.get("ticketUrl") or "").strip(),
+        "sectionInfo": (data.get("sectionInfo") or "").strip(),
     }
     previous_identity = event_identity(existing_current)
     next_identity = event_identity(item)

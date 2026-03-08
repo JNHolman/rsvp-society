@@ -205,7 +205,14 @@ resource "aws_lambda_function" "access_request" {
     variables = {
       ENVIRONMENT           = "prod"
       MEMBERS_TABLE_NAME    = aws_dynamodb_table.members.name
+      EVENTS_TABLE_NAME     = aws_dynamodb_table.events.name
       ALLOWED_ORIGINS       = local.allowed_origins_csv
+      SMS_ENABLED           = "true"
+      SMS_PROVIDER          = "quo"
+      QUO_API_KEY_SECRET_ID = var.quo_api_key_secret_id
+      QUO_PHONE_NUMBER_ID   = var.quo_phone_number_id
+      HOST_PHONE_1          = "+12702269660"
+      HOST_PHONE_2          = ""
     }
   }
 }
@@ -269,6 +276,8 @@ resource "aws_lambda_function" "sms_handler" {
       QUO_PHONE_NUMBER_ID      = var.quo_phone_number_id
       CLAUDE_API_KEY_SECRET_ID = "rsvp/claude-api-key"
       WEBHOOK_SECRET_ID        = var.webhook_secret_id
+      HOST_PHONE_1             = "+12702269660"
+      HOST_PHONE_2             = ""
     }
   }
 }

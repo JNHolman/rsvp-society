@@ -169,6 +169,12 @@ function renderGuestList(members) {
   `).join('');
 }
 
+function renderPlusOne(m) {
+  if (!m.plusOneName) return '';
+  const star = m.plusOneIsMember ? '' : ' <span class="plus-one-star" title="Not a member">✦</span>';
+  return `<div class="plus-one-row">${escHtml(m.plusOneName)}${star}</div>`;
+}
+
 function renderRow(m) {
   const alreadyIn = checkedIn.has(m.phone);
   const safe = m.phone.replace(/\D/g, '');
@@ -176,6 +182,7 @@ function renderRow(m) {
     <div class="guest-row ${alreadyIn ? 'checked-in' : ''}" id="row-${safe}">
       <div class="guest-info">
         <div class="guest-name">${escHtml(displayName(m))}</div>
+        ${renderPlusOne(m)}
         <div class="guest-meta">${escHtml(m.phone)}</div>
       </div>
       <button
