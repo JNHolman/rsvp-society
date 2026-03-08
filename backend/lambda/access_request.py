@@ -3,8 +3,8 @@ import json
 import logging
 import os
 import boto3
-from member_store import upsert_member, normalize_phone, mark_welcome_sent
-from sms_adapter import maybe_send_welcome, send_sms
+from member_store import upsert_member, normalize_phone
+from sms_adapter import send_sms
 from admin_shared import coerce_bool as _coerce_bool
 
 logger = logging.getLogger()
@@ -125,15 +125,10 @@ def handler(event, context):
         except Exception:
             logger.exception("access_request: host notification block failed")
 
-        # If this member is already APPROVED (e.g., legacy record or auto-approve flow),
-        # send the Jade welcome once (best-effort) and mark welcomeSentAt.
-        try:
-            if (member.get("status") or "").upper() == "APPROVED" and not member.get("welcomeSentAt"):
-                sent = maybe_send_welcome({**member, "status": "APPROVED"})
-                if sent:
-                    mark_welcome_sent(phone_e164)
-        except Exception:
-            logger.exception("access_request: welcome SMS failed phone=...%s", phone_e164[-4:])
+        # Welcome SMS is sent by sms_handler.py after the host approves via Y/N reply.
+        # We intentionally do not auto-send here — upsert_member always resets status
+        # to PENDING on submit, so any member going through this endpoint needs host
+        # approval before Jade fires, regardless of prior history.
 
 
         return _resp(200, {"ok": True}, origin)

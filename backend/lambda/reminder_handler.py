@@ -183,9 +183,13 @@ def send_reminders(event: dict, is_day_of: bool, token: str = "", custom_message
         if not phone:
             continue
 
-        if invite.get(reminder_field):
-            skipped_already_sent += 1
-            continue
+        # Manual blasts (custom_message) are free-send update texts — no dedup guard,
+        # no sentinel stamp. They can fire unlimited times.
+        # Scheduled reminders use the sentinel to prevent double-sends.
+        if not custom_message:
+            if invite.get(reminder_field):
+                skipped_already_sent += 1
+                continue
 
         try:
             member = member_map.get(phone) or {}
@@ -193,51 +197,55 @@ def send_reminders(event: dict, is_day_of: bool, token: str = "", custom_message
                 skipped_consent += 1
                 continue
 
-            try:
-                invites_t.update_item(
-                    Key={"eventId": event_id, "phone": phone},
-                    UpdateExpression=f"SET {claim_field} = :now",
-                    ConditionExpression=f"attribute_not_exists({reminder_field}) AND attribute_not_exists({claim_field})",
-                    ExpressionAttributeValues={":now": now},
-                )
-            except ClientError as exc:
-                error_code = (exc.response.get("Error") or {}).get("Code")
-                if error_code == "ConditionalCheckFailedException":
-                    skipped_already_sent += 1
-                    continue
-                raise
-
             name = member.get("name", "")
             if custom_message:
-                # Manual blast: use provided text, substitute {name} if present
+                # Manual blast: free-send, no claim/stamp cycle
                 message = custom_message.replace("{name}", (name or "").split()[0] or "")
+                if sms_enabled:
+                    send_sms(phone, message)
+                sent += 1
             else:
+                # Scheduled reminder: claim row, send, stamp
+                try:
+                    invites_t.update_item(
+                        Key={"eventId": event_id, "phone": phone},
+                        UpdateExpression=f"SET {claim_field} = :now",
+                        ConditionExpression=f"attribute_not_exists({reminder_field}) AND attribute_not_exists({claim_field})",
+                        ExpressionAttributeValues={":now": now},
+                    )
+                except ClientError as exc:
+                    error_code = (exc.response.get("Error") or {}).get("Code")
+                    if error_code == "ConditionalCheckFailedException":
+                        skipped_already_sent += 1
+                        continue
+                    raise
+
                 message = _build_reminder(name, event)
+                if sms_enabled:
+                    send_sms(phone, message)
 
-            if sms_enabled:
-                send_sms(phone, message)
-
-            invites_t.update_item(
-                Key={"eventId": event_id, "phone": phone},
-                UpdateExpression=f"SET {reminder_field} = :now REMOVE {claim_field}",
-                ExpressionAttributeValues={":now": now},
-            )
-            sent += 1
+                invites_t.update_item(
+                    Key={"eventId": event_id, "phone": phone},
+                    UpdateExpression=f"SET {reminder_field} = :now REMOVE {claim_field}",
+                    ExpressionAttributeValues={":now": now},
+                )
+                sent += 1
 
         except Exception:
             logger.exception(
                 "reminder_handler: failed to process phone=...%s", phone[-4:]
             )
             failed += 1
-            try:
-                invites_t.update_item(
-                    Key={"eventId": event_id, "phone": phone},
-                    UpdateExpression=f"REMOVE {claim_field}",
-                )
-            except Exception:
-                logger.exception(
-                    "reminder_handler: failed to clear %s for phone=...%s", claim_field, phone[-4:]
-                )
+            if not custom_message:
+                try:
+                    invites_t.update_item(
+                        Key={"eventId": event_id, "phone": phone},
+                        UpdateExpression=f"REMOVE {claim_field}",
+                    )
+                except Exception:
+                    logger.exception(
+                        "reminder_handler: failed to clear %s for phone=...%s", claim_field, phone[-4:]
+                    )
 
     log_action(
         token=token,

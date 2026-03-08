@@ -277,6 +277,72 @@ def _build_confirmation_message(phone: str) -> str:
         logger.exception("_build_confirmation_message failed phone=...%s", phone[-4:])
         return "You're in. See you there."
 
+# ── Plus one helpers ──────────────────────────────────────────────────────────
+
+def _set_plus_one(event_id: str, phone: str, plus_one_name: str, is_member: bool) -> None:
+    """Store plusOneName and membership flag on the invite record."""
+    _invites_table().update_item(
+        Key={"eventId": event_id, "phone": phone},
+        UpdateExpression=(
+            "SET plusOneName = :n, plusOneIsMember = :m, awaitingPlusOneName = :f"
+        ),
+        ExpressionAttributeValues={":n": plus_one_name, ":m": is_member, ":f": False},
+    )
+
+
+def _set_awaiting_plus_one(event_id: str, phone: str) -> None:
+    """Flag the invite record so the next inbound message is treated as a +1 name."""
+    _invites_table().update_item(
+        Key={"eventId": event_id, "phone": phone},
+        UpdateExpression="SET awaitingPlusOneName = :t",
+        ExpressionAttributeValues={":t": True},
+    )
+
+
+def _get_confirmed_invite(phone: str) -> dict | None:
+    """Return the CONFIRMED invite record for this phone, or None."""
+    invites_t = _invites_table()
+    kwargs: dict = {
+        "IndexName": "phone-index",
+        "KeyConditionExpression": DKey("phone").eq(phone),
+    }
+    while True:
+        resp = invites_t.query(**kwargs)
+        for item in resp.get("Items", []):
+            if item.get("status") == "CONFIRMED":
+                return item
+        last = resp.get("LastEvaluatedKey")
+        if not last:
+            break
+        kwargs["ExclusiveStartKey"] = last
+    return None
+
+
+def _lookup_plus_one_is_member(name: str) -> bool:
+    """
+    Search the members table for a name match.
+    Returns True if a matching first+last name is found.
+    Case-insensitive. Used to set the star flag on the check-in page.
+    """
+    try:
+        from member_store import search_members
+        name_clean = name.strip().lower()
+        if not name_clean:
+            return False
+        results = search_members(name_clean, limit=5)
+        for r in results:
+            first = (r.get("name") or "").strip().lower()
+            last = (r.get("lastName") or "").strip().lower()
+            full = f"{first} {last}".strip()
+            if name_clean in (first, last, full):
+                return True
+        return False
+    except Exception:
+        logger.exception("_lookup_plus_one_is_member failed name=%s", name[:30])
+        return False
+
+
+
 
 
 
@@ -660,6 +726,32 @@ def handler(event, context):
         if not coerce_bool(member.get("smsOptIn", False)):
             return {"statusCode": 200, "body": json.dumps({"ok": True})}
 
+        # ── Awaiting plus one name ────────────────────────────────────────────
+        # Must run before keyword routing so a name reply like "Mike Smith"
+        # doesn't fall through to the Jade general handler.
+        confirmed_invite = _get_confirmed_invite(from_phone)
+        if confirmed_invite and confirmed_invite.get("awaitingPlusOneName"):
+            try:
+                event_id = confirmed_invite["eventId"]
+                member_first = member.get("name", "them")
+                # "idk", "don't know", "not sure", "no" → placeholder
+                UNKNOWN_REPLIES = {"IDK", "I DON'T KNOW", "I DONT KNOW", "NOT SURE", "NO", "N", "NONE", "SKIP"}
+                if normalized in UNKNOWN_REPLIES:
+                    placeholder = f"Guest of {member_first}".strip()
+                    _set_plus_one(event_id, from_phone, placeholder, is_member=False)
+                    if sms_enabled:
+                        send_sms(from_phone, "Got it, I'll hold a spot. Send me their name when you know.")
+                else:
+                    # Treat the message as the +1 name
+                    plus_one_name = text.strip().title()[:100]
+                    is_member = _lookup_plus_one_is_member(plus_one_name)
+                    _set_plus_one(event_id, from_phone, plus_one_name, is_member=is_member)
+                    if sms_enabled:
+                        send_sms(from_phone, f"Got it, I have {plus_one_name} down.")
+            except Exception:
+                logger.exception("sms_handler: plus one name collection failed phone=...%s", from_phone[-4:])
+            return {"statusCode": 200, "body": json.dumps({"ok": True})}
+
         # ── CONFIRMED ─────────────────────────────────────────────────────────
         if normalized in CONFIRMED_KEYWORDS:
             try:
@@ -692,7 +784,12 @@ def handler(event, context):
                     _update_invite_status(event_id, from_phone, "CONFIRMED")
                     if sms_enabled:
                         try:
-                            send_sms(from_phone, _build_confirmation_message(from_phone))
+                            confirmation_msg = _build_confirmation_message(from_phone)
+                            # If plus ones are allowed, ask for the name inline
+                            if ev.get("allowPlusOnes"):
+                                _set_awaiting_plus_one(event_id, from_phone)
+                                confirmation_msg += " Who's your plus one?"
+                            send_sms(from_phone, confirmation_msg)
                         except Exception:
                             logger.exception("sms_handler: confirmation SMS failed phone=...%s", from_phone[-4:])
             except Exception:

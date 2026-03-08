@@ -101,7 +101,9 @@ def upsert_member(
         "#src = :src",
         "lastSeenAt = :ls",
         "createdAt = if_not_exists(createdAt, :ca)",
-        "#s = if_not_exists(#s, :pending)",
+        # Always reset to PENDING on re-submit so the host notification fires
+        # for returning members. set_status() is the only path to APPROVED/DENIED.
+        "#s = :pending",
         "smsOptIn = :soi",
     ]
 
