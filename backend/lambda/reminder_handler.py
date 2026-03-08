@@ -60,18 +60,17 @@ def _within_scheduled_window(local_now: datetime, target_hour: int, target_minut
     return target_total <= current_total < (target_total + window_minutes)
 
 
-def _build_reminder(member_name: str, event: dict, plus_one_name: str = "") -> str:
+def _build_reminder(member_name: str, event: dict) -> str:
     """
     Build the reminder SMS for a member.
 
     Reads day_of_template or day_before_template depending on _is_day_of flag.
     Falls back to legacy reminder_template for backward compat with old saved events.
     Falls back to building from event fields if no template is saved.
-    Replace {name} with member first name, {plus_one} with plus one name if set.
+    Replace {name} with member first name.
     """
     name       = (member_name or "").split()[0] or ""
     is_day_of  = event.get("_is_day_of", False)
-    guest      = (plus_one_name or "").strip()
 
     # Try the specific template first, then legacy single template
     if is_day_of:
@@ -80,8 +79,7 @@ def _build_reminder(member_name: str, event: dict, plus_one_name: str = "") -> s
         template = (event.get("day_before_template") or event.get("reminder_template") or "").strip()
 
     if template:
-        msg = template.replace("{name}", name).replace("{plus_one}", guest).strip()
-        return msg
+        return template.replace("{name}", name).strip()
 
     # Fallback: build from event fields
     event_label = (event.get("event_label") or event.get("eventSlug") or "").strip()
@@ -94,8 +92,6 @@ def _build_reminder(member_name: str, event: dict, plus_one_name: str = "") -> s
         parts.append(f"{event_label}.")
     if start_time:
         parts.append(f"Doors at {start_time}.")
-    if guest:
-        parts.append(f"I have {guest} down for you.")
 
     return " ".join(p for p in parts if p)
 
@@ -171,13 +167,9 @@ def send_reminders(event: dict, is_day_of: bool, token: str = "", custom_message
     claim_field = "dayOfReminderClaimedAt" if is_day_of else "dayBeforeReminderClaimedAt"
 
     confirmed = _get_confirmed_invites(event_id)
-    phones = [inv.get("phone") for inv in confirmed if inv.get("phone")]
-    member_map = _batch_get_members(phones)
-
     invites_t = _invites_table()
     sent = 0
     failed = 0
-    skipped_consent = 0
     skipped_already_sent = 0
 
     now = datetime.now(timezone.utc).isoformat(timespec="seconds")
@@ -196,12 +188,7 @@ def send_reminders(event: dict, is_day_of: bool, token: str = "", custom_message
                 continue
 
         try:
-            member = member_map.get(phone) or {}
-            if coerce_bool(member.get("optOut", False)) or not coerce_bool(member.get("smsOptIn", False)):
-                skipped_consent += 1
-                continue
-
-            name = member.get("name", "")
+            name = invite.get("name", "")
             if custom_message:
                 # Manual blast: free-send, no claim/stamp cycle
                 message = custom_message.replace("{name}", (name or "").split()[0] or "")
@@ -224,8 +211,7 @@ def send_reminders(event: dict, is_day_of: bool, token: str = "", custom_message
                         continue
                     raise
 
-                plus_one_name = invite.get("plusOneName", "")
-                message = _build_reminder(name, event, plus_one_name=plus_one_name)
+                message = _build_reminder(name, event)
                 if sms_enabled:
                     send_sms(phone, message)
 
@@ -260,7 +246,6 @@ def send_reminders(event: dict, is_day_of: bool, token: str = "", custom_message
             "isDayOf":            is_day_of,
             "sent":               sent,
             "failed":             failed,
-            "skippedConsent":     skipped_consent,
             "skippedAlreadySent": skipped_already_sent,
             "trigger":            "manual" if token else "scheduled",
             "customMessage":      bool(custom_message),
@@ -271,7 +256,6 @@ def send_reminders(event: dict, is_day_of: bool, token: str = "", custom_message
     return {
         "sent":               sent,
         "failed":             failed,
-        "skippedConsent":     skipped_consent,
         "skippedAlreadySent": skipped_already_sent,
     }
 
