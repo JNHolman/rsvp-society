@@ -30,7 +30,7 @@ function formatTimeForDisplay(value) {
   if (!raw) return '';
   const match = raw.match(/^(\d{2}):(\d{2})$/);
   if (!match) return raw;
-  const [, hh, mm] = match;
+  const [_, hh, mm] = match;
   const date = new Date(`2000-01-01T${hh}:${mm}:00`);
   if (Number.isNaN(date.getTime())) return raw;
   return date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
@@ -83,6 +83,8 @@ export function previewJadeMessages() {
   const address = $('ev-address').value.trim();
   const venue = $('ev-venue').value.trim();
   const revealVenue = $('ev-reveal-venue').checked;
+  const dresscode = $('ev-dresscode').value.trim();
+  const allowPlusOnes = $('ev-allow-plus-ones').checked;
 
   if (!date) {
     showToast('Add a date first', 'error');
@@ -101,8 +103,8 @@ export function previewJadeMessages() {
   if (time) inviteParts.push(`${time}.`);
   if (revealVenue && venue) inviteParts.push(`${venue}.`);
   if (revealVenue && address) inviteParts.push(`${address}.`);
-  const dresscode = $('ev-dresscode').value.trim();
   if (dresscode) inviteParts.push(`${dresscode}.`);
+  if (allowPlusOnes) inviteParts.push('You can bring one guest.');
   if (inviteClosing) inviteParts.push(inviteClosing);
 
   const dayBeforeParts = ['{name}.', 'Tomorrow.'];
@@ -166,11 +168,14 @@ export async function loadCurrentEvent() {
     $('ev-dresscode').value = event.dresscode || '';
     $('ev-reveal-venue').checked = !!event.revealVenue;
     $('ev-description').value = event.description || '';
-    $('ev-end-time').value = normalizeTimeInput(event.endTime || '');
-    $('ev-ticket-url').value = event.ticketUrl || '';
-    $('ev-section-info').value = event.sectionInfo || '';
     const allowPlusOnesEl = $('ev-allow-plus-ones');
     if (allowPlusOnesEl) allowPlusOnesEl.checked = !!event.allowPlusOnes;
+    const ticketUrlEl = $('ev-ticket-url');
+    if (ticketUrlEl) ticketUrlEl.value = event.ticketUrl || '';
+    const sectionInfoEl = $('ev-section-info');
+    if (sectionInfoEl) sectionInfoEl.value = event.sectionInfo || '';
+    const endTimeEl = $('ev-end-time');
+    if (endTimeEl) endTimeEl.value = normalizeTimeInput(event.endTime || '');
 
     if (event.event_type) {
       $('ev-type').value = event.event_type;
@@ -218,10 +223,6 @@ export async function loadCurrentEvent() {
       { label: 'Capacity', val: event.capacity },
       { label: 'Time Zone', val: timezoneLabel(event.event_timezone || 'America/New_York') },
       { label: 'Reminders', val: `${formatTimeForDisplay(event.day_before_send_time || '18:00')} day before / ${formatTimeForDisplay(event.day_of_send_time || '11:00')} day of` },
-      { label: 'End Time', val: formatTimeForDisplay(event.endTime) },
-      { label: 'Plus Ones', val: event.allowPlusOnes == null ? '—' : (event.allowPlusOnes ? 'Allowed' : 'Not allowed') },
-      { label: 'Ticket URL', val: event.ticketUrl || '—' },
-      { label: 'Sections', val: event.sectionInfo || '—' },
       { label: 'Vibe', val: event.vibe_tag },
       { label: 'Updated', val: (event.updatedAt || '').replace('T', ' ').slice(0, 16) },
     ]);
@@ -256,10 +257,6 @@ export async function saveEvent() {
     event_type: $('ev-type').value,
     vibe_tag: $('ev-vibe-tag').value,
     description: $('ev-description').value.trim(),
-    endTime: $('ev-end-time')?.value.trim() || '',
-    allowPlusOnes: !!$('ev-allow-plus-ones')?.checked,
-    ticketUrl: $('ev-ticket-url')?.value.trim() || '',
-    sectionInfo: $('ev-section-info')?.value.trim() || '',
     invite_template: $('jade-invite-preview').value.trim(),
     reminder_template: legacyReminderTemplate,
     day_before_template: dayBeforeTemplate,
@@ -272,6 +269,10 @@ export async function saveEvent() {
       if (dayOf) return REMINDER_MODES.DAY_OF;
       return REMINDER_MODES.MANUAL;
     })(),
+    allowPlusOnes: $('ev-allow-plus-ones').checked,
+    ticketUrl: ($('ev-ticket-url')?.value || '').trim(),
+    sectionInfo: ($('ev-section-info')?.value || '').trim(),
+    endTime: ($('ev-end-time')?.value || '').trim(),
   };
 
   if (!body.date) {
