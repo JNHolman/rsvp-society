@@ -212,9 +212,9 @@ def maybe_send_welcome(member: dict) -> bool:
 
     name = (member.get("name") or "").split()[0] or ""
     if name:
-        msg = f"Hey {name}, it's Jade. Welcome to RSVP Society. Reply STOP to opt out."
+        msg = f"{name}. Welcome to RSVP Society. — Jade"
     else:
-        msg = "Hey, it's Jade. Welcome to RSVP Society. Reply STOP to opt out."
+        msg = "Welcome to RSVP Society. — Jade"
 
     logger.info("maybe_send_welcome: sending phone=...%s", phone_suffix)
     send_sms(phone, msg)

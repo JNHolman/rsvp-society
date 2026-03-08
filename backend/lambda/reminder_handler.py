@@ -60,17 +60,18 @@ def _within_scheduled_window(local_now: datetime, target_hour: int, target_minut
     return target_total <= current_total < (target_total + window_minutes)
 
 
-def _build_reminder(member_name: str, event: dict) -> str:
+def _build_reminder(member_name: str, event: dict, plus_one_name: str = "") -> str:
     """
     Build the reminder SMS for a member.
 
     Reads day_of_template or day_before_template depending on _is_day_of flag.
     Falls back to legacy reminder_template for backward compat with old saved events.
     Falls back to building from event fields if no template is saved.
-    Replace {name} with member first name.
+    Replace {name} with member first name, {plus_one} with plus one name if set.
     """
     name       = (member_name or "").split()[0] or ""
     is_day_of  = event.get("_is_day_of", False)
+    guest      = (plus_one_name or "").strip()
 
     # Try the specific template first, then legacy single template
     if is_day_of:
@@ -79,7 +80,8 @@ def _build_reminder(member_name: str, event: dict) -> str:
         template = (event.get("day_before_template") or event.get("reminder_template") or "").strip()
 
     if template:
-        return template.replace("{name}", name).strip()
+        msg = template.replace("{name}", name).replace("{plus_one}", guest).strip()
+        return msg
 
     # Fallback: build from event fields
     event_label = (event.get("event_label") or event.get("eventSlug") or "").strip()
@@ -92,6 +94,8 @@ def _build_reminder(member_name: str, event: dict) -> str:
         parts.append(f"{event_label}.")
     if start_time:
         parts.append(f"Doors at {start_time}.")
+    if guest:
+        parts.append(f"I have {guest} down for you.")
 
     return " ".join(p for p in parts if p)
 
@@ -220,7 +224,8 @@ def send_reminders(event: dict, is_day_of: bool, token: str = "", custom_message
                         continue
                     raise
 
-                message = _build_reminder(name, event)
+                plus_one_name = invite.get("plusOneName", "")
+                message = _build_reminder(name, event, plus_one_name=plus_one_name)
                 if sms_enabled:
                     send_sms(phone, message)
 

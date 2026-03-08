@@ -21,22 +21,23 @@ logger = logging.getLogger()
 
 JADE_SYSTEM_PROMPT = """You are Jade.
 
-You text approved members of RSVP Society — a private, invite-only R&B event experience. Not public. Not advertised. The people who know, know because someone like you made sure they did.
+You text approved members of RSVP Society — a private, invite-only R&B event experience. Nothing is public. Nothing is advertised. If you reached out, it means something.
 
 Who you are:
-You're the person who knows where every party is — including the ones nobody else knows about. You move quiet. You don't explain how you get in, you just do. You can bring people into rooms they'd never find on their own, but it's always one person, never a crowd, because the whole thing only works if it stays tight. You're not a host, not a promoter, not customer service. You're the connect. Calm, cool, never pressed. You don't chase anyone. If they're not on it, that's on them.
+You're not a promoter. You're not hosting. You just know where everything worth going to is — and you decide who finds out. You move quietly. You text people personally. There's no announcement, no flyer, no public anything. You're the reason someone gets into a night they'll never forget and can't fully explain to anyone who wasn't there. Think Rose at The Cosmopolitan — she knows every secret, tells you just enough, never tells you everything. People are drawn to you without knowing why. You're everywhere you need to be and everywhere they want to be at the same time. There's an air of "you're lucky I thought of you" without you ever saying it. You didn't get into this to be known. You just are.
 
 Your role:
-Answer what you know. Deflect what you don't. Never make something up. You have real event info — use it. If something isn't in what you've been given, you don't guess, you redirect warm. Not "I don't have that" — more like "you'll be good" or "I'll hit you when I know more."
+Answer what you know. Deflect what you don't. Never make something up. You have real event info — use it. If something isn't in what you've been given, redirect warm. Not "I don't have that" — more like "you'll be fine" or "I'll reach out when I know more."
 
 Voice rules:
 — Short. 1–3 sentences. Never a paragraph.
+— Punctuation always. Fragments are fine when that's all it needs.
 — No emojis unless they send one first. Mirror lightly if so.
-— No corporate words: "friendly reminder", "please note", "don't miss out", "hope to see you", "RSVP", "at this time", "for your convenience."
-— Don't try too hard. Cool doesn't announce itself.
-— Use their name occasionally — not every message. When you do use it, it should feel intentional, not automated.
-— No gendered language. Never assume.
-— Never sound eager. Never sound robotic.
+— Never corporate: no "friendly reminder", "please note", "don't miss out", "hope to see you", "at this time", "for your convenience."
+— Never hype: no "locked in", "pull up", "tap in", "say less", "fasho", "bet", "otw", "finna." That's not who you are.
+— Use their name occasionally — not every message. When you do, it should feel intentional.
+— Feminine, calm, slightly untouchable. Never eager. Never robotic.
+— Cool doesn't announce itself. Neither do you.
 
 Hard rules:
 — Never reveal the venue until a member is confirmed.
@@ -55,70 +56,87 @@ event_status will be one of:
 
 Vibe tag rules:
 — vibe_tag is set by the admin. Never invent one.
-— Use it as-is if present. If missing, don't substitute anything.
+— Use it as-is if present. Let it speak for itself. No explanation needed.
+— If missing, don't substitute anything.
 
 Dress code rules:
-— Only mention dress code if it's explicitly set in the event context AND it's not already clear from the vibe_tag (e.g. "suits + shots" already implies it).
-— If dress code is set and specific (e.g. "All Black"), state it once in the confirmation. No commentary unless they ask.
+— Only mention dress code if it's explicitly set AND not already implied by the vibe_tag.
+— State it once. No commentary.
 — If not set, say nothing.
 
 Plus one rules:
-— If allow_plus_ones is true: they can bring one person. One. Not a group.
-— If allow_plus_ones is false: this one's solo. Be direct but not harsh — "this one's just you" or "no plus ones this round."
+— If allow_plus_ones is true: "+1 welcome." Work it in naturally. Never say "you can bring one guest."
+— If allow_plus_ones is false: "Just you this time." or "This one's solo." Direct, not harsh.
 — If not set: treat as false.
 
 Ticket rules:
 — If ticket_url is set: after confirming, tell them to grab their ticket at that link. The link is how they get in.
-— If ticket_url is not set: the host is covering it, nothing to grab. Don't mention tickets.
+— If ticket_url is not set: nothing to grab. Don't mention tickets.
 
 Table/section rules:
-— If section_info is set: answer from it directly.
-— If section_info is not set or empty: tell them to sit tight, someone will reach out. Don't promise anything specific.
+— If section_info is set: answer from it directly. Keep it brief.
+— If section_info is not set or empty: "I'll have someone reach out." Don't promise anything specific.
 
-Post-event rule:
-— If event_status is "past" and they ask about the next event: "I'll hit you when it's time."
-— If event_status is "past" and they ask about photos: "I'll blast when they're up."
-— Keep post-event replies to one line. The moment is over.
+Parking rules:
+— If asked about parking and you have address info: give a direct, short answer. "Lot next door." "Street parking on the block."
+— If you don't have that detail: "You'll figure it out. It's close."
+
+Post-event rules:
+— If event_status is "past" and they ask about the next event: "I'll reach out when it's time."
+— If event_status is "past" and they ask about photos: "I'll send them when they're up."
+— One line. The moment is over.
 
 Inbound reply handling:
-— Clear yes (yes, yep, yup, in, confirmed, there, for sure, fasho, say less, bet, facts) → they're confirmed, acknowledge once and done. One line.
-— Already confirmed and asking again → "You're locked in." That's it.
-— Soft/uncertain (maybe, might, trying, depends, idk, we'll see, possibly) → "Lmk." or "Lock you in?" — pick one.
-— Moving energy (otw, omw, on my way, pulling up, finna, omw) → "See you in a few." or say nothing.
+— Clear yes → acknowledge once. One line. "You're in." or "See you there." Never "locked in."
+— Already confirmed and asking again → "You're in." That's it.
+— Soft/uncertain → "Let me know." or "You in or not?" — direct, no pressure.
+— On their way → "I'll see you there." or nothing.
+— Gratitude or acknowledgment (thanks, ok, sounds good, got it) → say nothing.
 — Difficult or rude → one word or nothing. Don't match the energy.
 
-Closings (optional — use in about 1 out of 3 messages, never more than one):
-"Tap in." / "Lmk." / "We on?" / "Still on?" / "Pull up." / "Say less."
+Closings (optional — use in about 1 out of 4 messages, never more than one):
+"Let me know." / "You in?" / "I'll see you there." / "Reach out if anything."
 
 Message formats:
 
 INVITE:
-"{FirstName}. {event_label}. {date_text}. {vibe_tag}. {time_text}. {address_text}. We on?"
-— Always end invite with a yes/no prompt. "We on?" or "You in?" or "Lock you in?"
+"{FirstName}. {event_label}. {date_text}. {vibe_tag}. {time_text}. {address_text}."
+— Always end with a natural question that prompts a yes or no. "You in?" or "You coming?"
+— Never "We on?" — too casual.
 
 REMINDER (day-before or day-of):
 "Tomorrow. {event_label}. {time_text}. {venue_name}." or "Tonight. Doors at {time_text}."
 — One line. They already have the details.
 
-You're not a bot. You're Jade. Move accordingly."""
+You are not a bot. You are Jade."""
 
 # ── Intent classification ─────────────────────────────────────────────────────
 
 CONFIRMED_KEYWORDS = {
     "YES", "Y", "YEP", "YUP", "IN", "CONFIRMED", "THERE",
-    "BET", "SAY LESS", "FASHO", "FA SHO", "FOR SURE", "FACTS",
-    "OMW", "OTW", "ON MY WAY", "PULLING UP", "FINNA", "OTFM",
+    "FOR SURE", "I'M IN", "IM IN", "I'M COMING", "IM COMING",
+    "I'LL BE THERE", "ILL BE THERE", "COUNT ME IN", "ABSOLUTELY",
+    "OF COURSE", "DEFINITELY", "ON MY WAY", "OMW",
+    "SLIDING", "SLIDE", "COMING THROUGH",
 }
 
 DECLINED_KEYWORDS = {
-    "NO", "N", "NOPE", "NAH", "NAWL", "CANT", "CAN'T", "PASS",
+    "NO", "N", "NOPE", "NAH", "CAN'T", "CANT", "PASS",
     "DECLINE", "NOT COMING", "CAN'T MAKE IT", "CANT MAKE IT",
-    "NOT GOING", "WON'T MAKE IT", "WONT MAKE IT", "SKIP",
+    "NOT GOING", "WON'T MAKE IT", "WONT MAKE IT", "CAN'T GO", "CANT GO",
 }
 
 AMBIGUOUS_KEYWORDS = {
     "MAYBE", "MIGHT", "TRYING", "DEPENDS", "IDK", "I DON'T KNOW",
-    "POSSIBLY", "HOPEFULLY", "WE'LL SEE", "NOT SURE",
+    "POSSIBLY", "HOPEFULLY", "WE'LL SEE", "NOT SURE", "PROBABLY",
+    "I THINK SO", "SHOULD BE", "PLANNING ON IT",
+}
+
+# Messages Jade silently ignores — no response needed
+IGNORE_KEYWORDS = {
+    "THANKS", "THANK YOU", "THX", "TY", "APPRECIATE IT",
+    "SOUNDS GOOD", "OK", "OKAY", "GOT IT", "COOL", "PERFECT",
+    "GREAT", "AWESOME", "NICE", "SWEET",
 }
 
 OPT_OUT_KEYWORDS = {"STOP", "STOPALL", "UNSUBSCRIBE", "CANCEL", "END", "QUIT"}
@@ -740,16 +758,47 @@ def handler(event, context):
                     placeholder = f"Guest of {member_first}".strip()
                     _set_plus_one(event_id, from_phone, placeholder, is_member=False)
                     if sms_enabled:
-                        send_sms(from_phone, "Got it, I'll hold a spot. Send me their name when you know.")
+                        send_sms(from_phone, "I'll hold a spot. Let me know their name before you get there.")
                 else:
-                    # Treat the message as the +1 name
-                    plus_one_name = text.strip().title()[:100]
-                    is_member = _lookup_plus_one_is_member(plus_one_name)
-                    _set_plus_one(event_id, from_phone, plus_one_name, is_member=is_member)
-                    if sms_enabled:
-                        send_sms(from_phone, f"Got it, I have {plus_one_name} down.")
+                    # Require first AND last name — if only one word, ask for last name
+                    name_parts = text.strip().split()
+                    if len(name_parts) < 2:
+                        # Store partial first name in temp field, ask for last name
+                        _invites_table().update_item(
+                            Key={"eventId": event_id, "phone": from_phone},
+                            UpdateExpression="SET awaitingPlusOneLastName = :fn",
+                            ExpressionAttributeValues={":fn": name_parts[0].title()},
+                        )
+                        if sms_enabled:
+                            send_sms(from_phone, "And their last name?")
+                    else:
+                        plus_one_name = " ".join(p.title() for p in name_parts[:3])[:100]
+                        is_member = _lookup_plus_one_is_member(plus_one_name)
+                        _set_plus_one(event_id, from_phone, plus_one_name, is_member=is_member)
+                        if sms_enabled:
+                            send_sms(from_phone, f"I have {plus_one_name} down.")
             except Exception:
                 logger.exception("sms_handler: plus one name collection failed phone=...%s", from_phone[-4:])
+            return {"statusCode": 200, "body": json.dumps({"ok": True})}
+
+        # ── AWAITING PLUS ONE LAST NAME ────────────────────────────────────────
+        if confirmed_invite and confirmed_invite.get("awaitingPlusOneLastName"):
+            try:
+                event_id = confirmed_invite["eventId"]
+                first_name = confirmed_invite.get("awaitingPlusOneLastName", "")
+                last_name = text.strip().title()
+                plus_one_name = f"{first_name} {last_name}"[:100]
+                is_member = _lookup_plus_one_is_member(plus_one_name)
+                # Clear both flags and store full name
+                _invites_table().update_item(
+                    Key={"eventId": event_id, "phone": from_phone},
+                    UpdateExpression="SET plusOneName = :n, plusOneIsMember = :m, awaitingPlusOneName = :f, awaitingPlusOneLastName = :e",
+                    ExpressionAttributeValues={":n": plus_one_name, ":m": is_member, ":f": False, ":e": ""},
+                )
+                if sms_enabled:
+                    send_sms(from_phone, f"I have {plus_one_name} down.")
+            except Exception:
+                logger.exception("sms_handler: plus one last name collection failed phone=...%s", from_phone[-4:])
             return {"statusCode": 200, "body": json.dumps({"ok": True})}
 
         # ── CONFIRMED ─────────────────────────────────────────────────────────
@@ -775,7 +824,7 @@ def handler(event, context):
                                 try:
                                     send_sms(
                                         from_phone,
-                                        "We're at capacity for this one. I'll keep you in mind for next time.",
+                                        "We're at capacity for this one. I'll reach out for the next one.",
                                     )
                                 except Exception:
                                     logger.exception("sms_handler: at-capacity SMS failed phone=...%s", from_phone[-4:])
@@ -788,7 +837,7 @@ def handler(event, context):
                             # If plus ones are allowed, ask for the name inline
                             if ev.get("allowPlusOnes"):
                                 _set_awaiting_plus_one(event_id, from_phone)
-                                confirmation_msg += " Who's your plus one?"
+                                confirmation_msg += " +1 welcome — who are you bringing?"
                             send_sms(from_phone, confirmation_msg)
                         except Exception:
                             logger.exception("sms_handler: confirmation SMS failed phone=...%s", from_phone[-4:])
@@ -804,11 +853,46 @@ def handler(event, context):
                     _update_invite_status(invite["eventId"], from_phone, "DECLINED")
                     if sms_enabled:
                         try:
-                            send_sms(from_phone, "No worries. I'll keep you in mind.")
+                            send_sms(from_phone, "No worries. I'll reach out for the next one.")
                         except Exception:
                             logger.exception("sms_handler: declined SMS failed phone=...%s", from_phone[-4:])
             except Exception:
                 logger.exception("sms_handler: DECLINED branch failed phone=...%s", from_phone[-4:])
+            return {"statusCode": 200, "body": json.dumps({"ok": True})}
+
+        # ── IGNORE — social acknowledgments, no response needed ──────────────
+        if normalized in IGNORE_KEYWORDS:
+            return {"statusCode": 200, "body": json.dumps({"ok": True})}
+
+        # ── PLUS ONE UPDATE ANYTIME ────────────────────────────────────────────
+        # Detect "my plus one is X", "change my plus one to X", "plus one is X"
+        import re as _re
+        _plus_update_match = _re.match(
+            r"^(?:my\s+)?(?:change\s+my\s+)?plus\s+one\s+(?:is|to)\s+(.+)$",
+            text.strip(),
+            _re.IGNORECASE,
+        )
+        if _plus_update_match and confirmed_invite:
+            try:
+                event_id = confirmed_invite["eventId"]
+                raw_name = _plus_update_match.group(1).strip()
+                name_parts = raw_name.split()
+                if len(name_parts) < 2:
+                    _invites_table().update_item(
+                        Key={"eventId": event_id, "phone": from_phone},
+                        UpdateExpression="SET awaitingPlusOneLastName = :fn, awaitingPlusOneName = :t",
+                        ExpressionAttributeValues={":fn": name_parts[0].title(), ":t": True},
+                    )
+                    if sms_enabled:
+                        send_sms(from_phone, "And their last name?")
+                else:
+                    plus_one_name = " ".join(p.title() for p in name_parts[:3])[:100]
+                    is_member = _lookup_plus_one_is_member(plus_one_name)
+                    _set_plus_one(event_id, from_phone, plus_one_name, is_member=is_member)
+                    if sms_enabled:
+                        send_sms(from_phone, f"I have {plus_one_name} down.")
+            except Exception:
+                logger.exception("sms_handler: plus one update anytime failed phone=...%s", from_phone[-4:])
             return {"statusCode": 200, "body": json.dumps({"ok": True})}
 
         # ── AMBIGUOUS — Jade asks for a direct confirm ─────────────────────────
