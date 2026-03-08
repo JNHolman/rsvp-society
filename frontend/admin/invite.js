@@ -159,7 +159,7 @@ function createPreviewTable(members = []) {
       createNode('td'),
     ];
 
-    cells[0].appendChild(createNode('span', { className: 'member-name', text: member.name || '—' }));
+    cells[0].appendChild(createNode('span', { className: 'member-name', text: member.fullName || member.name || '—' }));
     cells[1].appendChild(createNode('span', { className: 'member-phone', text: phone || '—' }));
     cells[2].appendChild(createNode('span', { className: 'member-source', text: member.gender || '?' }));
     cells[3].appendChild(createNode('span', { className: 'status-badge PENDING', text: `Tier ${Number(member.tier) || 0}` }));
