@@ -95,6 +95,19 @@ def get_confirmed(event: dict, headers: dict, token: str) -> dict:
         first_name = (m.get("name")     or invite.get("name")     or "").strip()
         last_name  = (m.get("lastName") or invite.get("lastName") or "").strip()
         full_name  = " ".join(part for part in (first_name, last_name) if part).strip()
+        # Live check — is the plus one name already in the members table?
+        plus_one_name = invite.get("plusOneName", "")
+        plus_one_is_member = False
+        if plus_one_name:
+            plus_one_clean = plus_one_name.strip().lower()
+            for mp in member_map.values():
+                mfirst = (mp.get("name") or "").strip().lower()
+                mlast  = (mp.get("lastName") or "").strip().lower()
+                mfull  = f"{mfirst} {mlast}".strip()
+                if plus_one_clean in (mfirst, mlast, mfull):
+                    plus_one_is_member = True
+                    break
+
         members_out.append({
             "phone":           phone,
             "name":            first_name,
@@ -104,8 +117,8 @@ def get_confirmed(event: dict, headers: dict, token: str) -> dict:
             "confirmedAt":     invite.get("confirmedAt", ""),
             "attendedAt":      invite.get("attendedAt", ""),
             "checkedIn":       bool(invite.get("attendedAt")),
-            "plusOneName":     invite.get("plusOneName", ""),
-            "plusOneIsMember": coerce_bool(invite.get("plusOneIsMember", False)),
+            "plusOneName":     plus_one_name,
+            "plusOneIsMember": plus_one_is_member,
         })
 
     members_out.sort(key=lambda x: (
