@@ -760,7 +760,7 @@ def handler(event, context):
                     event_id = invite["eventId"]
 
                     # Fix C2: check capacity before confirming
-                    ev = _events_table().get_item(Key={"eventId": event_id}).get("Item") or {}
+                    ev = _events_table().get_item(Key={"eventId": "current"}).get("Item") or {}
                     capacity = int(ev.get("capacity") or 0)
                     if capacity > 0:
                         target_confirmed = math.ceil(capacity / 0.60)
