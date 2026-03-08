@@ -267,11 +267,53 @@ def _build_invite_list(
     }
 
 
+def _generate_vibe_line(vibe_tag: str) -> str:
+    """
+    Call Claude to generate one evocative line based on the vibe tag.
+    Used in invite preview — admin can edit before blast goes out.
+    Falls back to empty string if call fails.
+    """
+    try:
+        import urllib.request
+        api_key = get_secret_string(
+            os.getenv("CLAUDE_API_KEY_SECRET_ID", "rsvp/claude-api-key")
+        )
+        prompt = (
+            f"You are Jade — a private, feminine, calm event concierge. "
+            f"Write exactly one short sentence (10 words max) that evokes the feeling of this vibe without explaining it. "
+            f"Do not use hype language. Do not use emojis. No quotation marks. Just the sentence.\n\n"
+            f"Vibe: {vibe_tag}"
+        )
+        payload = {
+            "model": "claude-haiku-4-5-20251001",
+            "max_tokens": 60,
+            "messages": [{"role": "user", "content": prompt}],
+        }
+        data = json.dumps(payload).encode("utf-8")
+        req = urllib.request.Request(
+            "https://api.anthropic.com/v1/messages",
+            data=data,
+            headers={
+                "content-type": "application/json",
+                "x-api-key": api_key,
+                "anthropic-version": "2023-06-01",
+            },
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            out = json.loads(resp.read())
+        return out["content"][0]["text"].strip().strip('"').strip("'")
+    except Exception:
+        logger.exception("_generate_vibe_line failed vibe_tag=%s", vibe_tag[:30])
+        return ""
+
+
 def _build_sms_message(member: Dict[str, Any], event: Dict[str, Any]) -> str:
     """
     Use locked invite_template if admin approved one.
     Replace {name} with member first name.
     Fall back to building from event fields if no template set.
+    Jade generates one evocative line after the vibe tag.
     """
     name = (member.get("name") or "").split()[0] or ""
 
@@ -288,25 +330,29 @@ def _build_sms_message(member: Dict[str, Any], event: Dict[str, Any]) -> str:
         event_label = (event.get("event_label") or "").strip()
         vibe_tag = (event.get("vibe_tag") or "").strip()
 
-        closings = ["Tap in.", "Lmk.", "We on?", "Still on?", "Pull up."]
-        closing = random.choice(closings) if random.random() < 0.4 else ""
+        closing = random.choice(["Are you in?", "Are you coming?"])
 
         parts = []
         if name:        parts.append(f"{name}.")
         if event_label: parts.append(f"{event_label}.")
         parts.append(f"{date}.")
-        if vibe_tag:    parts.append(f"{vibe_tag}.")
+        if vibe_tag:
+            vibe_line = _generate_vibe_line(vibe_tag)
+            if vibe_line:
+                parts.append(f"{vibe_tag} — {vibe_line}")
+            else:
+                parts.append(f"{vibe_tag}.")
         if time:        parts.append(f"{time}.")
         if venue:       parts.append(f"{venue}.")
         if address:     parts.append(f"{address}.")
-        if closing:     parts.append(closing)
+        parts.append(closing)
 
         return " ".join(parts)
     else:
         if name:
-            return f"{name}. You're on the list. Lmk."
+            return f"{name}. You're on the list."
         else:
-            return "You're on the list. Lmk."
+            return "You're on the list."
 
 
 def _get_analytics(event_id: str) -> dict:
@@ -389,11 +435,10 @@ def handle_preview(body: dict, origin: str) -> dict:
     preview_members = []
     for m in result["members"]:
         preview_members.append({
-            "phone":         m.get("phone", ""),
-            "name":          m.get("name", ""),
-            "lastName":      m.get("lastName", ""),
-            "gender":        m.get("gender", "?"),
-            "tier":          m["_tier"],
+            "phone":        m.get("phone", ""),
+            "name":         m.get("name", ""),
+            "gender":       m.get("gender", "?"),
+            "tier":         m["_tier"],
             "attendedCount": int(m.get("attendedCount", 0)),
             "invitedCount":  int(m.get("invitedCount", 0)),
         })
