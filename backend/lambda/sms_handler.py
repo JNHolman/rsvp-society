@@ -297,14 +297,17 @@ def _build_confirmation_message(phone: str) -> str:
 
 # ── Plus one helpers ──────────────────────────────────────────────────────────
 
-def _set_plus_one(event_id: str, phone: str, plus_one_name: str, is_member: bool) -> None:
-    """Store plusOneName and membership flag on the invite record."""
+def _set_plus_one(event_id: str, phone: str, plus_one_name: str, is_member: bool, plus_one_phone: str = "") -> None:
+    """Store plusOneName, membership flag, and phone (if known) on the invite record."""
+    expr = "SET plusOneName = :n, plusOneIsMember = :m, awaitingPlusOneName = :f"
+    vals = {":n": plus_one_name, ":m": is_member, ":f": False}
+    if plus_one_phone:
+        expr += ", plusOnePhone = :pp"
+        vals[":pp"] = plus_one_phone
     _invites_table().update_item(
         Key={"eventId": event_id, "phone": phone},
-        UpdateExpression=(
-            "SET plusOneName = :n, plusOneIsMember = :m, awaitingPlusOneName = :f"
-        ),
-        ExpressionAttributeValues={":n": plus_one_name, ":m": is_member, ":f": False},
+        UpdateExpression=expr,
+        ExpressionAttributeValues=vals,
     )
 
 
@@ -757,54 +760,15 @@ def handler(event, context):
         if not coerce_bool(member.get("smsOptIn", False)):
             return {"statusCode": 200, "body": json.dumps({"ok": True})}
 
-        # ── Awaiting plus one name ────────────────────────────────────────────
+        # ── Awaiting plus one name / last name ───────────────────────────────
         # Must run before keyword routing so a name reply like "Mike Smith"
         # doesn't fall through to the Jade general handler.
         confirmed_invite = _get_confirmed_invite(from_phone)
-        if confirmed_invite and confirmed_invite.get("awaitingPlusOneName"):
-            try:
-                event_id = confirmed_invite["eventId"]
-                member_first = member.get("name", "them")
-                # "idk", "don't know", "not sure", "no" → placeholder
-                UNKNOWN_REPLIES = {"IDK", "I DON'T KNOW", "I DONT KNOW", "NOT SURE", "NO", "N", "NONE", "SKIP"}
-                if normalized in UNKNOWN_REPLIES:
-                    placeholder = f"Guest of {member_first}".strip()
-                    _set_plus_one(event_id, from_phone, placeholder, is_member=False)
-                    if sms_enabled:
-                        send_sms(from_phone, "I'll hold a spot. Let me know their name before you get there.")
-                else:
-                    # Require first AND last name — if only one word, ask for last name
-                    name_parts = text.strip().split()
-                    if len(name_parts) < 2:
-                        # Store partial first name in temp field, ask for last name
-                        _invites_table().update_item(
-                            Key={"eventId": event_id, "phone": from_phone},
-                            UpdateExpression="SET awaitingPlusOneLastName = :fn",
-                            ExpressionAttributeValues={":fn": name_parts[0].title()},
-                        )
-                        if sms_enabled:
-                            send_sms(from_phone, "And their last name?")
-                    else:
-                        plus_one_name = " ".join(p.title() for p in name_parts[:3])[:100]
-                        result = _lookup_plus_one(plus_one_name, event_id)
-                        if result["already_invited"]:
-                            if sms_enabled:
-                                send_sms(from_phone, "They're already on the list.")
-                            # Clear awaiting flag without storing plus one
-                            _invites_table().update_item(
-                                Key={"eventId": event_id, "phone": from_phone},
-                                UpdateExpression="SET awaitingPlusOneName = :f",
-                                ExpressionAttributeValues={":f": False},
-                            )
-                        else:
-                            _set_plus_one(event_id, from_phone, plus_one_name, is_member=result["is_member"])
-                            if sms_enabled:
-                                send_sms(from_phone, f"I have {plus_one_name} down.")
-            except Exception:
-                logger.exception("sms_handler: plus one name collection failed phone=...%s", from_phone[-4:])
-            return {"statusCode": 200, "body": json.dumps({"ok": True})}
 
-        # ── AWAITING PLUS ONE LAST NAME ────────────────────────────────────────
+        # ── AWAITING PLUS ONE LAST NAME — check this FIRST ────────────────────
+        # awaitingPlusOneName stays true while we collect the last name,
+        # so we must intercept the last-name reply before re-entering the
+        # first-name branch below.
         if confirmed_invite and confirmed_invite.get("awaitingPlusOneLastName"):
             try:
                 event_id = confirmed_invite["eventId"]
@@ -813,7 +777,6 @@ def handler(event, context):
                 plus_one_name = f"{first_name} {last_name}"[:100]
                 result = _lookup_plus_one(plus_one_name, event_id)
                 if result["already_invited"]:
-                    # Clear flags, don't store plus one
                     _invites_table().update_item(
                         Key={"eventId": event_id, "phone": from_phone},
                         UpdateExpression="SET awaitingPlusOneName = :f, awaitingPlusOneLastName = :e",
@@ -822,15 +785,53 @@ def handler(event, context):
                     if sms_enabled:
                         send_sms(from_phone, "They're already on the list.")
                 else:
-                    _invites_table().update_item(
-                        Key={"eventId": event_id, "phone": from_phone},
-                        UpdateExpression="SET plusOneName = :n, plusOneIsMember = :m, awaitingPlusOneName = :f, awaitingPlusOneLastName = :e",
-                        ExpressionAttributeValues={":n": plus_one_name, ":m": result["is_member"], ":f": False, ":e": ""},
-                    )
+                    _set_plus_one(event_id, from_phone, plus_one_name, is_member=result["is_member"], plus_one_phone=result.get("phone") or "")
                     if sms_enabled:
                         send_sms(from_phone, f"I have {plus_one_name} down.")
             except Exception:
                 logger.exception("sms_handler: plus one last name collection failed phone=...%s", from_phone[-4:])
+            return {"statusCode": 200, "body": json.dumps({"ok": True})}
+
+        # ── AWAITING PLUS ONE FIRST NAME ──────────────────────────────────────
+        if confirmed_invite and confirmed_invite.get("awaitingPlusOneName"):
+            try:
+                event_id = confirmed_invite["eventId"]
+                member_first = member.get("name", "them")
+                UNKNOWN_REPLIES = {"IDK", "I DON'T KNOW", "I DONT KNOW", "NOT SURE", "I'M NOT SURE", "IM NOT SURE", "NO", "N", "NONE", "SKIP", "NOT YET", "IDK YET"}
+                if normalized in UNKNOWN_REPLIES:
+                    placeholder = f"Guest of {member_first}".strip()
+                    _set_plus_one(event_id, from_phone, placeholder, is_member=False)
+                    if sms_enabled:
+                        send_sms(from_phone, "I'll hold a spot. Let me know their name before you get there.")
+                else:
+                    name_parts = text.strip().split()
+                    if len(name_parts) < 2:
+                        # Single word — ask for last name, clear awaitingPlusOneName
+                        # so the next reply goes to awaitingPlusOneLastName branch
+                        _invites_table().update_item(
+                            Key={"eventId": event_id, "phone": from_phone},
+                            UpdateExpression="SET awaitingPlusOneLastName = :fn, awaitingPlusOneName = :f",
+                            ExpressionAttributeValues={":fn": name_parts[0].title(), ":f": False},
+                        )
+                        if sms_enabled:
+                            send_sms(from_phone, "And their last name?")
+                    else:
+                        plus_one_name = " ".join(p.title() for p in name_parts[:3])[:100]
+                        result = _lookup_plus_one(plus_one_name, event_id)
+                        if result["already_invited"]:
+                            _invites_table().update_item(
+                                Key={"eventId": event_id, "phone": from_phone},
+                                UpdateExpression="SET awaitingPlusOneName = :f",
+                                ExpressionAttributeValues={":f": False},
+                            )
+                            if sms_enabled:
+                                send_sms(from_phone, "They're already on the list.")
+                        else:
+                            _set_plus_one(event_id, from_phone, plus_one_name, is_member=result["is_member"], plus_one_phone=result.get("phone") or "")
+                            if sms_enabled:
+                                send_sms(from_phone, f"I have {plus_one_name} down.")
+            except Exception:
+                logger.exception("sms_handler: plus one name collection failed phone=...%s", from_phone[-4:])
             return {"statusCode": 200, "body": json.dumps({"ok": True})}
 
         # ── CONFIRMED ─────────────────────────────────────────────────────────
