@@ -2,6 +2,7 @@ import base64
 import hashlib
 import hmac
 import json
+import random
 import logging
 import math
 import os
@@ -21,7 +22,7 @@ logger = logging.getLogger()
 
 JADE_SYSTEM_PROMPT = """You are Jade.
 
-You text approved members of RSVP Society — a private, invite-only R&B event experience. Nothing is public. Nothing is advertised. If you reached out, it means something.
+You text approved members of RSVP Society — a private, invite-only series built around good music, style, and the kind of presence that changes a room. Nothing is public. If you reached out, it means something.
 
 Who you are:
 You're not a promoter. You're not hosting. You just know where everything worth going to is — and you decide who finds out. You move quietly. You text people personally. There's no announcement, no flyer, no public anything. You're the reason someone gets into a night they'll never forget and can't fully explain to anyone who wasn't there. Think Rose at The Cosmopolitan — she knows every secret, tells you just enough, never tells you everything. People are drawn to you without knowing why. You're everywhere you need to be and everywhere they want to be at the same time. There's an air of "you're lucky I thought of you" without you ever saying it. You didn't get into this to be known. You just are.
@@ -38,6 +39,7 @@ Voice rules:
 — Use their name occasionally — not every message. When you do, it should feel intentional.
 — Feminine, calm, slightly untouchable. Never eager. Never robotic.
 — Cool doesn't announce itself. Neither do you.
+— Never sound like you're reading from a script. You have range.
 
 Hard rules:
 — Never reveal the venue until a member is confirmed.
@@ -256,44 +258,18 @@ def _update_invite_status(event_id: str, phone: str, status: str) -> None:
 def _build_confirmation_message(phone: str) -> str:
     """
     Build Jade's confirmation reply.
-    - Reveals venue only if admin has enabled revealVenue.
-    - Appends dress code if set and not already implied by vibe_tag.
-    - Appends ticket link if ticketUrl is set.
+    Clean and certain — just You're in, plus ticket link if required.
     """
     try:
         ev = _events_table().get_item(Key={"eventId": "current"}).get("Item") or {}
-
-        # Date — format nicely if possible
-        date_val = ev.get("date", "")
-        try:
-            from datetime import datetime as _dt
-            date_display = _dt.strptime(date_val[:10], "%Y-%m-%d").strftime("%A %B %-d, %Y")
-        except Exception:
-            date_display = date_val
-
-        parts = ["You're in."]
-        if date_display:
-            parts.append(f"See you {date_display}.")
-        if ev.get("revealVenue") and ev.get("venue"):
-            parts.append(f"{ev['venue']}.")
-        if ev.get("revealVenue") and ev.get("address"):
-            parts.append(f"{ev['address']}.")
-
-        # Dress code — only append if set and not already in vibe_tag
-        dresscode = (ev.get("dresscode") or "").strip()
-        vibe_tag = (ev.get("vibe_tag") or "").lower()
-        if dresscode and dresscode.lower() not in vibe_tag:
-            parts.append(f"{dresscode}.")
-
-        # Ticket link — if set, they need to grab it
+        msg = random.choice(["You're in.", "You're confirmed.", "I've got you."])
         ticket_url = (ev.get("ticketUrl") or "").strip()
         if ticket_url:
-            parts.append(f"Grab your ticket: {ticket_url}")
-
-        return " ".join(parts)
+            msg += f" Grab your ticket: {ticket_url}"
+        return msg
     except Exception:
         logger.exception("_build_confirmation_message failed phone=...%s", phone[-4:])
-        return "You're in. See you there."
+        return "You're in."
 
 # ── Plus one helpers ──────────────────────────────────────────────────────────
 
@@ -783,11 +759,11 @@ def handler(event, context):
                         ExpressionAttributeValues={":f": False, ":e": ""},
                     )
                     if sms_enabled:
-                        send_sms(from_phone, "They're already on the list.")
+                        send_sms(from_phone, random.choice(["They're already on the list.", "Already got them.", "They're good. Already on there."]))
                 else:
                     _set_plus_one(event_id, from_phone, plus_one_name, is_member=result["is_member"], plus_one_phone=result.get("phone") or "")
                     if sms_enabled:
-                        send_sms(from_phone, f"I have {plus_one_name} down.")
+                        send_sms(from_phone, random.choice(["I've got them down.", f"Got it. {plus_one_name}'s on the list.", f"Done. I've got {plus_one_name}."]))
             except Exception:
                 logger.exception("sms_handler: plus one last name collection failed phone=...%s", from_phone[-4:])
             return {"statusCode": 200, "body": json.dumps({"ok": True})}
@@ -805,7 +781,7 @@ def handler(event, context):
                         ExpressionAttributeValues={":f": False},
                     )
                     if sms_enabled:
-                        send_sms(from_phone, "No worries. Text me 'my plus one is [name]' when you know.")
+                        send_sms(from_phone, random.choice(["No rush. Text me 'my plus one is [name]' when you know.", "That's fine. Send 'my plus one is [name]' when you have it.", "No worries. I'll hold the spot — just text me 'my plus one is [name]'."]))
                 else:
                     name_parts = text.strip().split()
                     if len(name_parts) < 2:
@@ -817,7 +793,7 @@ def handler(event, context):
                             ExpressionAttributeValues={":fn": name_parts[0].title(), ":f": False},
                         )
                         if sms_enabled:
-                            send_sms(from_phone, "And their last name?")
+                            send_sms(from_phone, random.choice(["And their last name?", "Last name?", "What's their last name?"]))
                     else:
                         plus_one_name = " ".join(p.title() for p in name_parts[:3])[:100]
                         result = _lookup_plus_one(plus_one_name, event_id)
@@ -828,11 +804,11 @@ def handler(event, context):
                                 ExpressionAttributeValues={":f": False},
                             )
                             if sms_enabled:
-                                send_sms(from_phone, "They're already on the list.")
+                                send_sms(from_phone, random.choice(["They're already on the list.", "Already got them.", "They're good. Already on there."]))
                         else:
                             _set_plus_one(event_id, from_phone, plus_one_name, is_member=result["is_member"], plus_one_phone=result.get("phone") or "")
                             if sms_enabled:
-                                send_sms(from_phone, f"I have {plus_one_name} down.")
+                                send_sms(from_phone, random.choice(["I've got them down.", f"Got it. {plus_one_name}'s on the list.", f"Done. I've got {plus_one_name}."]))
             except Exception:
                 logger.exception("sms_handler: plus one name collection failed phone=...%s", from_phone[-4:])
             return {"statusCode": 200, "body": json.dumps({"ok": True})}
@@ -860,7 +836,7 @@ def handler(event, context):
                                 try:
                                     send_sms(
                                         from_phone,
-                                        "We're at capacity for this one. I'll reach out for the next one.",
+                                        random.choice(["We're at capacity for this one. I'll reach out for the next one.", "This one's full. I'll keep you in mind.", "No room left on this one. You're on my radar for the next."]),
                                     )
                                 except Exception:
                                     logger.exception("sms_handler: at-capacity SMS failed phone=...%s", from_phone[-4:])
@@ -873,7 +849,11 @@ def handler(event, context):
                             # If plus ones are allowed, ask for the name inline
                             if ev.get("allowPlusOnes"):
                                 _set_awaiting_plus_one(event_id, from_phone)
-                                confirmation_msg += " +1 welcome — who are you bringing?"
+                                confirmation_msg += " " + random.choice([
+                                    "+1 welcome — who are you bringing?",
+                                    "+1's allowed. Who's coming with you?",
+                                    "You can bring someone. Who's coming with you?",
+                                ])
                             send_sms(from_phone, confirmation_msg)
                         except Exception:
                             logger.exception("sms_handler: confirmation SMS failed phone=...%s", from_phone[-4:])
@@ -889,7 +869,7 @@ def handler(event, context):
                     _update_invite_status(invite["eventId"], from_phone, "DECLINED")
                     if sms_enabled:
                         try:
-                            send_sms(from_phone, "No worries. I'll reach out for the next one.")
+                            send_sms(from_phone, random.choice(["No worries. I'll reach out for the next one.", "Noted. I'll catch you at the next one.", "Understood. I'll be in touch."]))
                         except Exception:
                             logger.exception("sms_handler: declined SMS failed phone=...%s", from_phone[-4:])
             except Exception:
@@ -903,7 +883,6 @@ def handler(event, context):
         # ── PLUS ONE UPDATE ANYTIME ────────────────────────────────────────────
         # Detect "my plus one is X", "change my plus one to X", "plus one is X"
         import re as _re
-        _plus_update_match = _re.match(
         _plus_update_match = _re.match(
             r"^(?:(?:my\s+)?(?:change\s+my\s+)?plus\s+one\s+(?:is|to)\s+(.+)|\+1\s+(?:is\s+)?(.+)|bringing\s+(.+)|i(?:'?m)?\s+bringing\s+(.+))$",
             text.strip(),
@@ -921,17 +900,17 @@ def handler(event, context):
                         ExpressionAttributeValues={":fn": name_parts[0].title(), ":t": True},
                     )
                     if sms_enabled:
-                        send_sms(from_phone, "And their last name?")
+                        send_sms(from_phone, random.choice(["And their last name?", "Last name?", "What's their last name?"]))
                 else:
                     plus_one_name = " ".join(p.title() for p in name_parts[:3])[:100]
                     result = _lookup_plus_one(plus_one_name, event_id)
                     if result["already_invited"]:
                         if sms_enabled:
-                            send_sms(from_phone, "They're already on the list.")
+                            send_sms(from_phone, random.choice(["They're already on the list.", "Already got them.", "They're good. Already on there."]))
                     else:
                         _set_plus_one(event_id, from_phone, plus_one_name, is_member=result["is_member"])
                         if sms_enabled:
-                            send_sms(from_phone, f"I have {plus_one_name} down.")
+                            send_sms(from_phone, random.choice(["I've got them down.", f"Got it. {plus_one_name}'s on the list.", f"Done. I've got {plus_one_name}."]))
             except Exception:
                 logger.exception("sms_handler: plus one update anytime failed phone=...%s", from_phone[-4:])
             return {"statusCode": 200, "body": json.dumps({"ok": True})}
