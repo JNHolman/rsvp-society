@@ -336,28 +336,41 @@ def _get_confirmed_invite(phone: str) -> dict | None:
     return None
 
 
-def _lookup_plus_one_is_member(name: str) -> bool:
+def _lookup_plus_one(name: str, event_id: str) -> dict:
     """
     Search the members table for a name match.
-    Returns True if a matching first+last name is found.
-    Case-insensitive. Used to set the star flag on the check-in page.
+    Returns a dict with:
+      - already_invited: True if they already have an invite for this event
+      - is_member: True if they are in the members table
+      - phone: their phone number if found
     """
     try:
         from member_store import search_members
         name_clean = name.strip().lower()
         if not name_clean:
-            return False
+            return {"already_invited": False, "is_member": False, "phone": None}
         results = search_members(name_clean, limit=5)
         for r in results:
             first = (r.get("name") or "").strip().lower()
-            last = (r.get("lastName") or "").strip().lower()
-            full = f"{first} {last}".strip()
+            last  = (r.get("lastName") or "").strip().lower()
+            full  = f"{first} {last}".strip()
             if name_clean in (first, last, full):
-                return True
-        return False
+                matched_phone = r.get("phone")
+                # Check if they already have an invite for this event
+                if matched_phone:
+                    try:
+                        inv = _invites_table().get_item(
+                            Key={"eventId": event_id, "phone": matched_phone}
+                        ).get("Item")
+                        if inv:
+                            return {"already_invited": True, "is_member": True, "phone": matched_phone}
+                    except Exception:
+                        logger.exception("_lookup_plus_one: invite check failed phone=...%s", matched_phone[-4:])
+                return {"already_invited": False, "is_member": True, "phone": matched_phone}
+        return {"already_invited": False, "is_member": False, "phone": None}
     except Exception:
-        logger.exception("_lookup_plus_one_is_member failed name=%s", name[:30])
-        return False
+        logger.exception("_lookup_plus_one failed name=%s", name[:30])
+        return {"already_invited": False, "is_member": False, "phone": None}
 
 
 
@@ -773,10 +786,20 @@ def handler(event, context):
                             send_sms(from_phone, "And their last name?")
                     else:
                         plus_one_name = " ".join(p.title() for p in name_parts[:3])[:100]
-                        is_member = _lookup_plus_one_is_member(plus_one_name)
-                        _set_plus_one(event_id, from_phone, plus_one_name, is_member=is_member)
-                        if sms_enabled:
-                            send_sms(from_phone, f"I have {plus_one_name} down.")
+                        result = _lookup_plus_one(plus_one_name, event_id)
+                        if result["already_invited"]:
+                            if sms_enabled:
+                                send_sms(from_phone, "They're already on the list.")
+                            # Clear awaiting flag without storing plus one
+                            _invites_table().update_item(
+                                Key={"eventId": event_id, "phone": from_phone},
+                                UpdateExpression="SET awaitingPlusOneName = :f",
+                                ExpressionAttributeValues={":f": False},
+                            )
+                        else:
+                            _set_plus_one(event_id, from_phone, plus_one_name, is_member=result["is_member"])
+                            if sms_enabled:
+                                send_sms(from_phone, f"I have {plus_one_name} down.")
             except Exception:
                 logger.exception("sms_handler: plus one name collection failed phone=...%s", from_phone[-4:])
             return {"statusCode": 200, "body": json.dumps({"ok": True})}
@@ -788,15 +811,24 @@ def handler(event, context):
                 first_name = confirmed_invite.get("awaitingPlusOneLastName", "")
                 last_name = text.strip().title()
                 plus_one_name = f"{first_name} {last_name}"[:100]
-                is_member = _lookup_plus_one_is_member(plus_one_name)
-                # Clear both flags and store full name
-                _invites_table().update_item(
-                    Key={"eventId": event_id, "phone": from_phone},
-                    UpdateExpression="SET plusOneName = :n, plusOneIsMember = :m, awaitingPlusOneName = :f, awaitingPlusOneLastName = :e",
-                    ExpressionAttributeValues={":n": plus_one_name, ":m": is_member, ":f": False, ":e": ""},
-                )
-                if sms_enabled:
-                    send_sms(from_phone, f"I have {plus_one_name} down.")
+                result = _lookup_plus_one(plus_one_name, event_id)
+                if result["already_invited"]:
+                    # Clear flags, don't store plus one
+                    _invites_table().update_item(
+                        Key={"eventId": event_id, "phone": from_phone},
+                        UpdateExpression="SET awaitingPlusOneName = :f, awaitingPlusOneLastName = :e",
+                        ExpressionAttributeValues={":f": False, ":e": ""},
+                    )
+                    if sms_enabled:
+                        send_sms(from_phone, "They're already on the list.")
+                else:
+                    _invites_table().update_item(
+                        Key={"eventId": event_id, "phone": from_phone},
+                        UpdateExpression="SET plusOneName = :n, plusOneIsMember = :m, awaitingPlusOneName = :f, awaitingPlusOneLastName = :e",
+                        ExpressionAttributeValues={":n": plus_one_name, ":m": result["is_member"], ":f": False, ":e": ""},
+                    )
+                    if sms_enabled:
+                        send_sms(from_phone, f"I have {plus_one_name} down.")
             except Exception:
                 logger.exception("sms_handler: plus one last name collection failed phone=...%s", from_phone[-4:])
             return {"statusCode": 200, "body": json.dumps({"ok": True})}
@@ -887,10 +919,14 @@ def handler(event, context):
                         send_sms(from_phone, "And their last name?")
                 else:
                     plus_one_name = " ".join(p.title() for p in name_parts[:3])[:100]
-                    is_member = _lookup_plus_one_is_member(plus_one_name)
-                    _set_plus_one(event_id, from_phone, plus_one_name, is_member=is_member)
-                    if sms_enabled:
-                        send_sms(from_phone, f"I have {plus_one_name} down.")
+                    result = _lookup_plus_one(plus_one_name, event_id)
+                    if result["already_invited"]:
+                        if sms_enabled:
+                            send_sms(from_phone, "They're already on the list.")
+                    else:
+                        _set_plus_one(event_id, from_phone, plus_one_name, is_member=result["is_member"])
+                        if sms_enabled:
+                            send_sms(from_phone, f"I have {plus_one_name} down.")
             except Exception:
                 logger.exception("sms_handler: plus one update anytime failed phone=...%s", from_phone[-4:])
             return {"statusCode": 200, "body": json.dumps({"ok": True})}
