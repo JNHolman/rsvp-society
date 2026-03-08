@@ -95,18 +95,22 @@ def get_confirmed(event: dict, headers: dict, token: str) -> dict:
         first_name = (m.get("name")     or invite.get("name")     or "").strip()
         last_name  = (m.get("lastName") or invite.get("lastName") or "").strip()
         full_name  = " ".join(part for part in (first_name, last_name) if part).strip()
-        # Live check — is the plus one name already in the members table?
+        # Live check against full members table — not just confirmed invites
         plus_one_name = invite.get("plusOneName", "")
         plus_one_is_member = False
         if plus_one_name:
             plus_one_clean = plus_one_name.strip().lower()
-            for mp in member_map.values():
-                mfirst = (mp.get("name") or "").strip().lower()
-                mlast  = (mp.get("lastName") or "").strip().lower()
-                mfull  = f"{mfirst} {mlast}".strip()
-                if plus_one_clean in (mfirst, mlast, mfull):
-                    plus_one_is_member = True
-                    break
+            try:
+                results = search_members(plus_one_clean, limit=5)
+                for r in results:
+                    mfirst = (r.get("name") or "").strip().lower()
+                    mlast  = (r.get("lastName") or "").strip().lower()
+                    mfull  = f"{mfirst} {mlast}".strip()
+                    if plus_one_clean in (mfirst, mlast, mfull):
+                        plus_one_is_member = True
+                        break
+            except Exception:
+                logger.exception("get_confirmed: plus one member lookup failed name=%s", plus_one_name[:30])
 
         members_out.append({
             "phone":           phone,
