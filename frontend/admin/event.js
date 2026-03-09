@@ -91,7 +91,7 @@ export function previewJadeMessages() {
     return;
   }
 
-  const closings = ['Tap in.', 'Lmk.', 'We on?', 'You sliding?', 'Still on?', 'Pull up.'];
+  const closings = ['Let me know.', 'You in?', 'You coming?'];
   const inviteClosing = Math.random() < 0.4 ? closings[Math.floor(Math.random() * closings.length)] : '';
   const dayBeforeClosing = Math.random() < 0.4 ? closings[Math.floor(Math.random() * closings.length)] : '';
   const dayOfClosing = Math.random() < 0.4 ? closings[Math.floor(Math.random() * closings.length)] : '';
@@ -104,7 +104,7 @@ export function previewJadeMessages() {
   if (revealVenue && venue) inviteParts.push(`${venue}.`);
   if (revealVenue && address) inviteParts.push(`${address}.`);
   if (dresscode) inviteParts.push(`${dresscode}.`);
-  if (allowPlusOnes) inviteParts.push('You can bring one guest.');
+  if (allowPlusOnes) inviteParts.push('+1 welcome.');
   if (inviteClosing) inviteParts.push(inviteClosing);
 
   const dayBeforeParts = ['{name}.', 'Tomorrow.'];

@@ -69,6 +69,9 @@ Plus one rules:
 — If allow_plus_ones is true: "+1 welcome." Work it in naturally. Never say "you can bring one guest."
 — If allow_plus_ones is false: "Just you this time." or "This one's solo." Direct, not harsh.
 — If not set: treat as false.
+— If member_plus_one_name is set: you know who they're bringing. Use their name if asked. "You have [name] down."
+— If member_plus_one_name is "none set" and allow_plus_ones is true: they haven't told you yet. "Who are you bringing?"
+— If they ask to change their plus one: "Of course. Who's coming with you?"
 
 Ticket rules:
 — If ticket_url is set: after confirming, tell them to grab their ticket at that link. The link is how they get in.
@@ -580,6 +583,22 @@ def _build_event_context(member: dict = None) -> str:
         allow_plus = ev.get("allowPlusOnes", False)
         lines.append(f"allow_plus_ones: {'true' if allow_plus else 'false'}")
 
+        # Plus-one info — if the member has a confirmed invite, include their plus-one name
+        if member and member_status == "CONFIRMED":
+            try:
+                phone = member.get("phone", "")
+                slug = ev.get("eventSlug", "")
+                if slug and phone:
+                    inv_rec = _invites_table().get_item(Key={"eventId": slug, "phone": phone}).get("Item")
+                    if inv_rec:
+                        po_name = (inv_rec.get("plusOneName") or "").strip()
+                        if po_name:
+                            lines.append(f"member_plus_one_name: {po_name}")
+                        else:
+                            lines.append("member_plus_one_name: none set")
+            except Exception:
+                pass
+
         reveal = ev.get("revealVenue", False)
         if not reveal and member_status not in ("CONFIRMED",):
             # Scrub address/venue if not revealed yet
@@ -675,14 +694,9 @@ def handler(event, context):
         normalized = text.upper().strip()
         logger.info("sms_handler: inbound event_type=%s from_phone=%s text=%s", event_type, from_phone, repr(text))
 
-        # Host Y/N approval must work regardless of webhook secret / carrier approval status.
-        # Check host before signature verification so approval is never blocked.
-        _host_phones = [p for p in [os.getenv("HOST_PHONE_1", ""), os.getenv("HOST_PHONE_2", "")] if p]
-        _is_host_yn = from_phone and from_phone in _host_phones and normalized in ("Y", "N")
-
-        # Fix #33: verify the request is genuinely from our SMS provider.
-        # Skip for host Y/N commands so approval is never blocked by carrier/secret status.
-        if not _is_host_yn and not _verify_webhook_signature(event):
+        # Verify the request is genuinely from our SMS provider.
+        # All requests — including host Y/N — must pass signature verification.
+        if not _verify_webhook_signature(event):
             logger.error("sms_handler: rejected request with invalid signature — check CloudWatch for webhook_verify logs")
             return {"statusCode": 200, "body": json.dumps({"ok": True})}
 
@@ -893,12 +907,30 @@ def handler(event, context):
             return {"statusCode": 200, "body": json.dumps({"ok": True})}
 
         # ── PLUS ONE UPDATE ANYTIME ────────────────────────────────────────────
-        # Detect "my plus one is X", "change my plus one to X", "plus one is X"
+        # Detect direct updates: "my plus one is X", "change my plus one to X"
         _plus_update_match = re.match(
-            r"^(?:my\s+)?(?:change\s+my\s+)?plus\s+one\s+(?:is|to)\s+(.+)$",
+            r"^(?:my\s+)?(?:change\s+my\s+)?(?:plus\s*one|guest|\+1)\s+(?:is|to)\s+(.+)$",
             text.strip(),
             re.IGNORECASE,
         )
+
+        # Detect intent to update: "can I update who I'm bringing", "I want to change my plus one"
+        _plus_intent_match = not _plus_update_match and confirmed_invite and re.search(
+            r"(?:update|change|switch|swap).*(?:plus\s*one|\+1|bringing|guest)",
+            text.strip(),
+            re.IGNORECASE,
+        )
+
+        if _plus_intent_match and confirmed_invite:
+            try:
+                event_id = confirmed_invite["eventId"]
+                _set_awaiting_plus_one(event_id, from_phone)
+                if sms_enabled:
+                    send_sms(from_phone, "Of course. Who's coming with you?")
+            except Exception:
+                logger.exception("sms_handler: plus one intent trigger failed phone=...%s", from_phone[-4:])
+            return {"statusCode": 200, "body": json.dumps({"ok": True})}
+
         if _plus_update_match and confirmed_invite:
             try:
                 event_id = confirmed_invite["eventId"]

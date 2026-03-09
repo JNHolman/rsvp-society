@@ -42,7 +42,9 @@ def get_confirmed(event: dict, headers: dict, token: str) -> dict:
     members_t = ddb.Table(members_table_name)
 
     qs = event.get("queryStringParameters") or {}
-    event_id = (qs.get("eventId") or "current").strip() or "current"
+    event_id = (qs.get("eventId") or "").strip()
+    if not event_id:
+        return resp(headers, 400, {"ok": False, "error": "eventId query parameter required"})
 
     # Paginate invite query — large events can exceed a single DDB page
     confirmed_invites = []
@@ -95,18 +97,25 @@ def get_confirmed(event: dict, headers: dict, token: str) -> dict:
         first_name = (m.get("name")     or invite.get("name")     or "").strip()
         last_name  = (m.get("lastName") or invite.get("lastName") or "").strip()
         full_name  = " ".join(part for part in (first_name, last_name) if part).strip()
-        # Live check — is the plus one name already in the members table?
+        # Live check — is the plus one name in the full members table?
+        # Uses search_members (full table scan) not just event-scoped member_map.
         plus_one_name = invite.get("plusOneName", "")
         plus_one_is_member = False
         if plus_one_name:
             plus_one_clean = plus_one_name.strip().lower()
-            for mp in member_map.values():
-                mfirst = (mp.get("name") or "").strip().lower()
-                mlast  = (mp.get("lastName") or "").strip().lower()
-                mfull  = f"{mfirst} {mlast}".strip()
-                if plus_one_clean in (mfirst, mlast, mfull):
-                    plus_one_is_member = True
-                    break
+            if plus_one_clean:
+                try:
+                    from member_store import search_members
+                    matches = search_members(plus_one_clean, limit=5)
+                    for match in matches:
+                        mfirst = (match.get("name") or "").strip().lower()
+                        mlast  = (match.get("lastName") or "").strip().lower()
+                        mfull  = f"{mfirst} {mlast}".strip()
+                        if plus_one_clean in (mfirst, mlast, mfull):
+                            plus_one_is_member = True
+                            break
+                except Exception:
+                    logger.exception("get_confirmed: plus-one member lookup failed name=%s", plus_one_name[:30])
 
         members_out.append({
             "phone":           phone,

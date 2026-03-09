@@ -289,8 +289,8 @@ def _build_sms_message(member: Dict[str, Any], event: Dict[str, Any]) -> str:
         event_label = (event.get("event_label") or "").strip()
         vibe_tag = (event.get("vibe_tag") or "").strip()
 
-        closings = ["Tap in.", "Lmk.", "We on?", "Still on?", "Pull up."]
-        closing = random.choice(closings) if random.random() < 0.4 else ""
+        closings = ["Let me know.", "You in?", "You coming?"]
+        closing = random.choice(closings) if random.random() < 0.3 else ""
 
         parts = []
         if name:        parts.append(f"{name}.")
@@ -305,9 +305,9 @@ def _build_sms_message(member: Dict[str, Any], event: Dict[str, Any]) -> str:
         return " ".join(parts)
     else:
         if name:
-            return f"{name}. You're on the list. Lmk."
+            return f"{name}. You're on the list. You in?"
         else:
-            return "You're on the list. Lmk."
+            return "You're on the list. You in?"
 
 
 def _get_analytics(event_id: str) -> dict:
@@ -560,6 +560,17 @@ def handle_send(body: dict, origin: str, token: str) -> dict:
         except Exception:
             failed += 1
             logger.exception("invite send failed event=%s phone=...%s", event_id, phone[-4:])
+            # Stamp the invite record so stuck invites are queryable.
+            # The row was already written with status=INVITED — mark it so
+            # an admin can find and re-process failed sends.
+            try:
+                invites_t.update_item(
+                    Key={"eventId": event_id, "phone": phone},
+                    UpdateExpression="SET sendFailedAt = :now",
+                    ExpressionAttributeValues={":now": _now_iso()},
+                )
+            except Exception:
+                logger.exception("invite send: failed to stamp sendFailedAt phone=...%s", phone[-4:])
             continue
 
     result["summary"]["waveNumber"] = wave_number

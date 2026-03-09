@@ -321,10 +321,18 @@ def record_attendance(phone: str, attended: bool, event_id: str = "current") -> 
 
     else:
         # ── No Show ───────────────────────────────────────────────────────────
-        # Do NOT write a checkin row — that would consume the idempotent guard
-        # and prevent a real check-in if the person shows up later.
-        # Do NOT increment confirmedCount — they were already counted when they
-        # texted YES. Just stamp the invite record so analytics can track ghosts.
+        # Only stamp if they haven't already been checked in. A checked-in
+        # member has a row in rsvp-checkins — if that exists, reject the
+        # no-show mark so we don't end up with conflicting state.
+        try:
+            ct = _checkins_table()
+            existing_checkin = ct.get_item(Key={"eventId": event_id, "phone": phone_e164}).get("Item")
+            if existing_checkin:
+                logger.info("record_attendance: no-show blocked — already checked in phone=...%s event=%s", phone_e164[-4:], event_id)
+                return False
+        except Exception:
+            logger.exception("record_attendance: checkin lookup failed during no-show phone=...%s", phone_e164[-4:])
+
         try:
             _invites_table().update_item(
                 Key={"eventId": event_id, "phone": phone_e164},

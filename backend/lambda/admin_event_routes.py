@@ -112,7 +112,9 @@ def save_admin_event(event: dict, headers: dict, token: str) -> dict:
 def get_analytics(event: dict, headers: dict, token: str) -> dict:
     invites_t = boto3.resource("dynamodb").Table(os.getenv("INVITES_TABLE_NAME", "rsvp-event-invites"))
     qs = event.get("queryStringParameters") or {}
-    event_id = (qs.get("eventId") or "current").strip() or "current"
+    event_id = (qs.get("eventId") or "").strip()
+    if not event_id:
+        return resp(headers, 400, {"ok": False, "error": "eventId query parameter required"})
     items = []
     kwargs: dict = {"KeyConditionExpression": DKey("eventId").eq(event_id)}
     while True:

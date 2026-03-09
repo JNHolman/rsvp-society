@@ -115,9 +115,6 @@ def handler(event, context):
                 from datetime import datetime, timezone
                 for hp in host_phones:
                     try:
-                        # Simple key: one pending slot per host.
-                        # Last signup wins — acceptable at RSVP Society scale.
-                        # sms_handler._get_pending_approval reads this exact key.
                         events_table.put_item(Item={
                             "eventId": f"pending_approval:{hp}",
                             "memberPhone": phone_e164,
