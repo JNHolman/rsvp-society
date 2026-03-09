@@ -465,14 +465,17 @@ def handle_send(body: dict, origin: str, token: str) -> dict:
         effective_capacity = _resolve_wave_capacity(capacity, wave_number, wave_size)
 
     members_list = [m for m in _get_approved_members() if m.get("phone") not in existing_invites]
-    result = _build_invite_list(members_list, effective_capacity, female_pct, tier2_buffer, removed_phones)
 
-    # selected_phones from the frontend (visible rows after market filter + removes)
-    # is the authoritative list of who actually gets invited this send.
-    selected_members = result["members"]
     if selected_phones:
-        member_map = {normalize_phone(m.get("phone", "")): m for m in selected_members if m.get("phone")}
-        selected_members = [member_map[p] for p in selected_phones if p in member_map]
+        # selected_phones from the frontend is the authoritative list — the admin explicitly
+        # chose these people in preview. Build the member map from the full eligible pool
+        # so no selected phone can be dropped by a reshuffle of _build_invite_list.
+        full_member_map = {normalize_phone(m.get("phone", "")): m for m in members_list if m.get("phone")}
+        selected_members = [full_member_map[p] for p in selected_phones if p in full_member_map]
+        result = {"members": selected_members, "summary": {}}
+    else:
+        result = _build_invite_list(members_list, effective_capacity, female_pct, tier2_buffer, removed_phones)
+        selected_members = result["members"]
 
     current_event = _get_current_event()
     invites_t = _invites_table()
@@ -491,32 +494,12 @@ def handle_send(body: dict, origin: str, token: str) -> dict:
             continue
 
         try:
-            # Check consent before writing anything.
-            if sms_enabled:
-                if coerce_bool(m.get("optOut", False)) or not coerce_bool(m.get("smsOptIn", False)):
-                    skipped_consent += 1
-                    continue
-
-            # Attempt SMS send first (if enabled) before writing invite state.
-            # We only mark INVITED after the provider accepted the message.
-            # If send fails, we write SEND_FAILED so state never lies.
-            sms_send_ok = True
-            if sms_enabled:
-                try:
-                    message = _build_sms_message(m, current_event)
-                    send_sms(phone, message)
-                except Exception:
-                    logger.exception("invite send: SMS failed event=%s phone=...%s", event_id, phone[-4:])
-                    sms_send_ok = False
-
-            invite_status = "INVITED" if sms_send_ok else "SEND_FAILED"
-
             try:
                 invites_t.put_item(
                     Item={
                         "eventId":    event_id,
                         "phone":      phone,
-                        "status":     invite_status,
+                        "status":     "INVITED",
                         "gender":     m.get("gender", ""),
                         "tier":       m["_tier"],
                         "invitedAt":  now,
@@ -541,8 +524,13 @@ def handle_send(body: dict, origin: str, token: str) -> dict:
                 ExpressionAttributeValues={":zero": 0, ":one": 1, ":now": now},
             )
 
-            if sms_send_ok:
-                sent += 1
+            if sms_enabled:
+                if coerce_bool(m.get("optOut", False)) or not coerce_bool(m.get("smsOptIn", False)):
+                    skipped_consent += 1
+                else:
+                    message = _build_sms_message(m, current_event)
+                    send_sms(phone, message)
+                    sent += 1
 
         except Exception:
             failed += 1

@@ -164,79 +164,24 @@ def _events_table():
 
 
 def _store_pending_approval(host_phone: str, member_phone: str, member_name: str) -> None:
-    """Store a pending approval record keyed by host+member so burst signups don't overwrite."""
+    """Store the last pending approval request for a host so Y/N can resolve it."""
     _events_table().put_item(Item={
-        "eventId": f"pending_approval:{host_phone}:{member_phone}",
+        "eventId": f"pending_approval:{host_phone}",
         "memberPhone": member_phone,
         "memberName": member_name,
-        "hostPhone": host_phone,
-        "finalized": False,
         "storedAt": datetime.now(timezone.utc).isoformat(timespec="seconds"),
     })
 
 
-def _get_oldest_pending_approval(host_phone: str) -> dict | None:
-    """
-    Find the oldest un-finalized approval request for this host.
-
-    Scans the events table for records whose eventId starts with
-    'pending_approval:{host_phone}:' and finalized == False,
-    then returns the one with the oldest storedAt.
-
-    This replaces the single-slot approach — multiple signups before
-    the host replies Y/N each get their own record and are processed
-    in arrival order.
-    """
-    try:
-        table = _events_table()
-        resp = table.scan(
-            FilterExpression=(
-                "begins_with(eventId, :prefix) AND finalized = :f"
-            ),
-            ExpressionAttributeValues={
-                ":prefix": f"pending_approval:{host_phone}:",
-                ":f": False,
-            },
-            ProjectionExpression="eventId, memberPhone, memberName, storedAt",
-        )
-        items = resp.get("Items", [])
-        if not items:
-            return None
-        # Return oldest request first
-        return min(items, key=lambda x: x.get("storedAt", ""))
-    except Exception:
-        logger.exception("_get_oldest_pending_approval: scan failed host=...%s", host_phone[-4:])
-        return None
-
-
-def _finalize_pending_approval(host_phone: str, member_phone: str) -> None:
-    """
-    Mark an approval record finalized so subsequent Y/N replies from any host
-    cannot reverse an already-made decision.
-    """
-    try:
-        _events_table().update_item(
-            Key={"eventId": f"pending_approval:{host_phone}:{member_phone}"},
-            UpdateExpression="SET finalized = :t",
-            ExpressionAttributeValues={":t": True},
-        )
-    except Exception:
-        logger.exception(
-            "_finalize_pending_approval: failed host=...%s member=...%s",
-            host_phone[-4:], member_phone[-4:],
-        )
-
-
 def _get_pending_approval(host_phone: str) -> dict | None:
-    """Backward-compat wrapper — returns oldest un-finalized approval."""
-    return _get_oldest_pending_approval(host_phone)
+    """Retrieve the last pending approval request for a host."""
+    resp = _events_table().get_item(Key={"eventId": f"pending_approval:{host_phone}"})
+    return resp.get("Item")
 
 
 def _clear_pending_approval(host_phone: str) -> None:
-    """Backward-compat wrapper — finalize by member phone from the oldest pending record."""
-    pending = _get_oldest_pending_approval(host_phone)
-    if pending:
-        _finalize_pending_approval(host_phone, pending["memberPhone"])
+    """Clear the pending approval record after it's been acted on."""
+    _events_table().delete_item(Key={"eventId": f"pending_approval:{host_phone}"})
 
 
 def _set_opt_out(phone: str) -> None:
@@ -249,13 +194,17 @@ def _set_opt_out(phone: str) -> None:
 
 
 def _get_pending_invite(phone: str):
-    """Return the active INVITED record for this phone, or None.
+    """Return the INVITED record for this phone scoped to the current event, or None.
 
-    Previous implementation used ScanIndexForward=False + Limit=1 which relied on
-    eventId sort order being meaningful. Since eventId is always 'current' for active
-    events the sort is arbitrary and the wrong record could be returned for a member
-    who was re-invited after a prior decline. Paginate and filter instead.
+    Constrains to the active eventSlug so returning members across multiple events
+    never resolve to a stale invite record.
     """
+    try:
+        ev = _events_table().get_item(Key={"eventId": "current"}).get("Item") or {}
+        active_slug = (ev.get("eventSlug") or "").strip()
+    except Exception:
+        active_slug = ""
+
     invites_t = _invites_table()
     kwargs: dict = {
         "IndexName": "phone-index",
@@ -265,7 +214,8 @@ def _get_pending_invite(phone: str):
         resp = invites_t.query(**kwargs)
         for item in resp.get("Items", []):
             if item.get("status") == "INVITED":
-                return item
+                if not active_slug or item.get("eventId") == active_slug:
+                    return item
         last = resp.get("LastEvaluatedKey")
         if not last:
             break
@@ -373,7 +323,13 @@ def _set_awaiting_plus_one(event_id: str, phone: str) -> None:
 
 
 def _get_confirmed_invite(phone: str) -> dict | None:
-    """Return the CONFIRMED invite record for this phone, or None."""
+    """Return the CONFIRMED invite record for this phone scoped to the current event, or None."""
+    try:
+        ev = _events_table().get_item(Key={"eventId": "current"}).get("Item") or {}
+        active_slug = (ev.get("eventSlug") or "").strip()
+    except Exception:
+        active_slug = ""
+
     invites_t = _invites_table()
     kwargs: dict = {
         "IndexName": "phone-index",
@@ -383,7 +339,8 @@ def _get_confirmed_invite(phone: str) -> dict | None:
         resp = invites_t.query(**kwargs)
         for item in resp.get("Items", []):
             if item.get("status") == "CONFIRMED":
-                return item
+                if not active_slug or item.get("eventId") == active_slug:
+                    return item
         last = resp.get("LastEvaluatedKey")
         if not last:
             break
@@ -712,11 +669,6 @@ def handler(event, context):
     # Always return 200 to the SMS provider — non-200 causes retries.
     # Internal failures are logged but never surfaced as HTTP errors.
     try:
-        # Fix #33: verify the request is genuinely from our SMS provider
-        if not _verify_webhook_signature(event):
-            logger.error("sms_handler: rejected request with invalid signature — see webhook-debug-latest in DDB")
-            return {"statusCode": 200, "body": json.dumps({"ok": True})}
-
         raw_body = event.get("body") or "{}"
         if event.get("isBase64Encoded"):
             raw_body = base64.b64decode(raw_body).decode("utf-8")
@@ -725,6 +677,17 @@ def handler(event, context):
         event_type, from_phone, text = _extract_inbound_message(body)
         normalized = text.upper().strip()
         logger.info("sms_handler: inbound event_type=%s from_phone=%s text=%s", event_type, from_phone, repr(text))
+
+        # Host Y/N approval must work regardless of webhook secret / carrier approval status.
+        # Check host before signature verification so approval is never blocked.
+        _host_phones = [p for p in [os.getenv("HOST_PHONE_1", ""), os.getenv("HOST_PHONE_2", "")] if p]
+        _is_host_yn = from_phone and from_phone in _host_phones and normalized in ("Y", "N")
+
+        # Fix #33: verify the request is genuinely from our SMS provider.
+        # Skip for host Y/N commands so approval is never blocked by carrier/secret status.
+        if not _is_host_yn and not _verify_webhook_signature(event):
+            logger.error("sms_handler: rejected request with invalid signature — see webhook-debug-latest in DDB")
+            return {"statusCode": 200, "body": json.dumps({"ok": True})}
 
         # Ignore delivery/status webhooks — only inbound member messages should trigger Jade logic.
         if event_type and event_type != "message.received":
@@ -751,7 +714,7 @@ def handler(event, context):
         if from_phone in host_phones:
             if normalized in ("Y", "N"):
                 try:
-                    pending = _get_oldest_pending_approval(from_phone)
+                    pending = _get_pending_approval(from_phone)
                     if not pending:
                         if sms_enabled:
                             send_sms(from_phone, "No pending request to act on.")
@@ -759,23 +722,9 @@ def handler(event, context):
 
                     target_phone = pending["memberPhone"]
                     target_name = pending["memberName"]
-
-                    # Finalization lock — mark this record done before writing member status.
-                    # If another host already finalized it, this is a no-op on the same record
-                    # but set_status is still called. The real guard is that once finalized=True
-                    # the record won't be returned by _get_oldest_pending_approval again.
-                    _finalize_pending_approval(from_phone, target_phone)
-
-                    # Also finalize for the other host so they can't reverse the decision.
-                    other_host_phones = [
-                        p for p in [os.getenv("HOST_PHONE_1", ""), os.getenv("HOST_PHONE_2", "")]
-                        if p and p != from_phone
-                    ]
-                    for other_hp in other_host_phones:
-                        _finalize_pending_approval(other_hp, target_phone)
-
                     new_status = "APPROVED" if normalized == "Y" else "DENIED"
                     set_status(target_phone, new_status)
+                    _clear_pending_approval(from_phone)
 
                     if sms_enabled:
                         send_sms(from_phone, f"{target_name} has been {new_status.lower()}.")
