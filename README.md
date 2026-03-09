@@ -1,6 +1,6 @@
 # RSVP Society — Project Runbook
 
-**Private R&B rooms. Invite only. No flyers.**
+**Invitation-only R&B events. No flyers. No walk-ins.**
 
 This document is the single source of truth for the project. If it ever needs to be rebuilt from scratch — on a new machine, in a new session, or by someone new — everything needed to understand it, recreate it, and continue it is right here. Security posture and hardening notes are at the bottom.
 
@@ -165,6 +165,7 @@ Backend deploys automatically on push to `main`. Builds the Lambda bundle and de
 | `status` | String | PENDING, APPROVED, DENIED — indexed by `status-index` GSI |
 | `gender` | String | M, F, O — set by admin |
 | `smsOptIn` | Boolean | True = eligible for SMS blasts |
+| `smsOptInAt` | String | ISO timestamp — set when member opts in via web form or import |
 | `optOut` | Boolean | True = texted STOP, never message again |
 | `source` | String | web, import |
 | `tierOverride` | Number | 1, 2, 3 — overrides auto-calculation |
@@ -223,6 +224,7 @@ Base URL: `https://api.rsvpsociety.com`
 
 | Method | Path | Auth | Purpose |
 |---|---|---|---|
+| GET | `/health` | None | Health check — returns 200 OK if the API is reachable |
 | POST | `/access` | None | Submit access request from website |
 | POST | `/sms/inbound` | Quo signature | Inbound SMS from members (Quo webhook target) |
 | GET | `/event` | None | Public current-event payload |
@@ -271,7 +273,13 @@ Night of: door staff uses checkin.html on tablet
 Attendance recorded → reliability tier recalculated automatically
 ```
 
-### Reliability Tiers (auto-calculated)
+### Host Approval Flow
+
+When someone submits the website form, `access_request.py` writes a `pending_approval` record to the `rsvp-events` table and sends a Y/N text to the host number. The pending approval key is `pending_approval:{host_phone}` — a single slot per host. If two submissions arrive in quick succession, the second write overwrites the first. One approval at a time. When the host replies Y, the member is approved and gets a welcome SMS. N denies them. The host reply bypasses webhook signature verification — it is identified by the host phone number matching `HOST_PHONE_1`.
+
+---
+
+
 
 - **Tier 1** — 80%+ show rate. Fills first. Guaranteed spots.
 - **Tier 2** — 40–79% show rate. Invited with ghost buffer (default 30% over-invite).
@@ -287,7 +295,7 @@ URL: `https://rsvpsociety.com/admin/`
 
 Login: admin token (stored in Secrets Manager — not in this file).
 
-**Members** — approve, deny, delete, set gender/tier. Search, paginate, bulk CSV import. 50 per page, alphabetical. Import modal supports Superphone and Eventbrite exports. `smsOptIn` in imported CSVs is parsed safely — string values like `"false"` and `"0"` correctly resolve to false. Imported members who are not opted-in are excluded from invite blasts at the query layer.
+**Members** — approve, deny, delete, set gender/tier. Search, paginate, bulk CSV import. 50 per page, alphabetical. Import modal supports Superphone and Eventbrite exports. `smsOptIn` in imported CSVs is parsed safely — string values like `"false"` and `"0"` correctly resolve to false. Opted-out members are filtered at send time in both the invite and reminder loops.
 
 **Event** — set event name, slug, date, time, city, timezone, venue, address, vibe tag, Jade brief, reveal venue toggle, reminder timing, capacity, and Jade message templates (invite, day-before reminder, day-of reminder). Save overwrites the single current event record in DynamoDB. The `eventSlug` field is critical — it must match the event ID used in the Invite tab. No SMS goes out on save.
 
@@ -333,8 +341,14 @@ Jade is the member-facing AI. Lives in `sms_handler.py`.
 She handles:
 - Inbound questions about RSVP Society (dress code, event details, vibe)
 - YES/NO RSVP replies — updates DynamoDB, sends confirmation SMS
-- STOP opt-out — writes `optOut: true`, member never messaged again
+- STOP opt-out — wipes PII (name, lastName, email), retains phone + optOut flag as a tombstone, member never messaged again. Responds with the website URL so they can reapply.
 - Ignores anyone not approved, opted-in, and with an active invite
+
+**Keyword routing:** Jade handles structured keyword sets before passing anything to Claude. CONFIRMED_KEYWORDS (YES, I'M IN, etc.) trigger RSVP confirmation. DECLINED_KEYWORDS (NO, CAN'T MAKE IT, SOMETHING CAME UP, etc.) trigger decline. IGNORE_KEYWORDS (slang closings like BET, SAY LESS, arrival phrases like OMW, I'M OUTSIDE, etc.) are silently dropped — no response sent. RUNNING_LATE_KEYWORDS get a brief acknowledgment. COST_KEYWORDS ("how much", "tickets", etc.) return "No tickets. You're already in." EXTRA_GUEST_KEYWORDS ("can I bring more people", etc.) return "One guest per invite." Anything not matched by a keyword set goes to Claude.
+
+**Plus one flow:** After a confirmed RSVP, if `allowPlusOnes` is true, Jade asks "Who are you bringing?" The response starts the plus one name collection flow (`awaitingPlusOneName` → `awaitingPlusOneLastName`). If the name submitted is already a confirmed member, Jade re-prompts. If the name is a member with their own invite (not confirmed), Jade re-prompts without storing them. Non-members are stored as `plusOneName`. Jade receives `member_plus_one_name` in her event context so she can answer "who do I have down" directly.
+
+**Event context:** Jade receives structured fields (`event_label`, `date_text`, `time_text`, `end_time`, `venue_name`, `address_text`, `vibe_tag`, `dresscode`, `description`, `allow_plus_ones`, `member_plus_one_name`, `parking_info`, `ticket_url`, `section_info`, `event_status`, `member_invite_status`). Parking, food, amenities, and any event-specific facts that don't have dedicated fields belong in the `description` field — that is Jade's briefing document. If a detail isn't in the context, she deflects rather than inferring.
 
 **Capacity protection:** When a YES reply comes in and the event has a capacity set, Jade checks current confirmed count before updating status. If the show-rate-adjusted confirmation target is already met, she replies with a polite capacity message instead of confirming.
 
@@ -501,7 +515,7 @@ The members table has a GSI on the `status` field. `list_members_by_status()` qu
 
 ### 3. Check-In Dedup Table (`rsvp-checkins`)
 
-`record_attendance(attended=True)` uses a conditional `put_item` on `rsvp-checkins` — `ConditionalCheckFailedException` on a duplicate tap means no counter update and no double-count. Keyed on `(eventId, phone)`. Records auto-expire after 90 days via TTL. The `attended=False` (No Show) path does **not** write to this table — so a no-show mark doesn't block a real check-in if the person shows up late.
+`record_attendance(attended=True)` uses a conditional `put_item` on `rsvp-checkins` — `ConditionalCheckFailedException` on a duplicate tap means no counter update and no double-count. Keyed on `(eventId, phone)`. Records auto-expire after 90 days via TTL. The `attended=False` (No Show) path does **not** write to this table — so a no-show mark doesn't block a real check-in if the person shows up late. **No-show is blocked if the member is already checked in** — the admin panel prevents marking someone no-show after their physical check-in has been recorded.
 
 ### 4. Audit Log (`rsvp-audit-log`)
 
@@ -522,7 +536,7 @@ Two rate-limit rules on the API plus a third for admin member operations:
 
 ### 6. SMS Consent Enforcement
 
-`smsOptIn` is enforced at the query layer, not the send layer. `_get_approved_members()` filters opted-out members before they enter the invite pool. The invite preview never shows opted-out members. `reminder_handler` applies the same check independently on every send.
+`smsOptIn` is enforced at send time, not the query layer. `_get_approved_members()` returns all approved members — the invite loop (invite_handler) and the reminder loop (reminder_handler) each filter out opted-out members independently before any SMS is sent. The invite preview reflects this filtering so opted-out members never appear in the send list.
 
 ### 7. Input Validation and Error Handling
 
@@ -597,13 +611,13 @@ Per-function IAM roles are fully deployed and verified in production. The legacy
 | Data backup / recovery | ✓ Good — PITR enabled |
 | Audit trail | ✓ Built — all three handler functions write to audit log |
 | Status query scans | ✓ Eliminated — status-index GSI live |
-| WAF rate limiting | ✓ `/access` + `/admin/invite` both covered |
+| WAF rate limiting | ✓ Three rules live — `/access`, `/admin/invite`, `/admin/members` |
 | Check-in dedup | ✓ Conditional write guard on `rsvp-checkins` |
 | Check-in event scoping | ✓ Door page queries the correct event bucket by slug |
 | Check-in state persistence | ✓ Checked-in state reseeds from server on refresh |
-| SMS consent enforcement | ✓ Enforced at query time in both invite and reminder paths |
+| SMS consent enforcement | ✓ Enforced at send time in both invite loop and reminder loop — not at query layer |
 | Input validation | ✓ Bad phone/JSON → 400, not 500. CSV bool parsing safe. Non-integer tier value → 400, not 500. |
-| Attendance integrity | ✓ No-show does not burn check-in guard or skew counters. Physical check-in increments `attendedCount` only. `confirmedCount` is not written by any code path — it is a legacy field. |
+| Attendance integrity | ✓ No-show does not burn check-in guard or skew counters. Physical check-in increments `attendedCount` only. `confirmedCount` is incremented in `sms_handler._update_invite_status` on SMS YES confirmation. |
 | Webhook signature verification | ✓ Live and verified in prod — HMAC-SHA256, millisecond timestamp handling, `openphone-signature` forwarded via CloudFront |
 | Confirmation cap | ✓ YES replies blocked at show-rate-adjusted target |
 | Reminder dedup | ✓ Per-invite sentinels prevent double-send |
@@ -616,4 +630,4 @@ The system is private-facing, not public-facing. The threat model is "someone wh
 
 ---
 
-*Built February 2026. Audited and hardened March 2026. Full audit pass completed March 9, 2026 — host approval key mismatch fixed, plus-one state machine loop fixed, hmac auth hardened, upsert status protection added, EventBridge cron tightened to 5-min windows, ACM cert validation added, S3 SSE config added, test files excluded from Lambda zip, checkin inline handlers migrated to event listeners. Live in production — confirmation flow, manual blast, scheduled reminders, and Jade AI concierge all verified end-to-end.*
+*Built February 2026. Audited and hardened March 2026. Full audit pass completed March 9, 2026 — host approval key mismatch fixed, plus-one state machine loop fixed, hmac auth hardened, upsert status protection added, EventBridge cron tightened to 5-min windows, ACM cert validation added, S3 SSE config added, test files excluded from Lambda zip, checkin inline handlers migrated to event listeners. Live in production — confirmation flow, manual blast, scheduled reminders, and Jade AI concierge all verified end-to-end. Second pass March 9, 2026 — Jade voice hardened (time format, no 24hr conversion, parking from description, never infer from event type), plus-one name injected into event context, filler word stripping on plus-one input, reminder closings removed, confirmation wording cleaned up, WAF third rule documented, SMS consent enforcement corrected to send-time, confirmedCount wired in sms_handler, no-show UI guard documented, smsOptInAt field added.*
