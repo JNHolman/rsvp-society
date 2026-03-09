@@ -147,10 +147,12 @@ def _create_tables():
     ddb.create_table(
         TableName="rsvp-audit-log-test",
         KeySchema=[
-            {"AttributeName": "actionId", "KeyType": "HASH"},
+            {"AttributeName": "pk", "KeyType": "HASH"},
+            {"AttributeName": "sk", "KeyType": "RANGE"},
         ],
         AttributeDefinitions=[
-            {"AttributeName": "actionId", "AttributeType": "S"},
+            {"AttributeName": "pk", "AttributeType": "S"},
+            {"AttributeName": "sk", "AttributeType": "S"},
         ],
         BillingMode="PAY_PER_REQUEST",
     )
@@ -755,6 +757,232 @@ class TestLegacyNameNormalization(unittest.TestCase):
             self.assertEqual(body["members"][0]["fullName"], "Josh Holman")
 
 
+class TestApprovalQueueMultiSlot(unittest.TestCase):
+    """Burst signups no longer overwrite each other in the approval queue."""
+
+    def test_two_signups_create_separate_queue_slots(self):
+        with mock_aws():
+            _create_tables()
+            _stub_secret()
+            _reload_lambda_modules()
+
+            import access_request
+            with patch("access_request.send_sms", return_value=True):
+                r1 = access_request.handler(_event("POST", "/access", {
+                    "phone": "+15025550001", "name": "Alice", "lastName": "A"
+                }, token=""), None)
+                r2 = access_request.handler(_event("POST", "/access", {
+                    "phone": "+15025550002", "name": "Bob", "lastName": "B"
+                }, token=""), None)
+
+            self.assertEqual(r1["statusCode"], 200)
+            self.assertEqual(r2["statusCode"], 200)
+
+            ddb = boto3.resource("dynamodb", region_name="us-east-1")
+            t = ddb.Table("rsvp-members-test")
+            alice = t.get_item(Key={"phone": "+15025550001"}).get("Item")
+            bob   = t.get_item(Key={"phone": "+15025550002"}).get("Item")
+            self.assertIsNotNone(alice)
+            self.assertIsNotNone(bob)
+
+
+class TestDualHostFinalization(unittest.TestCase):
+    """Once one host approves/denies, the second host's pending record is finalized."""
+
+    def _setup_pending(self, sms_handler, host1, member_phone):
+        """Write a pending_approval record for both hosts."""
+        import boto3 as b3
+        cache = b3.resource("dynamodb", region_name="us-east-1").Table("rsvp-members-test")
+        # Simulate what access_request writes
+        now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        for host in [host1, "+15559990002"]:
+            cache.put_item(Item={
+                "phone": f"pending_approval:{host}:{member_phone}",
+                "memberPhone": member_phone,
+                "memberName": "Test User",
+                "storedAt": now,
+                "finalized": False,
+            })
+
+    def test_second_host_cannot_reverse_after_first_approves(self):
+        with mock_aws():
+            _create_tables()
+            _stub_secret()
+            _reload_lambda_modules()
+            os.environ["HOST_PHONE_1"] = "+15559990001"
+            os.environ["HOST_PHONE_2"] = "+15559990002"
+
+            member_phone = "+15025550099"
+            boto3.resource("dynamodb", region_name="us-east-1").Table("rsvp-members-test").put_item(Item={
+                "phone": member_phone, "name": "Test", "status": "PENDING",
+                "createdAt": datetime.now(timezone.utc).isoformat(),
+            })
+
+            import sms_handler
+            self._setup_pending(sms_handler, "+15559990001", member_phone)
+
+            with patch("sms_handler.send_sms", return_value=True):
+                # Host 1 approves
+                sms_handler.handler(_event("POST", "/sms/inbound", {
+                    "from": "+15559990001", "body": "Y"
+                }, token=""), None)
+
+                # Host 2 tries to deny — should be ignored (record finalized)
+                sms_handler.handler(_event("POST", "/sms/inbound", {
+                    "from": "+15559990002", "body": "N"
+                }, token=""), None)
+
+            import member_store
+            member = member_store.get_member(member_phone)
+            # Status should remain APPROVED — Host 2's N was ignored
+            self.assertEqual(member["status"], "APPROVED")
+
+
+class TestOptOutEnforcedInReminders(unittest.TestCase):
+    """Members with optOut=True are skipped during reminder sends."""
+
+    def test_opted_out_member_receives_no_reminder(self):
+        with mock_aws():
+            _create_tables()
+            _stub_secret()
+            _reload_lambda_modules()
+
+            ddb = boto3.resource("dynamodb", region_name="us-east-1")
+            # Opted-out member with a CONFIRMED invite
+            ddb.Table("rsvp-members-test").put_item(Item={
+                "phone": "+15025550010", "name": "Opted", "status": "APPROVED",
+                "optOut": True,
+                "createdAt": datetime.now(timezone.utc).isoformat(),
+            })
+            ddb.Table("rsvp-event-invites-test").put_item(Item={
+                "eventId": "test-event", "phone": "+15025550010",
+                "status": "CONFIRMED",
+            })
+            ddb.Table("rsvp-events-test").put_item(Item={
+                "eventId": "current",
+                "date": "2026-04-05",
+                "startTime": "21:00",
+                "venue": "The Venue",
+                "reminderTiming": "day_before",
+            })
+
+            sent_to = []
+            import reminder_handler
+            with patch.object(reminder_handler, "send_sms", side_effect=lambda phone, msg: sent_to.append(phone) or True):
+                reminder_handler._send_reminders("test-event", "day_before")
+
+            self.assertNotIn("+15025550010", sent_to)
+
+
+class TestInviteStateSendBeforeWrite(unittest.TestCase):
+    """If SMS send fails, invite status is written as SEND_FAILED, not INVITED."""
+
+    def test_send_failure_writes_send_failed_status(self):
+        with mock_aws():
+            _create_tables()
+            _stub_secret()
+            _reload_lambda_modules()
+
+            ddb = boto3.resource("dynamodb", region_name="us-east-1")
+            ddb.Table("rsvp-members-test").put_item(Item={
+                "phone": "+15025550020", "name": "Fail", "lastName": "Test",
+                "status": "APPROVED",
+                "createdAt": datetime.now(timezone.utc).isoformat(),
+            })
+            ddb.Table("rsvp-events-test").put_item(Item={
+                "eventId": "current",
+                "date": "2026-04-05",
+                "startTime": "21:00",
+                "venue": "The Venue",
+            })
+
+            import invite_handler
+            with patch.object(invite_handler, "send_sms", return_value=False):
+                invite_handler._send_invite(
+                    phone="+15025550020",
+                    member={"phone": "+15025550020", "name": "Fail", "lastName": "Test"},
+                    event={"eventId": "current", "date": "2026-04-05", "startTime": "21:00", "venue": "The Venue"},
+                    event_id="current",
+                )
+
+            invite = ddb.Table("rsvp-event-invites-test").get_item(
+                Key={"eventId": "current", "phone": "+15025550020"}
+            ).get("Item")
+            self.assertIsNotNone(invite)
+            self.assertEqual(invite["status"], "SEND_FAILED")
+
+
+class TestCheckinNoDoubleConfirmedCount(unittest.TestCase):
+    """Physical check-in increments attendedCount only — not confirmedCount."""
+
+    def test_checkin_does_not_increment_confirmed_count(self):
+        with mock_aws():
+            _create_tables()
+            _stub_secret()
+            _reload_lambda_modules()
+
+            ddb = boto3.resource("dynamodb", region_name="us-east-1")
+            ddb.Table("rsvp-members-test").put_item(Item={
+                "phone": "+15025550030", "name": "Check", "status": "APPROVED",
+                "confirmedCount": 1,  # already set when they texted YES
+                "createdAt": datetime.now(timezone.utc).isoformat(),
+            })
+
+            import member_store
+            result = member_store.record_attendance("+15025550030", attended=True, event_id="test-event")
+            self.assertTrue(result)
+
+            member = member_store.get_member("+15025550030")
+            self.assertEqual(int(member["attendedCount"]), 1)
+            # confirmedCount must stay at 1 — check-in should not bump it
+            self.assertEqual(int(member["confirmedCount"]), 1)
+
+    def test_duplicate_checkin_returns_false(self):
+        with mock_aws():
+            _create_tables()
+            _stub_secret()
+            _reload_lambda_modules()
+
+            ddb = boto3.resource("dynamodb", region_name="us-east-1")
+            ddb.Table("rsvp-members-test").put_item(Item={
+                "phone": "+15025550031", "name": "Dup", "status": "APPROVED",
+                "createdAt": datetime.now(timezone.utc).isoformat(),
+            })
+
+            import member_store
+            first  = member_store.record_attendance("+15025550031", attended=True, event_id="test-event")
+            second = member_store.record_attendance("+15025550031", attended=True, event_id="test-event")
+            self.assertTrue(first)
+            self.assertFalse(second)
+
+            member = member_store.get_member("+15025550031")
+            self.assertEqual(int(member["attendedCount"]), 1)
+
+
+class TestDateNormalization(unittest.TestCase):
+    """normalize_event_date handles all real-world input formats including no-comma weekday."""
+
+    def test_all_date_formats_parse(self):
+        from admin_shared import normalize_event_date
+        cases = [
+            ("2026-03-07",              "2026-03-07"),
+            ("03/07/2026",              "2026-03-07"),
+            ("Saturday, March 7, 2026", "2026-03-07"),
+            ("Saturday March 7, 2026",  "2026-03-07"),  # the bug format
+            ("Sat, March 7, 2026",      "2026-03-07"),
+            ("Sat March 7, 2026",       "2026-03-07"),
+            ("March 7, 2026",           "2026-03-07"),
+        ]
+        for raw, expected in cases:
+            with self.subTest(raw=raw):
+                self.assertEqual(normalize_event_date(raw), expected)
+
+    def test_invalid_date_raises(self):
+        from admin_shared import normalize_event_date
+        with self.assertRaises(ValueError):
+            normalize_event_date("not a date")
+
+
 if __name__ == "__main__":
     loader = unittest.TestLoader()
     suite  = unittest.TestSuite()
@@ -769,6 +997,12 @@ if __name__ == "__main__":
         TestReminderSchedulePrecision,
         TestAccessRequestNameCapture,
         TestLegacyNameNormalization,
+        TestApprovalQueueMultiSlot,
+        TestDualHostFinalization,
+        TestOptOutEnforcedInReminders,
+        TestInviteStateSendBeforeWrite,
+        TestCheckinNoDoubleConfirmedCount,
+        TestDateNormalization,
     ]:
         suite.addTests(loader.loadTestsFromTestCase(cls))
 

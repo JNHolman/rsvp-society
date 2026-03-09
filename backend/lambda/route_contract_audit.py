@@ -32,6 +32,7 @@ BACKEND_REQUIRED_KEYS: Dict[str, Dict[str, List[str]]] = {
     '/admin/members/attendance': {'POST': ['phone']},
     '/admin/members/import': {'POST': ['members']},
     '/admin/event': {'POST': ['date']},
+    '/admin/events': {'GET': []},
     '/admin/invite/preview': {'POST': ['eventId', 'capacity', 'femalePercent', 'tier2BufferPct', 'waveNumber', 'waveSize']},
     '/admin/invite/send': {'POST': ['eventId', 'capacity', 'femalePercent', 'tier2BufferPct', 'waveNumber', 'waveSize', 'phones', 'confirmSend', 'removedPhones']},
     '/admin/invite/reminder': {'POST': ['timing']},
@@ -40,6 +41,8 @@ BACKEND_REQUIRED_KEYS: Dict[str, Dict[str, List[str]]] = {
 FRONTEND_BODY_HINTS: Dict[str, Dict[str, List[str]]] = {
     'ADMIN_EVENT': {'POST': ['eventSlug', 'event_label', 'date', 'startTime', 'city', 'capacity', 'event_timezone', 'venue', 'address', 'dresscode', 'revealVenue', 'event_type', 'vibe_tag', 'description', 'invite_template', 'reminder_template', 'day_before_template', 'day_of_template', 'reminderTiming', 'day_before_send_time', 'day_of_send_time']},
     'ADMIN_INVITE_SEND': {'POST': ['eventId', 'capacity', 'femalePercent', 'tier2BufferPct', 'waveNumber', 'waveSize', 'phones', 'confirmSend', 'removedPhones']},
+    'ADMIN_EVENTS': {'GET': []},
+    'ADMIN_INVITE_REMINDER': {'POST': ['timing']},
 }
 
 QUO_BONE_CHECKS = {
