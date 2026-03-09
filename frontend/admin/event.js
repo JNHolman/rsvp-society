@@ -91,6 +91,8 @@ export function previewJadeMessages() {
     return;
   }
 
+  const dateDisplay = formatDateForDisplay(date);
+
   const closings = ['Let me know.', 'You in?', 'You coming?'];
   const inviteClosing = Math.random() < 0.4 ? closings[Math.floor(Math.random() * closings.length)] : '';
   const dayBeforeClosing = Math.random() < 0.4 ? closings[Math.floor(Math.random() * closings.length)] : '';
@@ -98,7 +100,7 @@ export function previewJadeMessages() {
 
   const inviteParts = ['{name}.'];
   if (label) inviteParts.push(`${label}.`);
-  inviteParts.push(`${date}.`);
+  inviteParts.push(`${dateDisplay}.`);
   if (vibe) inviteParts.push(`${vibe}.`);
   if (time) inviteParts.push(`${time}.`);
   if (revealVenue && venue) inviteParts.push(`${venue}.`);

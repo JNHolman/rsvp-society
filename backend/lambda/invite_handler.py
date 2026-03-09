@@ -281,7 +281,11 @@ def _build_sms_message(member: Dict[str, Any], event: Dict[str, Any]) -> str:
         return template.replace("{name}", name).strip()
 
     if event and event.get("date"):
-        date = event["date"]
+        raw_date = event["date"]
+        try:
+            date = datetime.strptime(raw_date[:10], "%Y-%m-%d").strftime("%A %B %-d")
+        except (ValueError, TypeError):
+            date = raw_date
         time = event.get("startTime", "")
         reveal_venue = event.get("revealVenue", False)
         venue = event.get("venue", "") if reveal_venue else ""

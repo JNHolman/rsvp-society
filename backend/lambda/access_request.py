@@ -84,6 +84,31 @@ def handler(event, context):
         except ValueError as e:
             return _resp(400, {"ok": False, "error": str(e)}, origin)
 
+        # Duplicate name guard — same first+last submitted within 72 hours from a
+        # different phone number. Silent drop with generic 200 so the submitter gets
+        # no signal that anything was flagged. At scale, replace scan with a GSI.
+        try:
+            from datetime import datetime, timezone, timedelta
+            members_table = boto3.resource("dynamodb").Table(os.getenv("MEMBERS_TABLE_NAME", "rsvp-members"))
+            cutoff = (datetime.now(timezone.utc) - timedelta(hours=72)).isoformat(timespec="seconds")
+            scan_resp = members_table.scan(
+                FilterExpression=(
+                    boto3.dynamodb.conditions.Attr("name").eq(first_name) &
+                    boto3.dynamodb.conditions.Attr("lastName").eq(last_name or "") &
+                    boto3.dynamodb.conditions.Attr("submittedAt").gte(cutoff) &
+                    boto3.dynamodb.conditions.Attr("phone").ne(phone_e164)
+                ),
+                ProjectionExpression="phone",
+            )
+            if scan_resp.get("Items"):
+                logger.warning(
+                    "access_request: duplicate name within 72h name=%s %s new_phone=...%s",
+                    first_name, last_name, phone_e164[-4:],
+                )
+                return _resp(200, {"ok": True}, origin)
+        except Exception:
+            logger.exception("access_request: duplicate name check failed — proceeding")
+
         # Write member — if DDB is unavailable this correctly 500s
         member = upsert_member(
             phone=phone_e164,

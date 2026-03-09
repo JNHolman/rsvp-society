@@ -3,15 +3,18 @@ import { ROUTES } from './constants.js';
 import { $, appendChildren, clearNode, createNode, emptyState, loadingState, sanitizePhoneId, showToast } from './ui.js';
 
 function attendanceActionButton(member, attended, eventId) {
+  // Disable both Attended and No Show for already checked-in guests
+  const isCheckedIn = Boolean(member.checkedIn);
+  const isDisabled = (attended && isCheckedIn) || (!attended && isCheckedIn);
   return createNode('button', {
-    className: `action-btn ${attended ? 'approve att-btn-yes' : 'deny att-btn-no'} attendance-action-btn${attended && member.checkedIn ? ' is-disabled-soft' : ''}`,
-    text: attended ? 'Attended' : 'No Show',
+    className: `action-btn ${attended ? 'approve att-btn-yes' : 'deny att-btn-no'} attendance-action-btn${isDisabled ? ' is-disabled-soft' : ''}`,
+    text: attended ? (isCheckedIn ? '✓ In' : 'Attended') : 'No Show',
     dataset: {
       phone: member.phone || '',
       attended: attended ? 'true' : 'false',
       eventId: eventId || '',
     },
-    attrs: { type: 'button', disabled: attended && member.checkedIn },
+    attrs: { type: 'button', disabled: isDisabled },
   });
 }
 
@@ -99,10 +102,19 @@ export async function markAttendance(phone, attended, eventId) {
   if (row) row.classList.add('is-busy');
 
   try {
-    await apiJson(ROUTES.ADMIN_MEMBER_ATTENDANCE, {
+    const data = await apiJson(ROUTES.ADMIN_MEMBER_ATTENDANCE, {
       method: 'POST',
       body: { phone, attended, eventId },
     });
+
+    // Backend returns alreadyCheckedIn=true when no-show is blocked
+    // because the member was already physically checked in.
+    if (!attended && data.alreadyCheckedIn) {
+      if (row) row.classList.remove('is-busy');
+      showToast('Already checked in — can\'t mark no show', 'error');
+      return;
+    }
+
     showToast(`Marked ${attended ? 'attended' : 'no show'}`, attended ? 'success' : '');
     if (row) row.remove();
   } catch {

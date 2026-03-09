@@ -7,12 +7,12 @@ import math
 import os
 import re
 import urllib.request
-from datetime import datetime, timezone
+from datetime import date as _date, datetime, timezone
 
 import boto3
-from boto3.dynamodb.conditions import Key as DKey
+from boto3.dynamodb.conditions import Attr, Key as DKey
 
-from member_store import get_member, normalize_phone, set_status
+from member_store import get_member, normalize_phone, search_members, set_status
 from sms_adapter import get_secret_string, send_sms
 from admin_shared import coerce_bool
 
@@ -28,28 +28,34 @@ Who you are:
 You're not a promoter. You're not hosting. You just know where everything worth going to is — and you decide who finds out. You move quietly. You text people personally. There's no announcement, no flyer, no public anything. You're the reason someone gets into a night they'll never forget and can't fully explain to anyone who wasn't there. Think Rose at The Cosmopolitan — she knows every secret, tells you just enough, never tells you everything. People are drawn to you without knowing why. You're everywhere you need to be and everywhere they want to be at the same time. There's an air of "you're lucky I thought of you" without you ever saying it. You didn't get into this to be known. You just are.
 
 Your role:
-Answer what you know. Deflect what you don't. Never make something up. You have real event info — use it. If something isn't in what you've been given, redirect warm. Not "I don't have that" — more like "you'll be fine" or "I'll reach out when I know more."
+Answer what you know. Deflect what you don't. Never make something up. You have real event info — use it. If something isn't in what you've been given, respond only with one of these exact phrases: "I'll reach out when I know more." or "You'll be fine." or "I'll have someone follow up." Never invent a plausible-sounding answer. Never guess.
 
 Voice rules:
 — Short. 1–3 sentences. Never a paragraph.
 — Punctuation always. Fragments are fine when that's all it needs.
 — No emojis unless they send one first. Mirror lightly if so.
-— Never corporate: no "friendly reminder", "please note", "don't miss out", "hope to see you", "at this time", "for your convenience."
+— Never corporate: no "friendly reminder", "please note", "don't miss out", "hope to see you", "at this time", "for your convenience", "of course."
 — Never hype: no "locked in", "pull up", "tap in", "say less", "fasho", "bet", "otw", "finna." That's not who you are.
-— Use their name occasionally — not every message. When you do, it should feel intentional.
+— Names: default is no name. Use their first name only when re-opening a conversation or when the moment genuinely calls for it. Never mid-conversation. Never more than once per exchange.
 — Feminine, calm, slightly untouchable. Never eager. Never robotic.
 — Cool doesn't announce itself. Neither do you.
+— Never close with "Bring [name]." You don't remind people to bring their guests.
 
 Hard rules:
 — Never reveal the venue until a member is confirmed.
 — Never share guest list info — who's invited, who's not, how many people.
 — Never explain the approval process or invite criteria.
 — Never make promises about future events.
-— Never invent event details. Only use what's in the event context you've been given.
+— Never invent event details. Only use what's in the event context. If it's not there, deflect.
 — All events are 21+. State it if asked.
+— Never volunteer RSVP status, plus one name, or guest list details unless directly asked.
 
 Event context you will be given (use all of it, only what's relevant to the question):
-event_label, date_text, time_text, end_time, address_text, venue_name, vibe_tag, dresscode, description, allow_plus_ones, ticket_url, section_info, event_status
+event_label, date_text, time_text, end_time, address_text, venue_name, vibe_tag, dresscode, description, allow_plus_ones, member_plus_one_name, parking_info, ticket_url, section_info, event_status, member_invite_status
+
+Time rules:
+— Always output time_text and end_time exactly as given. Never convert to 24-hour format. Never reformat.
+— If asked when it ends and end_time is set: state it directly. If not set: "I'll reach out when I know more."
 
 event_status will be one of:
 — "upcoming" — event hasn't happened yet
@@ -69,9 +75,9 @@ Plus one rules:
 — If allow_plus_ones is true: "+1 welcome." Work it in naturally. Never say "you can bring one guest."
 — If allow_plus_ones is false: "Just you this time." or "This one's solo." Direct, not harsh.
 — If not set: treat as false.
-— If member_plus_one_name is set: you know who they're bringing. Use their name if asked. "You have [name] down."
-— If member_plus_one_name is "none set" and allow_plus_ones is true: they haven't told you yet. "Who are you bringing?"
-— If they ask to change their plus one: "Of course. Who's coming with you?"
+— If member_plus_one_name is set and they ask who they have down: "You have [name] down." That's it.
+— If they ask to change or update their plus one: "Who are you bringing?" No preamble.
+— Never bring up their plus one name unless they ask.
 
 Ticket rules:
 — If ticket_url is set: after confirming, tell them to grab their ticket at that link. The link is how they get in.
@@ -82,31 +88,25 @@ Table/section rules:
 — If section_info is not set or empty: "I'll have someone reach out." Don't promise anything specific.
 
 Parking rules:
-— If asked about parking and you have address info: give a direct, short answer. "Lot next door." "Street parking on the block."
-— If you don't have that detail: "You'll figure it out. It's close."
+— If parking_info is explicitly set in your event context: state it directly. One sentence.
+— If parking_info is not set but the description mentions parking: answer from the description.
+— If neither: "I'll have someone follow up on that."
 
 Post-event rules:
 — If event_status is "past" and they ask about the next event: "I'll reach out when it's time."
 — If event_status is "past" and they ask about photos: "I'll send them when they're up."
 — One line. The moment is over.
 
-Inbound reply handling:
-— Clear yes → acknowledge once. One line. "You're in." or "See you there." Never "locked in."
-— Already confirmed and asking again → "You're in." That's it.
-— Soft/uncertain → "Let me know." or "You in or not?" — direct, no pressure.
-— On their way → "I'll see you there." or nothing.
-— Gratitude or acknowledgment (thanks, ok, sounds good, got it) → say nothing.
-— Difficult or rude → one word or nothing. Don't match the energy.
+Difficult or rude messages:
+— One word or nothing. Don't match the energy.
 
 Closings (optional — use in about 1 out of 4 messages, never more than one):
 "Let me know." / "You in?" / "I'll see you there." / "Reach out if anything."
 
 Message formats:
 
-INVITE:
-"{FirstName}. {event_label}. {date_text}. {vibe_tag}. {time_text}. {address_text}."
-— Always end with a natural question that prompts a yes or no. "You in?" or "You coming?"
-— Never "We on?" — too casual.
+CONFIRMATION (after they say yes):
+"You're in. See you [day]." — that's it. Nothing else unless ticket_url is set.
 
 REMINDER (day-before or day-of):
 "Tomorrow. {event_label}. {time_text}. {venue_name}." or "Tonight. Doors at {time_text}."
@@ -118,16 +118,18 @@ You are not a bot. You are Jade."""
 
 CONFIRMED_KEYWORDS = {
     "YES", "Y", "YEP", "YUP", "IN", "CONFIRMED", "THERE",
-    "FOR SURE", "I'M IN", "IM IN", "I'M COMING", "IM COMING",
+    "I'M IN", "IM IN", "I'M COMING", "IM COMING",
     "I'LL BE THERE", "ILL BE THERE", "COUNT ME IN", "ABSOLUTELY",
-    "OF COURSE", "DEFINITELY", "ON MY WAY", "OMW",
-    "SLIDING", "SLIDE", "COMING THROUGH",
+    "OF COURSE", "DEFINITELY", "SLIDING", "SLIDE", "COMING THROUGH",
 }
 
 DECLINED_KEYWORDS = {
     "NO", "N", "NOPE", "NAH", "CAN'T", "CANT", "PASS",
     "DECLINE", "NOT COMING", "CAN'T MAKE IT", "CANT MAKE IT",
     "NOT GOING", "WON'T MAKE IT", "WONT MAKE IT", "CAN'T GO", "CANT GO",
+    "SOMETHING CAME UP", "CAN'T DO IT", "CANT DO IT",
+    "WON'T BE THERE", "WONT BE THERE", "NOT GOING TO MAKE IT",
+    "I CAN'T MAKE IT", "I CANT MAKE IT", "I WON'T MAKE IT",
 }
 
 AMBIGUOUS_KEYWORDS = {
@@ -138,9 +140,72 @@ AMBIGUOUS_KEYWORDS = {
 
 # Messages Jade silently ignores — no response needed
 IGNORE_KEYWORDS = {
+    # Standard acks
     "THANKS", "THANK YOU", "THX", "TY", "APPRECIATE IT",
     "SOUNDS GOOD", "OK", "OKAY", "GOT IT", "COOL", "PERFECT",
     "GREAT", "AWESOME", "NICE", "SWEET",
+    # Slang closings
+    "K", "KK", "BET", "BET BET", "FR", "FR FR", "WORD", "FACTS",
+    "AIGHT", "AIIGHT", "ALRIGHT", "AITE", "ITE",
+    "FS", "FOR SURE", "SAY LESS",
+    "COPY", "NOTED", "WILL DO",
+    # Multi-word combos
+    "OK COOL", "OK GREAT", "OK THANKS", "OK PERFECT", "OK SOUNDS GOOD",
+    "OK BET", "OK AIGHT", "OK FR", "OK K",
+    "OKAY COOL", "OKAY GREAT", "OKAY THANKS", "OKAY PERFECT", "OKAY BET",
+    "COOL THANKS", "COOL BET", "COOL FR",
+    "GOT IT THANKS", "SOUNDS GOOD THANKS", "SOUNDS GREAT",
+    "THAT WORKS", "THAT WORKS THANKS",
+    "YEAH OK", "YEAH OKAY", "YEAH COOL", "YEAH BET", "YEAH FR",
+    "YEP OK", "YEP COOL", "YEP BET",
+    "LMAO", "LOL", "LMAO OK", "LOL OK",
+    # Arrival — already there, no response needed
+    "OMW", "ON MY WAY", "I'M OUTSIDE", "IM OUTSIDE", "OUTSIDE",
+    "I'M HERE", "IM HERE", "HERE", "I'M THERE", "IM THERE",
+    "JUST PULLED UP", "PULLED UP", "JUST GOT HERE", "JUST ARRIVED",
+}
+
+# Running late — acknowledge warmly, don't re-confirm
+RUNNING_LATE_KEYWORDS = {
+    "RUNNING LATE", "IM LATE", "I'M LATE", "GONNA BE LATE",
+    "GOING TO BE LATE", "MIGHT BE LATE", "A LITTLE LATE",
+    "RUNNING A LITTLE LATE", "BE THERE LATE", "STUCK IN TRAFFIC",
+    "ON MY WAY BUT LATE",
+}
+
+# Cost / ticket questions — always deterministic, never Claude
+COST_KEYWORDS = {
+    "COST", "HOW MUCH", "PRICE", "TICKET", "TICKETS", "PAY",
+    "IS IT FREE", "FREE", "CHARGE", "FEE", "COVER", "COVER CHARGE",
+    "HOW MUCH IS IT", "WHAT DOES IT COST", "WHAT'S THE COST",
+    "DO I NEED A TICKET", "DO I PAY", "IS THERE A COVER",
+}
+
+# Extra guest requests — firm one guest policy, never Claude
+EXTRA_GUEST_KEYWORDS = {
+    "CAN I BRING MORE", "CAN I BRING SOME MORE", "BRING MORE PEOPLE", "BRING SOME MORE",
+    "MORE GUESTS", "CAN I BRING TWO", "BRING 2", "BRING TWO", "BRING 3", "BRING THREE",
+    "MORE THAN ONE GUEST", "EXTRA GUEST", "EXTRA PEOPLE",
+    "CAN MY FRIENDS COME", "CAN MY WHOLE CREW",
+    "HOW MANY PEOPLE CAN I BRING", "HOW MANY CAN I BRING",
+    "MORE PLUS ONES", "TWO PLUS ONES", "MULTIPLE GUESTS",
+}
+
+# Phrases that indicate a member wants to update their plus one —
+# caught before general Jade so we can set state deterministically.
+PLUS_ONE_UPDATE_INTENTS = {
+    "UPDATE WHO I'M BRINGING", "UPDATE WHO IM BRINGING",
+    "CHANGE WHO I'M BRINGING", "CHANGE WHO IM BRINGING",
+    "UPDATE MY GUEST", "CHANGE MY GUEST", "SWITCH MY GUEST",
+    "UPDATE MY PLUS ONE", "CHANGE MY PLUS ONE", "SWITCH MY PLUS ONE",
+    "UPDATE MY PLUS 1", "CHANGE MY PLUS 1", "SWITCH MY PLUS 1",
+    "CAN I UPDATE MY GUEST", "CAN I CHANGE MY GUEST",
+    "CAN I UPDATE MY PLUS ONE", "CAN I CHANGE MY PLUS ONE",
+    "CAN I UPDATE MY PLUS 1", "CAN I CHANGE MY PLUS 1",
+    "CAN I UPDATE WHO I'M BRINGING", "CAN I UPDATE WHO IM BRINGING",
+    "I WANT TO CHANGE MY GUEST", "I WANT TO UPDATE MY GUEST",
+    "BRING SOMEONE ELSE", "DIFFERENT GUEST", "DIFFERENT PLUS ONE",
+    "ACTUALLY MY GUEST IS", "MY GUEST IS NOW", "MY GUEST CHANGED",
 }
 
 OPT_OUT_KEYWORDS = {"STOP", "STOPALL", "UNSUBSCRIBE", "CANCEL", "END", "QUIT"}
@@ -168,22 +233,39 @@ def _events_table():
 
 
 def _get_pending_approval(host_phone: str) -> dict | None:
-    """Retrieve the last pending approval request for a host."""
-    resp = _events_table().get_item(Key={"eventId": f"pending_approval:{host_phone}"})
-    return resp.get("Item")
+    """Retrieve the pending approval request for a host via direct key lookup."""
+    try:
+        resp = _events_table().get_item(Key={"eventId": f"pending_approval:{host_phone}"})
+        return resp.get("Item")
+    except Exception:
+        logger.exception("_get_pending_approval failed host=...%s", host_phone[-4:])
+        return None
 
 
 def _clear_pending_approval(host_phone: str) -> None:
     """Clear the pending approval record after it's been acted on."""
-    _events_table().delete_item(Key={"eventId": f"pending_approval:{host_phone}"})
+    try:
+        _events_table().delete_item(Key={"eventId": f"pending_approval:{host_phone}"})
+    except Exception:
+        logger.exception("_clear_pending_approval failed host=...%s", host_phone[-4:])
 
 
 def _set_opt_out(phone: str) -> None:
     now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    # Wipe PII on opt-out — name, lastName, email replaced with empty values.
+    # Phone key and opt-out flags are retained so the record acts as a tombstone
+    # and prevents re-notification. Member can resubmit from the website.
     _members_table().update_item(
         Key={"phone": phone},
-        UpdateExpression="SET optOut = :t, optOutAt = :now, smsOptIn = :f, lastSeenAt = :now",
-        ExpressionAttributeValues={":t": True, ":f": False, ":now": now},
+        UpdateExpression=(
+            "SET optOut = :t, optOutAt = :now, smsOptIn = :f, lastSeenAt = :now, "
+            "#nm = :empty, lastName = :empty, email = :null"
+        ),
+        ExpressionAttributeNames={"#nm": "name"},
+        ExpressionAttributeValues={
+            ":t": True, ":f": False, ":now": now,
+            ":empty": "", ":null": None,
+        },
     )
 
 
@@ -268,45 +350,29 @@ def _update_invite_status(event_id: str, phone: str, status: str) -> None:
 
 def _build_confirmation_message(phone: str) -> str:
     """
-    Build Jade's confirmation reply.
-    - Reveals venue only if admin has enabled revealVenue.
-    - Appends dress code if set and not already implied by vibe_tag.
-    - Appends ticket link if ticketUrl is set.
+    Jade's confirmation reply — short.
+    "You're in. See you [day]." and ticket link if applicable. Nothing else.
     """
     try:
         ev = _events_table().get_item(Key={"eventId": "current"}).get("Item") or {}
-
-        # Date — format nicely if possible
         date_val = ev.get("date", "")
         try:
-            from datetime import datetime as _dt
-            date_display = _dt.strptime(date_val[:10], "%Y-%m-%d").strftime("%A %B %-d, %Y")
+            day_display = datetime.strptime(date_val[:10], "%Y-%m-%d").strftime("%A %B %-d")
         except Exception:
-            date_display = date_val
+            day_display = ""
 
-        parts = ["You're in."]
-        if date_display:
-            parts.append(f"See you {date_display}.")
-        if ev.get("revealVenue") and ev.get("venue"):
-            parts.append(f"{ev['venue']}.")
-        if ev.get("revealVenue") and ev.get("address"):
-            parts.append(f"{ev['address']}.")
+        msg = "You're in."
+        if day_display:
+            msg += f" See you {day_display}."
 
-        # Dress code — only append if set and not already in vibe_tag
-        dresscode = (ev.get("dresscode") or "").strip()
-        vibe_tag = (ev.get("vibe_tag") or "").lower()
-        if dresscode and dresscode.lower() not in vibe_tag:
-            parts.append(f"{dresscode}.")
-
-        # Ticket link — if set, they need to grab it
         ticket_url = (ev.get("ticketUrl") or "").strip()
         if ticket_url:
-            parts.append(f"Grab your ticket: {ticket_url}")
+            msg += f" Grab your ticket: {ticket_url}"
 
-        return " ".join(parts)
+        return msg
     except Exception:
         logger.exception("_build_confirmation_message failed phone=...%s", phone[-4:])
-        return "You're in. See you there."
+        return "You're in."
 
 # ── Plus one helpers ──────────────────────────────────────────────────────────
 
@@ -358,28 +424,47 @@ def _get_confirmed_invite(phone: str) -> dict | None:
     return None
 
 
-def _lookup_plus_one_is_member(name: str) -> bool:
+def _lookup_plus_one_status(name: str, event_id: str) -> dict:
     """
-    Search the members table for a name match.
-    Returns True if a matching first+last name is found.
-    Case-insensitive. Used to set the star flag on the check-in page.
+    Search for a name match across members and check if they have an active invite.
+
+    Returns:
+        {
+            "is_member": bool,       # found in members table
+            "is_confirmed": bool,    # has CONFIRMED invite for this event
+            "phone": str | None,     # their phone if found
+        }
     """
     try:
-        from member_store import search_members
         name_clean = name.strip().lower()
         if not name_clean:
-            return False
+            return {"is_member": False, "is_confirmed": False, "phone": None}
         results = search_members(name_clean, limit=5)
         for r in results:
             first = (r.get("name") or "").strip().lower()
             last = (r.get("lastName") or "").strip().lower()
             full = f"{first} {last}".strip()
             if name_clean in (first, last, full):
-                return True
-        return False
+                phone = r.get("phone")
+                is_confirmed = False
+                if phone and event_id:
+                    try:
+                        inv = _invites_table().get_item(
+                            Key={"eventId": event_id, "phone": phone}
+                        ).get("Item")
+                        is_confirmed = inv is not None and inv.get("status") == "CONFIRMED"
+                    except Exception:
+                        pass
+                return {"is_member": True, "is_confirmed": is_confirmed, "phone": phone}
+        return {"is_member": False, "is_confirmed": False, "phone": None}
     except Exception:
-        logger.exception("_lookup_plus_one_is_member failed name=%s", name[:30])
-        return False
+        logger.exception("_lookup_plus_one_status failed name=%s", name[:30])
+        return {"is_member": False, "is_confirmed": False, "phone": None}
+
+
+def _lookup_plus_one_is_member(name: str) -> bool:
+    """Legacy wrapper — returns True if name matches any member. Used by last-name path."""
+    return _lookup_plus_one_status(name, event_id="").get("is_member", False)
 
 
 
@@ -528,14 +613,16 @@ def _build_event_context(member: dict = None) -> str:
         if not ev:
             return "[No active event at this time.]"
 
-        from datetime import date as _date
         today = _date.today().isoformat()
         event_date_str = ev.get("date", "")
         try:
             event_date = event_date_str[:10]  # normalize to YYYY-MM-DD
             status = "past" if event_date < today else "upcoming"
+            # Format date as human-readable so Jade doesn't output raw ISO
+            date_display = datetime.strptime(event_date, "%Y-%m-%d").strftime("%B %-d, %Y")
         except Exception:
             status = "upcoming"
+            date_display = event_date_str
 
         # Determine member's confirmation status for this event
         member_status = "unknown"
@@ -561,9 +648,13 @@ def _build_event_context(member: dict = None) -> str:
             f"event_status: {status}",
             f"member_invite_status: {member_status}",
         ]
+
+        # Date — always use formatted display string
+        if date_display:
+            lines.append(f"date_text: {date_display}")
+
         fields = [
             ("event_label",    "event_label"),
-            ("date",           "date_text"),
             ("startTime",      "time_text"),
             ("endTime",        "end_time"),
             ("venue",          "venue_name"),
@@ -579,23 +670,28 @@ def _build_event_context(member: dict = None) -> str:
             if val:
                 lines.append(f"{ctx_key}: {val}")
 
+        # Parking — only emit if explicitly set as a dedicated field.
+        # Otherwise it should live in the description and Jade reads it from there.
+        parking_val = (ev.get("parkingInfo") or ev.get("parking_info") or "").strip()
+        if parking_val:
+            lines.append(f"parking_info: {parking_val}")
+
         # Booleans
         allow_plus = ev.get("allowPlusOnes", False)
         lines.append(f"allow_plus_ones: {'true' if allow_plus else 'false'}")
 
-        # Plus-one info — if the member has a confirmed invite, include their plus-one name
-        if member and member_status == "CONFIRMED":
+        # Member's plus one name — inject if set so Jade can answer "who do I have down"
+        if member:
             try:
                 phone = member.get("phone", "")
                 slug = ev.get("eventSlug", "")
-                if slug and phone:
-                    inv_rec = _invites_table().get_item(Key={"eventId": slug, "phone": phone}).get("Item")
-                    if inv_rec:
-                        po_name = (inv_rec.get("plusOneName") or "").strip()
-                        if po_name:
-                            lines.append(f"member_plus_one_name: {po_name}")
-                        else:
-                            lines.append("member_plus_one_name: none set")
+                if phone and slug:
+                    inv = _invites_table().get_item(
+                        Key={"eventId": slug, "phone": phone}
+                    ).get("Item") or {}
+                    plus_one = (inv.get("plusOneName") or "").strip()
+                    if plus_one:
+                        lines.append(f"member_plus_one_name: {plus_one}")
             except Exception:
                 pass
 
@@ -630,7 +726,7 @@ def _claude(message: str, mode: str = "general", member: dict = None) -> str:
             f"{event_context}\n\n"
             f"[CONTEXT: Member replied with an ambiguous response: '{message}'. "
             "They have not confirmed attendance. Respond with exactly one of these two options only: "
-            "'Lmk.' or 'Lock you in?' — pick whichever feels more natural.]"
+            "'Lmk.' or 'You in or not?' — pick whichever feels more natural.]"
         )
     else:
         user_content = f"{event_context}\n\nMember message: {message}"
@@ -694,9 +790,14 @@ def handler(event, context):
         normalized = text.upper().strip()
         logger.info("sms_handler: inbound event_type=%s from_phone=%s text=%s", event_type, from_phone, repr(text))
 
-        # Verify the request is genuinely from our SMS provider.
-        # All requests — including host Y/N — must pass signature verification.
-        if not _verify_webhook_signature(event):
+        # Host Y/N approval must work regardless of webhook secret / carrier approval status.
+        # Check host before signature verification so approval is never blocked.
+        _host_phones = [p for p in [os.getenv("HOST_PHONE_1", ""), os.getenv("HOST_PHONE_2", "")] if p]
+        _is_host_yn = from_phone and from_phone in _host_phones and normalized in ("Y", "N")
+
+        # Fix #33: verify the request is genuinely from our SMS provider.
+        # Skip for host Y/N commands so approval is never blocked by carrier/secret status.
+        if not _is_host_yn and not _verify_webhook_signature(event):
             logger.error("sms_handler: rejected request with invalid signature — check CloudWatch for webhook_verify logs")
             return {"statusCode": 200, "body": json.dumps({"ok": True})}
 
@@ -715,6 +816,8 @@ def handler(event, context):
             if from_phone:
                 try:
                     _set_opt_out(from_phone)
+                    if sms_enabled:
+                        send_sms(from_phone, "You've been removed. rsvpsociety.com to reapply.")
                 except Exception:
                     logger.exception("sms_handler: opt-out write failed phone=...%s", from_phone[-4:])
             return {"statusCode": 200, "body": json.dumps({"ok": True})}
@@ -775,11 +878,24 @@ def handler(event, context):
 
         # ── Gate: approved members with SMS opt-in only ───────────────────────
         member = get_member(from_phone)
-        if not member or member.get("status") != "APPROVED":
+        if not member:
+            # Unknown number — send to website, full stop
+            if sms_enabled:
+                try:
+                    send_sms(from_phone, "rsvpsociety.com")
+                except Exception:
+                    logger.exception("sms_handler: non-member reply failed phone=...%s", from_phone[-4:])
+            return {"statusCode": 200, "body": json.dumps({"ok": True})}
+        if member.get("status") != "APPROVED":
+            # Known but not approved — website, full stop
+            if sms_enabled:
+                try:
+                    send_sms(from_phone, "rsvpsociety.com")
+                except Exception:
+                    logger.exception("sms_handler: unapproved member reply failed phone=...%s", from_phone[-4:])
             return {"statusCode": 200, "body": json.dumps({"ok": True})}
         if coerce_bool(member.get("optOut", False)):
             return {"statusCode": 200, "body": json.dumps({"ok": True})}
-
         # Fix I3: also check smsOptIn for inbound Jade responses, consistent with outbound
         if not coerce_bool(member.get("smsOptIn", False)):
             return {"statusCode": 200, "body": json.dumps({"ok": True})}
@@ -792,20 +908,33 @@ def handler(event, context):
             try:
                 event_id = confirmed_invite["eventId"]
                 member_first = member.get("name", "them")
-                # "idk", "don't know", "not sure", "no" → placeholder
-                UNKNOWN_REPLIES = {"IDK", "I DON'T KNOW", "I DONT KNOW", "NOT SURE", "NO", "N", "NONE", "SKIP"}
-                if normalized in UNKNOWN_REPLIES:
-                    placeholder = f"Guest of {member_first}".strip()
-                    _set_plus_one(event_id, from_phone, placeholder, is_member=False)
+
+                # If they're trying to update/change while we're waiting for a name,
+                # just re-ask — don't treat the intent phrase as a name.
+                if any(intent in normalized for intent in PLUS_ONE_UPDATE_INTENTS):
                     if sms_enabled:
-                        send_sms(from_phone, "I'll hold a spot. Let me know their name before you get there.")
+                        send_sms(from_phone, "Who are you bringing?")
+                    return {"statusCode": 200, "body": json.dumps({"ok": True})}
+
+                UNKNOWN_REPLIES = {
+                    "IDK", "I DON'T KNOW", "I DONT KNOW", "NOT SURE", "NO IDEA",
+                    "IDK YET", "I DON'T KNOW YET", "I DONT KNOW YET",
+                    "NOT SURE YET", "NOT YET", "IDK TBH", "UNSURE",
+                    "NO ONE YET", "NOBODY YET", "HAVEN'T DECIDED",
+                    "HAVENT DECIDED", "SKIP", "NONE",
+                    "I'M NOT SURE", "IM NOT SURE", "I'M UNSURE", "IM UNSURE",
+                    "NOT REALLY SURE", "I'M REALLY NOT SURE", "IM REALLY NOT SURE",
+                    "STILL NOT SURE", "STILL UNSURE", "STILL DECIDING",
+                    "HAVEN'T DECIDED YET", "HAVENT DECIDED YET",
+                }
+                if normalized in UNKNOWN_REPLIES:
+                    # Keep flag open — they can still send a name later
+                    if sms_enabled:
+                        send_sms(from_phone, "Let me know.")
                 else:
                     # Require first AND last name — if only one word, ask for last name
                     name_parts = text.strip().split()
                     if len(name_parts) < 2:
-                        # Store partial first name, clear awaitingPlusOneName so the
-                        # next message enters the awaitingPlusOneLastName block instead
-                        # of re-entering this one (which would cause an infinite loop).
                         _invites_table().update_item(
                             Key={"eventId": event_id, "phone": from_phone},
                             UpdateExpression="SET awaitingPlusOneLastName = :fn, awaitingPlusOneName = :f",
@@ -815,10 +944,31 @@ def handler(event, context):
                             send_sms(from_phone, "And their last name?")
                     else:
                         plus_one_name = " ".join(p.title() for p in name_parts[:3])[:100]
-                        is_member = _lookup_plus_one_is_member(plus_one_name)
-                        _set_plus_one(event_id, from_phone, plus_one_name, is_member=is_member)
-                        if sms_enabled:
-                            send_sms(from_phone, f"I have {plus_one_name} down.")
+                        status = _lookup_plus_one_status(plus_one_name, event_id)
+                        if status["is_confirmed"]:
+                            # Already confirmed independently — don't store, keep flag open.
+                            # Explicitly re-write True so the flag can't drift closed.
+                            _invites_table().update_item(
+                                Key={"eventId": event_id, "phone": from_phone},
+                                UpdateExpression="SET awaitingPlusOneName = :t",
+                                ExpressionAttributeValues={":t": True},
+                            )
+                            if sms_enabled:
+                                send_sms(from_phone, "They're already in. Who else are you thinking?")
+                        elif status["is_member"]:
+                            # Member with their own invite — don't store as plus one.
+                            # Keep flag open so they can name someone else.
+                            _invites_table().update_item(
+                                Key={"eventId": event_id, "phone": from_phone},
+                                UpdateExpression="SET awaitingPlusOneName = :t",
+                                ExpressionAttributeValues={":t": True},
+                            )
+                            if sms_enabled:
+                                send_sms(from_phone, "They have their own invite. Who else are you thinking?")
+                        else:
+                            _set_plus_one(event_id, from_phone, plus_one_name, is_member=False)
+                            if sms_enabled:
+                                send_sms(from_phone, f"I have {plus_one_name} down.")
             except Exception:
                 logger.exception("sms_handler: plus one name collection failed phone=...%s", from_phone[-4:])
             return {"statusCode": 200, "body": json.dumps({"ok": True})}
@@ -830,15 +980,33 @@ def handler(event, context):
                 first_name = confirmed_invite.get("awaitingPlusOneLastName", "")
                 last_name = text.strip().title()
                 plus_one_name = f"{first_name} {last_name}"[:100]
-                is_member = _lookup_plus_one_is_member(plus_one_name)
-                # Clear both flags and store full name
-                _invites_table().update_item(
-                    Key={"eventId": event_id, "phone": from_phone},
-                    UpdateExpression="SET plusOneName = :n, plusOneIsMember = :m, awaitingPlusOneName = :f, awaitingPlusOneLastName = :e",
-                    ExpressionAttributeValues={":n": plus_one_name, ":m": is_member, ":f": False, ":e": ""},
-                )
-                if sms_enabled:
-                    send_sms(from_phone, f"I have {plus_one_name} down.")
+                status = _lookup_plus_one_status(plus_one_name, event_id)
+                if status["is_confirmed"]:
+                    # Already confirmed — don't store, re-ask
+                    _invites_table().update_item(
+                        Key={"eventId": event_id, "phone": from_phone},
+                        UpdateExpression="SET awaitingPlusOneName = :t, awaitingPlusOneLastName = :e",
+                        ExpressionAttributeValues={":t": True, ":e": ""},
+                    )
+                    if sms_enabled:
+                        send_sms(from_phone, "They're already in. Who else are you thinking?")
+                elif status["is_member"]:
+                    # Member with their own invite — don't store, re-ask
+                    _invites_table().update_item(
+                        Key={"eventId": event_id, "phone": from_phone},
+                        UpdateExpression="SET awaitingPlusOneName = :t, awaitingPlusOneLastName = :e",
+                        ExpressionAttributeValues={":t": True, ":e": ""},
+                    )
+                    if sms_enabled:
+                        send_sms(from_phone, "They have their own invite. Who else are you thinking?")
+                else:
+                    _invites_table().update_item(
+                        Key={"eventId": event_id, "phone": from_phone},
+                        UpdateExpression="SET plusOneName = :n, plusOneIsMember = :m, awaitingPlusOneName = :f, awaitingPlusOneLastName = :e",
+                        ExpressionAttributeValues={":n": plus_one_name, ":m": False, ":f": False, ":e": ""},
+                    )
+                    if sms_enabled:
+                        send_sms(from_phone, f"I have {plus_one_name} down.")
             except Exception:
                 logger.exception("sms_handler: plus one last name collection failed phone=...%s", from_phone[-4:])
             return {"statusCode": 200, "body": json.dumps({"ok": True})}
@@ -907,30 +1075,26 @@ def handler(event, context):
             return {"statusCode": 200, "body": json.dumps({"ok": True})}
 
         # ── PLUS ONE UPDATE ANYTIME ────────────────────────────────────────────
-        # Detect direct updates: "my plus one is X", "change my plus one to X"
-        _plus_update_match = re.match(
-            r"^(?:my\s+)?(?:change\s+my\s+)?(?:plus\s*one|guest|\+1)\s+(?:is|to)\s+(.+)$",
-            text.strip(),
-            re.IGNORECASE,
-        )
-
-        # Detect intent to update: "can I update who I'm bringing", "I want to change my plus one"
-        _plus_intent_match = not _plus_update_match and confirmed_invite and re.search(
-            r"(?:update|change|switch|swap).*(?:plus\s*one|\+1|bringing|guest)",
-            text.strip(),
-            re.IGNORECASE,
-        )
-
-        if _plus_intent_match and confirmed_invite:
+        # First: catch natural-language update intents (sets awaitingPlusOneName flag
+        # so the next reply is handled deterministically instead of falling to Jade).
+        # Second: catch inline "my plus one is X" / "change my plus one to X" patterns.
+        _plus_one_intent = any(intent in normalized for intent in PLUS_ONE_UPDATE_INTENTS)
+        if _plus_one_intent and confirmed_invite:
             try:
                 event_id = confirmed_invite["eventId"]
                 _set_awaiting_plus_one(event_id, from_phone)
                 if sms_enabled:
-                    send_sms(from_phone, "Of course. Who's coming with you?")
+                    send_sms(from_phone, "Who's coming with you?")
             except Exception:
-                logger.exception("sms_handler: plus one intent trigger failed phone=...%s", from_phone[-4:])
+                logger.exception("sms_handler: plus one intent routing failed phone=...%s", from_phone[-4:])
             return {"statusCode": 200, "body": json.dumps({"ok": True})}
 
+        # Detect "my plus one is X", "change my plus one to X", "plus one is X"
+        _plus_update_match = re.match(
+            r"^(?:my\s+)?(?:change\s+my\s+)?plus\s+one\s+(?:is|to)\s+(.+)$",
+            text.strip(),
+            re.IGNORECASE,
+        )
         if _plus_update_match and confirmed_invite:
             try:
                 event_id = confirmed_invite["eventId"]
@@ -939,19 +1103,59 @@ def handler(event, context):
                 if len(name_parts) < 2:
                     _invites_table().update_item(
                         Key={"eventId": event_id, "phone": from_phone},
-                        UpdateExpression="SET awaitingPlusOneLastName = :fn, awaitingPlusOneName = :t",
-                        ExpressionAttributeValues={":fn": name_parts[0].title(), ":t": True},
+                        UpdateExpression="SET awaitingPlusOneLastName = :fn, awaitingPlusOneName = :f",
+                        ExpressionAttributeValues={":fn": name_parts[0].title(), ":f": False},
                     )
                     if sms_enabled:
                         send_sms(from_phone, "And their last name?")
                 else:
                     plus_one_name = " ".join(p.title() for p in name_parts[:3])[:100]
-                    is_member = _lookup_plus_one_is_member(plus_one_name)
-                    _set_plus_one(event_id, from_phone, plus_one_name, is_member=is_member)
-                    if sms_enabled:
-                        send_sms(from_phone, f"I have {plus_one_name} down.")
+                    status = _lookup_plus_one_status(plus_one_name, event_id)
+                    if status["is_confirmed"]:
+                        if sms_enabled:
+                            send_sms(from_phone, "They're already in. Who else are you thinking?")
+                    else:
+                        _set_plus_one(event_id, from_phone, plus_one_name, is_member=status["is_member"])
+                        if sms_enabled:
+                            if status["is_member"]:
+                                send_sms(from_phone, f"I have {plus_one_name} down. They're already on the list.")
+                            else:
+                                send_sms(from_phone, f"I have {plus_one_name} down.")
             except Exception:
                 logger.exception("sms_handler: plus one update anytime failed phone=...%s", from_phone[-4:])
+            return {"statusCode": 200, "body": json.dumps({"ok": True})}
+
+        # ── RUNNING LATE ───────────────────────────────────────────────────────
+        if any(phrase in normalized for phrase in RUNNING_LATE_KEYWORDS):
+            if sms_enabled:
+                try:
+                    send_sms(from_phone, "See you there.")
+                except Exception:
+                    logger.exception("sms_handler: running late SMS failed phone=...%s", from_phone[-4:])
+            return {"statusCode": 200, "body": json.dumps({"ok": True})}
+
+        # ── COST / TICKET — always free unless ticket_url is set ───────────────
+        if any(phrase in normalized for phrase in COST_KEYWORDS):
+            try:
+                ev = _events_table().get_item(Key={"eventId": "current"}).get("Item") or {}
+                ticket_url = (ev.get("ticketUrl") or "").strip()
+                if ticket_url:
+                    reply = f"Grab your ticket: {ticket_url}"
+                else:
+                    reply = "No tickets. You're already in."
+                if sms_enabled:
+                    send_sms(from_phone, reply)
+            except Exception:
+                logger.exception("sms_handler: cost reply failed phone=...%s", from_phone[-4:])
+            return {"statusCode": 200, "body": json.dumps({"ok": True})}
+
+        # ── EXTRA GUESTS — one per invite, hard stop ───────────────────────────
+        if any(phrase in normalized for phrase in EXTRA_GUEST_KEYWORDS):
+            if sms_enabled:
+                try:
+                    send_sms(from_phone, "One guest per invite.")
+                except Exception:
+                    logger.exception("sms_handler: extra guest SMS failed phone=...%s", from_phone[-4:])
             return {"statusCode": 200, "body": json.dumps({"ok": True})}
 
         # ── AMBIGUOUS — Jade asks for a direct confirm ─────────────────────────
@@ -978,7 +1182,7 @@ def handler(event, context):
 
             # Section/table inquiry — silently alert hosts
             TABLE_TRIGGERS = {"table", "section", "vip", "sections", "tables", "booth", "cabana"}
-            if any(t in normalized.lower() for t in TABLE_TRIGGERS):
+            if any(t in text.lower() for t in TABLE_TRIGGERS):
                 host_phones = [
                     p for p in [
                         os.getenv("HOST_PHONE_1", ""),
