@@ -2,6 +2,7 @@ import hmac
 import json
 import logging
 import os
+import time
 import boto3
 from datetime import datetime, timezone, timedelta
 from zoneinfo import ZoneInfo
@@ -206,6 +207,7 @@ def send_reminders(event: dict, is_day_of: bool, token: str = "", custom_message
                 message = custom_message.replace("{name}", (name or "").split()[0] or "")
                 if sms_enabled:
                     send_sms(phone, message)
+                    time.sleep(0.25)
                 sent += 1
             else:
                 # Scheduled reminder: claim row, send, stamp
@@ -226,6 +228,7 @@ def send_reminders(event: dict, is_day_of: bool, token: str = "", custom_message
                 message = _build_reminder(name, event)
                 if sms_enabled:
                     send_sms(phone, message)
+                    time.sleep(0.25)
 
                 invites_t.update_item(
                     Key={"eventId": event_id, "phone": phone},

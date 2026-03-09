@@ -115,15 +115,14 @@ def handler(event, context):
                 from datetime import datetime, timezone
                 for hp in host_phones:
                     try:
-                        # Key includes member phone so each request gets its own slot.
-                        # sms_handler reads by querying pending_approval:{hp}:* prefix
-                        # (or by scanning with FilterExpression) to find the oldest.
+                        # Simple key: one pending slot per host.
+                        # Last signup wins — acceptable at RSVP Society scale.
+                        # sms_handler._get_pending_approval reads this exact key.
                         events_table.put_item(Item={
-                            "eventId": f"pending_approval:{hp}:{phone_e164}",
+                            "eventId": f"pending_approval:{hp}",
                             "memberPhone": phone_e164,
                             "memberName": display_name,
                             "hostPhone": hp,
-                            "finalized": False,
                             "storedAt": datetime.now(timezone.utc).isoformat(timespec="seconds"),
                         })
                         send_sms(hp, f"New request: {display_name}\nY to approve, N to deny")

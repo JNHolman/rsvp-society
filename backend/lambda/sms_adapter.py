@@ -22,6 +22,8 @@ logger = logging.getLogger()
 
 
 def coerce_bool(value) -> bool:
+    """Duplicated from admin_shared — cannot import from there because
+    admin_shared imports get_secret_string from this module (circular)."""
     if isinstance(value, bool):
         return value
     if value is None:

@@ -54,12 +54,17 @@ rsvp-society/
 │       ├── access_request.py   # Handles form submissions from website
 │       ├── sms_handler.py      # Jade AI concierge + YES/NO RSVP + STOP opt-out
 │       ├── sms_adapter.py      # Quo outbound SMS adapter (live API send path)
-│       ├── admin_handler.py    # Admin API endpoints + public current-event endpoints
-│       ├── member_store.py     # DynamoDB read/write layer (GSI queries)
+│       ├── admin_handler.py    # Admin API router + public current-event endpoints
+│       ├── admin_shared.py     # Shared helpers (CORS, body parsing, event normalization)
+│       ├── admin_event_routes.py # Event CRUD, analytics, event history
+│       ├── admin_member_routes.py # Member CRUD, import, attendance, search
+│       ├── member_store.py     # DynamoDB read/write layer (status-index GSI + scan for search)
 │       ├── invite_handler.py   # Invite math, blast preview, send
 │       ├── reminder_handler.py # EventBridge reminders + manual trigger
 │       ├── audit_log.py        # Immutable admin action audit trail
-│       └── route_contract_audit.py # Frontend/backend/Terraform contract check
+│       ├── integration_tests.py # Local moto-based integration tests
+│       ├── route_contract_audit.py # Frontend/backend/Terraform contract check
+│       └── runtime_integration_check.py # Quick structural assertions
 │
 └── terraform/
     ├── main.tf                 # API Gateway, Lambda, DynamoDB, IAM, CORS, CloudWatch
@@ -67,6 +72,7 @@ rsvp-society/
     ├── iam_per_function.tf     # Per-function IAM roles (least privilege)
     ├── analytics_endpoint.tf   # Analytics route wiring
     ├── confirmed_endpoint.tf   # Confirmed-members route wiring
+    ├── events_endpoint.tf      # Event history route wiring
     ├── checkins.tf             # rsvp-checkins dedup table
     ├── audit_log.tf            # rsvp-audit-log table + IAM write policy
     ├── cloudfront_api.tf       # CloudFront distribution -> api.rsvpsociety.com
@@ -85,10 +91,11 @@ Static HTML/CSS/JS. No framework. The public site stays simple. The admin is now
 Serverless functions. Each Lambda handles one responsibility. No always-on server costs. Scales automatically. Chosen because the event business is bursty — quiet for weeks, then 200 SMS messages go out in an hour.
 
 ### Database — AWS DynamoDB
-NoSQL. Five tables:
+NoSQL. Six tables:
 - `rsvp-members` — every person who has ever submitted their number. Has `status-index` GSI.
 - `rsvp-event-invites` — who was invited to which event, their RSVP status, and attendance
 - `rsvp-events` — current event details (always stored as `eventId: "current"`)
+- `rsvp-event-history` — archived snapshots of past events (written on every event save)
 - `rsvp-checkins` — per-event check-in deduplication (conditional write guard)
 - `rsvp-audit-log` — immutable admin action log, 1-year TTL, PITR enabled
 
@@ -350,10 +357,10 @@ Status: **Live in production.** Sender ID `PNqC0tQSaI`, webhook secret in Secret
 
 | Rule | Cron (UTC) | Local send target | Sends if |
 |---|---|---|---|
-| `rsvp-reminder-day-before` | `cron(0 * * * ? *)` | 6:00 PM local event time | Event is tomorrow + `reminderTiming=day_before` or `both` |
-| `rsvp-reminder-day-of` | `cron(0 * * * ? *)` | 11:00 AM local event time | Event is today + `reminderTiming=day_of` or `both` |
+| `rsvp-reminder-day-before` | `cron(0/5 22-23 * * ? *)` | 6:00 PM local event time | Event is tomorrow + `reminderTiming=day_before` or `both` |
+| `rsvp-reminder-day-of` | `cron(0/5 15-16 * * ? *)` | 11:00 AM local event time | Event is today + `reminderTiming=day_of` or `both` |
 
-The rules now check hourly. `reminder_handler.py` reads `event_timezone`, converts to the event's local time, validates the local event date, and only sends when the correct local hour is hit. If `reminderTiming` is `manual`, nothing sends on schedule. Dedup sentinels (`dayBeforeReminderSentAt` / `dayOfReminderSentAt`) on each invite record prevent double-sending even if a rule fires twice. Manual override: **Manual Blast** textarea on Invite tab fires immediately to all confirmed members for the current event with a custom message. **Important:** invite records are stored under `eventSlug` (e.g. `"Swim Test"`), not `"current"` — `reminder_handler` resolves the correct event_id from `eventSlug` before querying confirmed invites.
+The rules fire every 5 minutes within a 2-hour UTC window that covers both EST and EDT for the target local time. `reminder_handler.py` reads `event_timezone`, converts to the event's local time, validates the local event date, and only sends when within a 5-minute window of the configured send time (default 6 PM day-before, 11 AM day-of — configurable per event in 5-minute increments). If `reminderTiming` is `manual`, nothing sends on schedule. Dedup sentinels (`dayBeforeReminderSentAt` / `dayOfReminderSentAt`) on each invite record prevent double-sending even if a rule fires twice. Manual override: **Manual Blast** textarea on Invite tab fires immediately to all confirmed members for the current event with a custom message. **Important:** invite records are stored under `eventSlug` (e.g. `"Swim Test"`), not `"current"` — `reminder_handler` resolves the correct event_id from `eventSlug` before querying confirmed invites.
 
 ---
 
@@ -437,13 +444,13 @@ CloudFront URL: `https://d31o74npegx00h.cloudfront.net`
 | Service | Estimated Cost | Notes |
 |---|---|---|
 | AWS Lambda | Free tier | ~1M requests/month included |
-| DynamoDB | Free tier | 5 tables, current scale well within limits |
+| DynamoDB | Free tier | 6 tables, current scale well within limits |
 | API Gateway | ~$3.50/million API calls | |
 | CloudFront (API) | < $1/month | Minimal at current volume |
 | S3 + CloudFront (photos) | < $1/month | |
 | Secrets Manager | ~$1.60/month | 4 secrets × $0.40/secret/month |
-| WAF | ~$5/month | Web ACL + 2 rate-limit rules (`/access` + `/admin/invite`) |
-| CloudWatch Logs | < $1/month | 30-day retention on all 6 Lambda log groups |
+| WAF | ~$5/month | Web ACL + 3 rate-limit rules (`/access`, `/admin/invite`, `/admin/members`) |
+| CloudWatch Logs | < $1/month | 30-day retention on all 5 Lambda log groups |
 | EventBridge | Effectively $0 | 2 scheduled rules |
 | Quo SMS | Per-message | Invite blast is the main cost — check current rates |
 | Anthropic Claude | Very low | Haiku with caching — ~90% token savings |
@@ -476,18 +483,17 @@ CloudFront URL: `https://d31o74npegx00h.cloudfront.net`
 
 ### 1. Per-Function IAM Roles (`iam_per_function.tf`)
 
-Replaces the single shared `rsvp-lambda-role` with six separate roles, each scoped to only the tables and secrets that function actually needs.
+Replaces the single shared `rsvp-lambda-role` with five separate roles, each scoped to only the tables and secrets that function actually needs.
 
 | Function | Tables before | Tables after |
 |---|---|---|
-| access_request | All tables | members only |
+| access_request | All tables | members, events (write pending approval) |
 | sms_handler | All tables | members, invites, events (read/update only) |
-| event_handler | All tables | events only |
-| reminder_handler | All tables | members (read), invites (scan), events (read) |
+| reminder_handler | All tables | members (read), invites (query/update), events (read) |
 | invite_handler | All tables | members, invites, events (no delete, no checkins) |
 | admin_handler | All tables | All (intentional — needs full access) |
 
-**Migration status: in progress.** Per-function roles are defined and attached. The legacy `lambda_role` and `lambda_policy` remain in `main.tf` and should be removed once all functions are verified on their per-function roles. See migration checklist below.
+**Migration status: complete.** Per-function roles are defined and attached. The legacy `lambda_role` and `lambda_policy` have been removed from `main.tf`.
 
 ### 2. Status-Index GSI on Members Table
 
@@ -509,9 +515,10 @@ Actions logged:
 
 ### 5. WAF Rate Limiting
 
-Two rules on the API:
+Two rate-limit rules on the API plus a third for admin member operations:
 - **`/access`** — 500 requests per 5 minutes per IP. Protects the public sign-up form from enumeration and spam.
 - **`/admin/invite`** — 20 requests per 5 minutes per IP. Protects the SMS blast endpoints from scripted abuse even if the admin token leaks.
+- **`/admin/members`** — 100 requests per 5 minutes per IP. Protects bulk approval/deletion/import endpoints.
 
 ### 6. SMS Consent Enforcement
 
@@ -585,7 +592,7 @@ Per-function IAM roles are fully deployed and verified in production. The legacy
 | Layer | Status |
 |---|---|
 | Public endpoints (sign-up, event info) | ✓ Clean |
-| DynamoDB (not internet-facing) | ✓ Solid — PITR on all 5 tables |
+| DynamoDB (not internet-facing) | ✓ Solid — PITR on all 6 tables |
 | Secrets management | ✓ Good — Secrets Manager, not env vars |
 | Data backup / recovery | ✓ Good — PITR enabled |
 | Audit trail | ✓ Built — all three handler functions write to audit log |
@@ -596,7 +603,7 @@ Per-function IAM roles are fully deployed and verified in production. The legacy
 | Check-in state persistence | ✓ Checked-in state reseeds from server on refresh |
 | SMS consent enforcement | ✓ Enforced at query time in both invite and reminder paths |
 | Input validation | ✓ Bad phone/JSON → 400, not 500. CSV bool parsing safe. Non-integer tier value → 400, not 500. |
-| Attendance integrity | ✓ No-show does not burn check-in guard or skew counters. Physical check-in increments `attendedCount` only — `confirmedCount` is exclusively owned by the SMS YES path. |
+| Attendance integrity | ✓ No-show does not burn check-in guard or skew counters. Physical check-in increments `attendedCount` only. `confirmedCount` is not written by any code path — it is a legacy field. |
 | Webhook signature verification | ✓ Live and verified in prod — HMAC-SHA256, millisecond timestamp handling, `openphone-signature` forwarded via CloudFront |
 | Confirmation cap | ✓ YES replies blocked at show-rate-adjusted target |
 | Reminder dedup | ✓ Per-invite sentinels prevent double-send |
@@ -609,4 +616,4 @@ The system is private-facing, not public-facing. The threat model is "someone wh
 
 ---
 
-*Built February 2026. Audited and hardened March 2026. Full audit pass completed March 8, 2026 — all critical and major issues resolved. Live in production — confirmation flow, manual blast, scheduled reminders, and Jade AI concierge all verified end-to-end.*
+*Built February 2026. Audited and hardened March 2026. Full audit pass completed March 9, 2026 — host approval key mismatch fixed, plus-one state machine loop fixed, hmac auth hardened, upsert status protection added, EventBridge cron tightened to 5-min windows, ACM cert validation added, S3 SSE config added, test files excluded from Lambda zip, checkin inline handlers migrated to event listeners. Live in production — confirmation flow, manual blast, scheduled reminders, and Jade AI concierge all verified end-to-end.*

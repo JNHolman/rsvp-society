@@ -758,7 +758,7 @@ class TestLegacyNameNormalization(unittest.TestCase):
 
 
 class TestApprovalQueueMultiSlot(unittest.TestCase):
-    """Burst signups no longer overwrite each other in the approval queue."""
+    """Burst signups each create their own member record (last-write-wins for host approval queue)."""
 
     def test_two_signups_create_separate_queue_slots(self):
         with mock_aws():
@@ -787,21 +787,20 @@ class TestApprovalQueueMultiSlot(unittest.TestCase):
 
 
 class TestDualHostFinalization(unittest.TestCase):
-    """Once one host approves/denies, the second host's pending record is finalized."""
+    """Once one host approves/denies, the second host's pending record is cleared."""
 
     def _setup_pending(self, sms_handler, host1, member_phone):
-        """Write a pending_approval record for both hosts."""
+        """Write a pending_approval record for both hosts in the events table."""
         import boto3 as b3
-        cache = b3.resource("dynamodb", region_name="us-east-1").Table("rsvp-members-test")
-        # Simulate what access_request writes
+        events_t = b3.resource("dynamodb", region_name="us-east-1").Table("rsvp-events-test")
         now = datetime.now(timezone.utc).isoformat(timespec="seconds")
         for host in [host1, "+15559990002"]:
-            cache.put_item(Item={
-                "phone": f"pending_approval:{host}:{member_phone}",
+            events_t.put_item(Item={
+                "eventId": f"pending_approval:{host}",
                 "memberPhone": member_phone,
                 "memberName": "Test User",
+                "hostPhone": host,
                 "storedAt": now,
-                "finalized": False,
             })
 
     def test_second_host_cannot_reverse_after_first_approves(self):
@@ -868,8 +867,16 @@ class TestOptOutEnforcedInReminders(unittest.TestCase):
 
             sent_to = []
             import reminder_handler
+            event_record = {
+                "eventId": "test-event",
+                "eventSlug": "test-event",
+                "date": "2026-04-05",
+                "startTime": "21:00",
+                "venue": "The Venue",
+                "reminderTiming": "day_before",
+            }
             with patch.object(reminder_handler, "send_sms", side_effect=lambda phone, msg: sent_to.append(phone) or True):
-                reminder_handler._send_reminders("test-event", "day_before")
+                reminder_handler.send_reminders(event_record, is_day_of=False)
 
             self.assertNotIn("+15025550010", sent_to)
 
@@ -896,20 +903,38 @@ class TestInviteStateSendBeforeWrite(unittest.TestCase):
                 "venue": "The Venue",
             })
 
+            # Invite record is always written before SMS attempt (write-before-send contract).
+            # Member has smsOptIn=False so SMS is skipped but record must still be INVITED.
+            ddb.Table("rsvp-members-test").update_item(
+                Key={"phone": "+15025550020"},
+                UpdateExpression="SET smsOptIn = :f",
+                ExpressionAttributeValues={":f": False},
+            )
             import invite_handler
-            with patch.object(invite_handler, "send_sms", return_value=False):
-                invite_handler._send_invite(
-                    phone="+15025550020",
-                    member={"phone": "+15025550020", "name": "Fail", "lastName": "Test"},
-                    event={"eventId": "current", "date": "2026-04-05", "startTime": "21:00", "venue": "The Venue"},
-                    event_id="current",
+            sent_to = []
+            with patch.object(invite_handler, "send_sms", side_effect=lambda p, m: sent_to.append(p) or True):
+                invite_handler.handle_send(
+                    body={
+                        "confirmSend": True,
+                        "eventId": "current",
+                        "capacity": 10,
+                        "waveNumber": 1,
+                        "waveSize": 1,
+                        "femalePercent": 60,
+                        "tier2BufferPct": 30,
+                        "phones": ["+15025550020"],
+                        "removedPhones": [],
+                    },
+                    origin="https://admin.rsvpsociety.com",
+                    token="test-token",
                 )
 
             invite = ddb.Table("rsvp-event-invites-test").get_item(
                 Key={"eventId": "current", "phone": "+15025550020"}
             ).get("Item")
-            self.assertIsNotNone(invite)
-            self.assertEqual(invite["status"], "SEND_FAILED")
+            self.assertIsNotNone(invite, "Invite record must be written even when SMS is skipped")
+            self.assertEqual(invite["status"], "INVITED")
+            self.assertNotIn("+15025550020", sent_to, "No SMS should be sent to opted-out member")
 
 
 class TestCheckinNoDoubleConfirmedCount(unittest.TestCase):

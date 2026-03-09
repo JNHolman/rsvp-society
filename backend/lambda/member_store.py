@@ -101,11 +101,19 @@ def upsert_member(
         "#src = :src",
         "lastSeenAt = :ls",
         "createdAt = if_not_exists(createdAt, :ca)",
-        # Always reset to PENDING on re-submit so the host notification fires
-        # for returning members. set_status() is the only path to APPROVED/DENIED.
-        "#s = :pending",
+        # Only set PENDING for NEW members. Existing members keep their
+        # current status so an APPROVED member can't be downgraded by a
+        # re-submission. access_request.py already gates host notification
+        # on status == PENDING so only genuinely new members trigger it.
+        "#s = if_not_exists(#s, :pending)",
         "smsOptIn = :soi",
     ]
+
+    # Record WHEN sms consent was given — TCPA compliance.
+    # Only stamp on the first opt-in; never overwrite an existing timestamp.
+    if sms_opt_in:
+        expr_vals[":oiat"] = now
+        set_parts.append("smsOptInAt = if_not_exists(smsOptInAt, :oiat)")
 
     if last_name:
         expr_vals[":ln"] = last_name[:120]

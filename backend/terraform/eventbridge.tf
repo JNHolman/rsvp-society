@@ -6,7 +6,7 @@ resource "aws_lambda_function" "reminder_handler" {
   role          = aws_iam_role.lambda_reminder_handler.arn
   handler       = "reminder_handler.handler"
   runtime       = "python3.11"
-  timeout       = 60
+  timeout       = 300  # rate-limited sends to 300+ confirmed members
   filename         = data.archive_file.lambda_bundle.output_path
 
   source_code_hash = data.archive_file.lambda_bundle.output_base64sha256
@@ -23,7 +23,6 @@ resource "aws_lambda_function" "reminder_handler" {
       QUO_API_KEY_SECRET_ID = var.quo_api_key_secret_id
       QUO_PHONE_NUMBER_ID   = var.quo_phone_number_id
       SMS_ENABLED           = "true"
-      AUDIT_LOG_TABLE_NAME  = aws_dynamodb_table.audit_log.name
     }
   }
 }

@@ -52,6 +52,16 @@ resource "aws_s3_bucket_versioning" "pics" {
   }
 }
 
+resource "aws_s3_bucket_server_side_encryption_configuration" "pics" {
+  bucket = aws_s3_bucket.pics.id
+
+  rule {
+    apply_server_side_encryption_by_default {
+      sse_algorithm = "AES256"
+    }
+  }
+}
+
 # -----------------------------
 # CloudFront Origin Access Control (OAC)
 # Modern replacement for OAI — do not use OAI

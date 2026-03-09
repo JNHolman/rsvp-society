@@ -188,6 +188,15 @@ data "archive_file" "lambda_bundle" {
   type        = "zip"
   source_dir  = "${path.module}/../lambda"
   output_path = "${path.module}/lambda_bundle.zip"
+
+  excludes = [
+    "__pycache__",
+    ".DS_Store",
+    "integration_tests.py",
+    "route_contract_audit.py",
+    "runtime_integration_check.py",
+    "requirements.txt",
+  ]
 }
 
 resource "aws_lambda_function" "access_request" {
@@ -296,7 +305,7 @@ resource "aws_lambda_function" "invite_handler" {
   filename         = data.archive_file.lambda_bundle.output_path
   source_code_hash = data.archive_file.lambda_bundle.output_base64sha256
 
-  timeout = 60  # blast can take longer for large lists
+  timeout = 300  # 300 invites × 0.25s pacing + retries ≈ 90s typical, 300s max
 
   environment {
     variables = {
@@ -477,6 +486,29 @@ resource "aws_api_gateway_integration" "event_current_get" {
   rest_api_id             = aws_api_gateway_rest_api.api.id
   resource_id             = aws_api_gateway_resource.event_current.id
   http_method             = aws_api_gateway_method.event_current_get.http_method
+  integration_http_method = "POST"
+  type                    = "AWS_PROXY"
+  uri                     = aws_lambda_function.admin_handler.invoke_arn
+}
+
+# /health (public — no auth, liveness check)
+resource "aws_api_gateway_resource" "health" {
+  rest_api_id = aws_api_gateway_rest_api.api.id
+  parent_id   = aws_api_gateway_rest_api.api.root_resource_id
+  path_part   = "health"
+}
+
+resource "aws_api_gateway_method" "health_get" {
+  rest_api_id   = aws_api_gateway_rest_api.api.id
+  resource_id   = aws_api_gateway_resource.health.id
+  http_method   = "GET"
+  authorization = "NONE"
+}
+
+resource "aws_api_gateway_integration" "health_get" {
+  rest_api_id             = aws_api_gateway_rest_api.api.id
+  resource_id             = aws_api_gateway_resource.health.id
+  http_method             = aws_api_gateway_method.health_get.http_method
   integration_http_method = "POST"
   type                    = "AWS_PROXY"
   uri                     = aws_lambda_function.admin_handler.invoke_arn
@@ -1006,6 +1038,8 @@ resource "aws_api_gateway_deployment" "deploy" {
     aws_api_gateway_integration.event_public_get,
     aws_api_gateway_integration.event_public_options,
     aws_api_gateway_integration_response.event_public_options_200,
+    # /health
+    aws_api_gateway_integration.health_get,
     # /event/current
     aws_api_gateway_integration.event_current_get,
     aws_api_gateway_integration.event_current_options,

@@ -138,7 +138,7 @@ function renderAlphaBar() {
   const letters = new Set(allMembers.map((m) => alphaKey(m)));
   const bar = $('alpha-bar');
   bar.innerHTML = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('').map((l) =>
-    `<button class="alpha-btn ${letters.has(l) ? 'has-members' : ''}" onclick="jumpTo('${l}')">${l}</button>`
+    `<button class="alpha-btn ${letters.has(l) ? 'has-members' : ''}" data-letter="${l}">${l}</button>`
   ).join('');
 }
 
@@ -257,12 +257,23 @@ window.addEventListener('DOMContentLoaded', () => {
   $('token-input')?.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') doLogin();
   });
+  $('login-btn')?.addEventListener('click', doLogin);
+  $('signout-btn')?.addEventListener('click', doLogout);
+  $('search-input')?.addEventListener('input', (e) => onSearch(e.target.value));
+  $('clear-btn')?.addEventListener('click', clearSearch);
 
   // Delegated listener for check-in buttons — avoids onclick injection issues
   document.getElementById('guest-list')?.addEventListener('click', (e) => {
     const btn = e.target.closest('.checkin-btn:not(.done):not([disabled])');
     if (btn) checkIn(btn.dataset.phone || '', btn.dataset.name || '');
   });
+
+  // Delegated listener for alpha-bar letter buttons
+  $('alpha-bar')?.addEventListener('click', (e) => {
+    const btn = e.target.closest('.alpha-btn[data-letter]');
+    if (btn) jumpTo(btn.dataset.letter);
+  });
+
   const saved = sessionStorage.getItem('rsvp_checkin_token') || sessionStorage.getItem('rsvp_admin_token');
   const exp = parseInt(sessionStorage.getItem('rsvp_checkin_token_exp') || sessionStorage.getItem('rsvp_token_exp') || '0', 10);
   if (saved && Date.now() < exp) {
@@ -273,10 +284,3 @@ window.addEventListener('DOMContentLoaded', () => {
     sessionStorage.removeItem('rsvp_checkin_token_exp');
   }
 });
-
-window.doLogin = doLogin;
-window.doLogout = doLogout;
-window.onSearch = onSearch;
-window.clearSearch = clearSearch;
-window.jumpTo = jumpTo;
-window.checkIn = checkIn;

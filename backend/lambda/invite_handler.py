@@ -4,6 +4,7 @@ import json
 import math
 import os
 import random
+import time
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Tuple
 
@@ -529,8 +530,32 @@ def handle_send(body: dict, origin: str, token: str) -> dict:
                     skipped_consent += 1
                 else:
                     message = _build_sms_message(m, current_event)
-                    send_sms(phone, message)
-                    sent += 1
+                    # Rate limit: ~4 sends/second to stay under Quo's per-second
+                    # throttle. 300 invites ≈ 75 seconds — well within the 60s
+                    # Lambda timeout at current scale. For blasts over 200, bump
+                    # the Lambda timeout to 300s in Terraform.
+                    for attempt in range(3):
+                        try:
+                            send_sms(phone, message)
+                            sent += 1
+                            break
+                        except RuntimeError as sms_err:
+                            err_str = str(sms_err)
+                            if "429" in err_str or "rate" in err_str.lower():
+                                wait = (attempt + 1) * 1.5
+                                logger.warning(
+                                    "invite send rate limited, waiting %.1fs phone=...%s attempt=%d",
+                                    wait, phone[-4:], attempt + 1,
+                                )
+                                time.sleep(wait)
+                            else:
+                                raise
+                    else:
+                        # All 3 attempts rate-limited — count as failed
+                        failed += 1
+                        logger.error("invite send exhausted retries phone=...%s", phone[-4:])
+                    # Pace between sends regardless of success
+                    time.sleep(0.25)
 
         except Exception:
             failed += 1

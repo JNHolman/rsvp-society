@@ -16,6 +16,13 @@ resource "aws_acm_certificate" "api" {
   }
 }
 
+# Terraform will block here until the cert is issued.
+# Before running terraform apply, add the CNAME from
+# acm_dns_validation_record output to Squarespace DNS.
+resource "aws_acm_certificate_validation" "api" {
+  certificate_arn = aws_acm_certificate.api.arn
+}
+
 output "acm_dns_validation_record" {
   value       = aws_acm_certificate.api.domain_validation_options
   description = "Add this CNAME record to Squarespace DNS to validate the certificate"
@@ -76,12 +83,12 @@ resource "aws_cloudfront_distribution" "api" {
   }
 
   viewer_certificate {
-    acm_certificate_arn      = aws_acm_certificate.api.arn
+    acm_certificate_arn      = aws_acm_certificate_validation.api.certificate_arn
     ssl_support_method       = "sni-only"
     minimum_protocol_version = "TLSv1.2_2021"
   }
 
-  depends_on = [aws_acm_certificate.api]
+  depends_on = [aws_acm_certificate_validation.api]
 
   tags = {
     Project     = "rsvp-society"

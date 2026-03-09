@@ -1,4 +1,8 @@
+import hmac
 import logging
+import os
+
+import boto3
 
 from admin_shared import get_method, get_headers, get_admin_token, resp
 from admin_event_routes import get_public_event, get_admin_event, save_admin_event, get_analytics, get_events
@@ -8,6 +12,21 @@ from admin_member_routes import (
 )
 
 logger = logging.getLogger()
+
+
+def _health_check(headers: dict) -> dict:
+    """Lightweight liveness check — confirms Lambda runs and DDB is reachable."""
+    checks = {}
+    try:
+        t = boto3.resource("dynamodb").Table(os.getenv("EVENTS_TABLE_NAME", "rsvp-events"))
+        t.get_item(Key={"eventId": "current"})
+        checks["dynamodb"] = "ok"
+    except Exception as e:
+        checks["dynamodb"] = f"error: {type(e).__name__}"
+
+    all_ok = all(v == "ok" for v in checks.values())
+    status = 200 if all_ok else 503
+    return resp(headers, status, {"ok": all_ok, "checks": checks})
 
 ROUTES = {
     ("GET", "/admin/members/confirmed"): get_confirmed,
@@ -27,6 +46,7 @@ ROUTES = {
 PUBLIC_ROUTES = {
     ("GET", "/event"): get_public_event,
     ("GET", "/event/current"): get_public_event,
+    ("GET", "/health"): _health_check,
 }
 
 
@@ -57,7 +77,7 @@ def handler(event, context):
             return route_fn(headers)
 
         token = (headers.get("x-admin-token") or headers.get("X-Admin-Token") or "").strip()
-        if not token or token != get_admin_token():
+        if not token or not hmac.compare_digest(token, get_admin_token()):
             return resp(headers, 401, {"ok": False, "error": "unauthorized"})
 
         return route_fn(event, headers, token)

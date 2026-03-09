@@ -414,7 +414,7 @@ header {
   <div class="login-box">
     <label class="login-label" for="token-input">Admin Token</label>
     <input type="password" id="token-input" class="login-input" placeholder="••••••••••••" autocomplete="off" />
-    <button class="login-btn" id="login-btn" onclick="doLogin()">Enter</button>
+    <button class="login-btn" id="login-btn">Enter</button>
     <div class="login-error" id="login-error"></div>
   </div>
 </div>
@@ -425,7 +425,7 @@ header {
       <span class="wordmark">[RSVP]</span>
       <span class="header-sub">Door Check-In</span>
     </div>
-    <button class="signout-btn" onclick="doLogout()">Sign Out</button>
+    <button class="signout-btn" id="signout-btn">Sign Out</button>
   </header>
 
   <div id="event-banner">
@@ -471,9 +471,8 @@ header {
         autocorrect="off"
         autocapitalize="off"
         spellcheck="false"
-        oninput="onSearch(this.value)"
       />
-      <button class="clear-btn" id="clear-btn" onclick="clearSearch()">✕</button>
+      <button class="clear-btn" id="clear-btn">✕</button>
     </div>
   </div>
 

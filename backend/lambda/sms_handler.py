@@ -5,6 +5,7 @@ import json
 import logging
 import math
 import os
+import re
 import urllib.request
 from datetime import datetime, timezone
 
@@ -163,16 +164,6 @@ def _events_table():
     return _DDB.Table(name)
 
 
-def _store_pending_approval(host_phone: str, member_phone: str, member_name: str) -> None:
-    """Store the last pending approval request for a host so Y/N can resolve it."""
-    _events_table().put_item(Item={
-        "eventId": f"pending_approval:{host_phone}",
-        "memberPhone": member_phone,
-        "memberName": member_name,
-        "storedAt": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-    })
-
-
 def _get_pending_approval(host_phone: str) -> dict | None:
     """Retrieve the last pending approval request for a host."""
     resp = _events_table().get_item(Key={"eventId": f"pending_approval:{host_phone}"})
@@ -205,6 +196,9 @@ def _get_pending_invite(phone: str):
     except Exception:
         active_slug = ""
 
+    if not active_slug:
+        return None
+
     invites_t = _invites_table()
     kwargs: dict = {
         "IndexName": "phone-index",
@@ -213,9 +207,8 @@ def _get_pending_invite(phone: str):
     while True:
         resp = invites_t.query(**kwargs)
         for item in resp.get("Items", []):
-            if item.get("status") == "INVITED":
-                if not active_slug or item.get("eventId") == active_slug:
-                    return item
+            if item.get("status") == "INVITED" and item.get("eventId") == active_slug:
+                return item
         last = resp.get("LastEvaluatedKey")
         if not last:
             break
@@ -256,6 +249,18 @@ def _update_invite_status(event_id: str, phone: str, status: str) -> None:
         ExpressionAttributeNames={"#s": "status"},
         ExpressionAttributeValues={":s": status, ":now": now},
     )
+    # Increment confirmedCount on the member record when they text YES.
+    # This is the only write path for this field — attendedCount is handled
+    # separately by record_attendance at the door.
+    if status == "CONFIRMED":
+        try:
+            _members_table().update_item(
+                Key={"phone": phone},
+                UpdateExpression="SET confirmedCount = if_not_exists(confirmedCount, :zero) + :one, lastSeenAt = :now",
+                ExpressionAttributeValues={":zero": 0, ":one": 1, ":now": now},
+            )
+        except Exception:
+            logger.exception("_update_invite_status: confirmedCount increment failed phone=...%s", phone[-4:])
 
 
 def _build_confirmation_message(phone: str) -> str:
@@ -330,6 +335,9 @@ def _get_confirmed_invite(phone: str) -> dict | None:
     except Exception:
         active_slug = ""
 
+    if not active_slug:
+        return None
+
     invites_t = _invites_table()
     kwargs: dict = {
         "IndexName": "phone-index",
@@ -338,9 +346,8 @@ def _get_confirmed_invite(phone: str) -> dict | None:
     while True:
         resp = invites_t.query(**kwargs)
         for item in resp.get("Items", []):
-            if item.get("status") == "CONFIRMED":
-                if not active_slug or item.get("eventId") == active_slug:
-                    return item
+            if item.get("status") == "CONFIRMED" and item.get("eventId") == active_slug:
+                return item
         last = resp.get("LastEvaluatedKey")
         if not last:
             break
@@ -403,21 +410,11 @@ def _verify_webhook_signature(event: dict) -> bool:
         return False
 
     def _debug_write(reason: str, extra: dict = None):
-        """Write rejection reason to DynamoDB events table for debugging without CloudWatch."""
-        try:
-            import boto3
-            ddb = boto3.resource("dynamodb")
-            table = ddb.Table(os.getenv("EVENTS_TABLE_NAME", "rsvp-events"))
-            item = {
-                "eventId": "webhook-debug-latest",
-                "reason": reason,
-                "ts": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-            }
-            if extra:
-                item.update({k: str(v)[:500] for k, v in extra.items()})
-            table.put_item(Item=item)
-        except Exception:
-            pass
+        """Log rejection reason to CloudWatch for debugging."""
+        detail = f"webhook_verify: {reason}"
+        if extra:
+            detail += f" | {' '.join(f'{k}={str(v)[:200]}' for k, v in extra.items())}"
+        logger.warning(detail)
 
     try:
         secret_raw = get_secret_string(secret_id)
@@ -686,7 +683,7 @@ def handler(event, context):
         # Fix #33: verify the request is genuinely from our SMS provider.
         # Skip for host Y/N commands so approval is never blocked by carrier/secret status.
         if not _is_host_yn and not _verify_webhook_signature(event):
-            logger.error("sms_handler: rejected request with invalid signature — see webhook-debug-latest in DDB")
+            logger.error("sms_handler: rejected request with invalid signature — check CloudWatch for webhook_verify logs")
             return {"statusCode": 200, "body": json.dumps({"ok": True})}
 
         # Ignore delivery/status webhooks — only inbound member messages should trigger Jade logic.
@@ -725,6 +722,17 @@ def handler(event, context):
                     new_status = "APPROVED" if normalized == "Y" else "DENIED"
                     set_status(target_phone, new_status)
                     _clear_pending_approval(from_phone)
+
+                    # Dual-host cleanup: clear the other host's pending record for
+                    # this same member so they can't reverse the decision.
+                    for other_hp in host_phones:
+                        if other_hp != from_phone:
+                            try:
+                                other_pending = _get_pending_approval(other_hp)
+                                if other_pending and other_pending.get("memberPhone") == target_phone:
+                                    _clear_pending_approval(other_hp)
+                            except Exception:
+                                logger.exception("sms_handler: failed to clear other host pending for %s", other_hp[-4:])
 
                     if sms_enabled:
                         send_sms(from_phone, f"{target_name} has been {new_status.lower()}.")
@@ -781,11 +789,13 @@ def handler(event, context):
                     # Require first AND last name — if only one word, ask for last name
                     name_parts = text.strip().split()
                     if len(name_parts) < 2:
-                        # Store partial first name in temp field, ask for last name
+                        # Store partial first name, clear awaitingPlusOneName so the
+                        # next message enters the awaitingPlusOneLastName block instead
+                        # of re-entering this one (which would cause an infinite loop).
                         _invites_table().update_item(
                             Key={"eventId": event_id, "phone": from_phone},
-                            UpdateExpression="SET awaitingPlusOneLastName = :fn",
-                            ExpressionAttributeValues={":fn": name_parts[0].title()},
+                            UpdateExpression="SET awaitingPlusOneLastName = :fn, awaitingPlusOneName = :f",
+                            ExpressionAttributeValues={":fn": name_parts[0].title(), ":f": False},
                         )
                         if sms_enabled:
                             send_sms(from_phone, "And their last name?")
@@ -884,11 +894,10 @@ def handler(event, context):
 
         # ── PLUS ONE UPDATE ANYTIME ────────────────────────────────────────────
         # Detect "my plus one is X", "change my plus one to X", "plus one is X"
-        import re as _re
-        _plus_update_match = _re.match(
+        _plus_update_match = re.match(
             r"^(?:my\s+)?(?:change\s+my\s+)?plus\s+one\s+(?:is|to)\s+(.+)$",
             text.strip(),
-            _re.IGNORECASE,
+            re.IGNORECASE,
         )
         if _plus_update_match and confirmed_invite:
             try:
