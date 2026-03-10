@@ -44,7 +44,7 @@ def _set_current_event(data: dict) -> dict:
 
     event_slug = (data.get("eventSlug") or "").strip()
     if not event_slug:
-        return resp(headers, 400, {"ok": False, "error": "eventSlug is required"})
+        raise ValueError("eventSlug is required")
 
     item = {
         "eventId": "current",

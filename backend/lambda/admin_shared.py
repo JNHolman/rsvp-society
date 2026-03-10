@@ -127,7 +127,7 @@ def normalize_event_date(value: str) -> str:
     raw = str(value or "").strip()
     if not raw:
         return ""
-    for fmt in ("%Y-%m-%d", "%m/%d/%Y", "%A, %B %d, %Y", "%a, %B %d, %Y", "%B %d, %Y"):
+    for fmt in ("%Y-%m-%d", "%m/%d/%Y", "%A, %B %d, %Y", "%A %B %d, %Y", "%a, %B %d, %Y", "%a %B %d, %Y", "%B %d, %Y"):
         try:
             return datetime.strptime(raw, fmt).date().isoformat()
         except ValueError:

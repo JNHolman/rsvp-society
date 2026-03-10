@@ -403,6 +403,11 @@ class TestDuplicateAttendance(unittest.TestCase):
             from admin_handler import handler
 
             phone = "+15025550123"
+            # Create the member so the existence guard passes
+            boto3.resource("dynamodb", region_name="us-east-1").Table(
+                os.environ["MEMBERS_TABLE_NAME"]
+            ).put_item(Item={"phone": phone, "name": "Test", "status": "APPROVED"})
+
             table_name = os.environ["EVENTS_TABLE_NAME"]
             boto3.resource("dynamodb", region_name="us-east-1").Table(table_name).put_item(Item={"eventId": "current", "date": "2026-04-18"})
 
@@ -457,6 +462,7 @@ class TestEventSaveValidation(unittest.TestCase):
     def test_string_false_reveal_venue_is_false(self):
         resp = self._save({
             "date": "2026-04-18",
+            "eventSlug": "test-reveal",
             "capacity": 120,
             "revealVenue": "false",
         })
@@ -465,7 +471,7 @@ class TestEventSaveValidation(unittest.TestCase):
         self.assertIs(body["event"]["revealVenue"], False)
 
     def test_zero_capacity_accepted(self):
-        resp = self._save({"date": "2026-04-18", "capacity": 0})
+        resp = self._save({"date": "2026-04-18", "eventSlug": "test-zero", "capacity": 0})
         self.assertEqual(resp["statusCode"], 200)
 
     def test_event_history_keeps_multiple_versions_for_same_slug(self):
