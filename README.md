@@ -1,6 +1,6 @@
 # RSVP Society — Project Runbook
 
-**Invitation-only R&B events. No flyers. No walk-ins.**
+**Invitation-only R&B experiences. No flyers.**
 
 This document is the single source of truth for the project. If it ever needs to be rebuilt from scratch — on a new machine, in a new session, or by someone new — everything needed to understand it, recreate it, and continue it is right here. Security posture and hardening notes are at the bottom.
 
@@ -109,9 +109,9 @@ Carrier-compliant SMS platform. Required for 10DLC registration. Quo webhooks hi
 Jade is an SMS-based AI assistant for RSVP Society members. She handles RSVPs, event questions, and reminders. Built on `claude-haiku-4-5-20251001` with prompt caching (~90% token savings). Jade only responds to approved, opted-in members.
 
 ### Scheduled Reminders — AWS EventBridge
-Two EventBridge rules fire the `reminder_handler` Lambda every 5 minutes within their send window:
-- **Day before rule** — sends at **6:00 PM local event time** when the event is tomorrow
-- **Day of rule** — sends at **11:00 AM local event time** when the event is today
+Two hourly EventBridge rules fire the `reminder_handler` Lambda:
+- **Day before rule** — checks every hour and sends at **6:00 PM local event time** when the event is tomorrow
+- **Day of rule** — checks every hour and sends at **11:00 AM local event time** when the event is today
 
 The Lambda reads the saved `event_timezone`, validates the local event date, checks the local hour, and respects the event's `reminderTiming` setting (`day_before`, `day_of`, `both`, or `manual`) before sending. Manual blast is still available from the Invite tab.
 
@@ -165,7 +165,6 @@ Backend deploys automatically on push to `main`. Builds the Lambda bundle and de
 | `status` | String | PENDING, APPROVED, DENIED — indexed by `status-index` GSI |
 | `gender` | String | M, F, O — set by admin |
 | `smsOptIn` | Boolean | True = eligible for SMS blasts |
-| `smsOptInAt` | String | ISO timestamp — set when member opts in via web form or import |
 | `optOut` | Boolean | True = texted STOP, never message again |
 | `source` | String | web, import |
 | `tierOverride` | Number | 1, 2, 3 — overrides auto-calculation |
@@ -173,6 +172,8 @@ Backend deploys automatically on push to `main`. Builds the Lambda bundle and de
 | `invitedCount` | Number | Times they were invited |
 | `createdAt` | String | ISO timestamp |
 | `lastSeenAt` | String | ISO timestamp |
+| `submittedAt` | String | ISO timestamp — updated on every form submission (used by duplicate name guard) |
+| `smsOptInAt` | String | ISO timestamp — first opt-in date for TCPA compliance |
 
 ### Invite Record Fields
 
@@ -189,9 +190,10 @@ Backend deploys automatically on push to `main`. Builds the Lambda bundle and de
 | `attendedAt` | String | ISO timestamp — set when physically checked in |
 | `noShowAt` | String | ISO timestamp — set when marked No Show in admin |
 | `waveNumber` | Number | Which blast wave this invite came from |
-| `plusOneName` | String | Full name of plus one — set during Jade plus one flow |
 | `dayBeforeReminderSentAt` | String | Dedup guard — prevents double-sending day-before reminder |
 | `dayOfReminderSentAt` | String | Dedup guard — prevents double-sending day-of reminder |
+| `quoMessageId` | String | Quo message ID from send response — used to match `message.delivered` webhooks |
+| `deliveredAt` | String | ISO timestamp — set when carrier confirms delivery via Quo webhook |
 
 ### Event Record Fields
 
@@ -200,17 +202,16 @@ Backend deploys automatically on push to `main`. Builds the Lambda bundle and de
 | `eventId` | String | Always `"current"` — one active event at a time |
 | `eventSlug` | String | Human ID used as the key in invite/checkin queries — e.g. `"2026-03-march"` |
 | `date` | String | Stored as a real event date string. Scheduled reminders parse this field. |
-| `startTime` | String | e.g. `"2:00 PM"` — used in reminder SMS. Never stored in 24hr format. |
-| `endTime` | String | e.g. `"6:00 PM"` — optional. Jade answers end time questions from this field. |
+| `startTime` | String | e.g. `"9:00 PM"` — used in reminder SMS |
 | `city` | String | e.g. `"Louisville, KY"` |
 | `event_timezone` | String | IANA timezone name — e.g. `"America/New_York"`, `"America/Chicago"` |
 | `venue` | String | Venue name |
 | `address` | String | Full address — sent to confirmed members |
 | `dresscode` | String | e.g. `"All Black"` |
 | `revealVenue` | Boolean | If true, venue name/address appear in confirmation + public current-event response |
-| `description` | String | Jade's briefing document — put parking, food, amenities, and any event-specific facts here. If it's not in this field and has no dedicated field, Jade deflects rather than guessing. |
-| `vibe_tag` | String | Curated vibe tag (e.g. `"sunset + vibes"`) — appears in invite SMS |
-| `event_label` | String | Short event label for SMS (e.g. `"The Deep End"`) |
+| `description` | String | Brief for Jade — context she uses when building messages |
+| `vibe_tag` | String | Curated vibe tag (e.g. `"suits + shots"`) — appears in invite SMS |
+| `event_label` | String | Short event label for SMS (e.g. `"Pool Party"`) |
 | `event_type` | String | Internal type — swim, day, rooftop, karaoke, etc. |
 | `capacity` | Number | Target headcount — drives wave math and confirmation cap |
 | `reminderTiming` | String | `day_before`, `day_of`, `both`, or `manual` |
@@ -219,6 +220,11 @@ Backend deploys automatically on push to `main`. Builds the Lambda bundle and de
 | `day_before_template` | String | Saved day-before reminder copy |
 | `day_of_template` | String | Saved day-of reminder copy |
 | `updatedAt` | String | ISO timestamp |
+| `lastBlastAt` | String | ISO timestamp — when the last invite blast was sent |
+| `lastBlastSmsSent` | Number | SMS messages sent in the last blast |
+| `lastBlastFailed` | Number | Failed sends in the last blast |
+| `lastBlastWave` | Number | Wave number of the last blast |
+| `deliveredCount` | Number | Carrier-confirmed deliveries for the last blast (incremented by `message.delivered` webhook) |
 
 ### API Endpoints
 
@@ -226,7 +232,6 @@ Base URL: `https://api.rsvpsociety.com`
 
 | Method | Path | Auth | Purpose |
 |---|---|---|---|
-| GET | `/health` | None | Health check — returns 200 OK if the API is reachable |
 | POST | `/access` | None | Submit access request from website |
 | POST | `/sms/inbound` | Quo signature | Inbound SMS from members (Quo webhook target) |
 | GET | `/event` | None | Public current-event payload |
@@ -246,6 +251,7 @@ Base URL: `https://api.rsvpsociety.com`
 | POST | `/admin/invite/preview` | Token | Preview invite list without sending |
 | POST | `/admin/invite/send` | Token | Execute SMS invite blast |
 | POST | `/admin/invite/reminder` | Token | Manual reminder blast to confirmed members (`timing=day_before/day_of`) |
+| GET | `/health` | None | Liveness check — confirms Lambda runs and DynamoDB is reachable |
 
 ---
 
@@ -255,9 +261,11 @@ Base URL: `https://api.rsvpsociety.com`
 Website form submit
        ↓
 DynamoDB: status = PENDING
-Host receives Y/N approval text
+Host(s) receive SMS notification: "New request: Name\nY to approve, N to deny"
        ↓
-Admin approves (Y reply or admin panel)
+Host texts Y/N → status updated (single-slot per host, last signup wins)
+— OR —
+Admin reviews in admin panel (Members tab)
        ↓
 APPROVED or DENIED
        ↓ (if approved)
@@ -276,10 +284,6 @@ Night of: door staff uses checkin.html on tablet
 Attendance recorded → reliability tier recalculated automatically
 ```
 
-### Host Approval Flow
-
-When someone submits the website form, `access_request.py` writes a `pending_approval` record to the `rsvp-events` table and sends a Y/N text to the host number. The pending approval key is `pending_approval:{host_phone}` — a single slot per host. If two submissions arrive in quick succession, the second write overwrites the first. One approval at a time. When the host replies Y, the member is approved and gets a welcome SMS. N denies them. The host reply bypasses webhook signature verification — identified by the host phone number matching `HOST_PHONE_1`.
-
 ### Reliability Tiers (auto-calculated)
 
 - **Tier 1** — 80%+ show rate. Fills first. Guaranteed spots.
@@ -296,13 +300,13 @@ URL: `https://rsvpsociety.com/admin/`
 
 Login: admin token (stored in Secrets Manager — not in this file).
 
-**Members** — approve, deny, delete, set gender/tier. Search, paginate, bulk CSV import. 50 per page, alphabetical. Import modal supports Superphone and Eventbrite exports. `smsOptIn` in imported CSVs is parsed safely — string values like `"false"` and `"0"` correctly resolve to false. Opted-out members are filtered at send time in both the invite and reminder loops.
+**Members** — approve, deny, delete, set gender/tier. Search, paginate, bulk CSV import. 50 per page, alphabetical. Import modal supports Superphone and Eventbrite exports. `smsOptIn` in imported CSVs is parsed safely — string values like `"false"` and `"0"` correctly resolve to false. Imported members who are not opted-in are excluded from invite blasts at the query layer.
 
-**Event** — set event name, slug, date, time, city, timezone, venue, address, vibe tag, description (Jade's briefing document), reveal venue toggle, reminder timing, capacity, and Jade message templates (invite, day-before reminder, day-of reminder). Save overwrites the single current event record in DynamoDB. The `eventSlug` field is critical — it must match the event ID used in the Invite tab. No SMS goes out on save.
+**Event** — set event name, slug, date, time, city, timezone, venue, address, vibe tag, Jade brief, reveal venue toggle, reminder timing, capacity, and Jade message templates (invite, day-before reminder, day-of reminder). Save overwrites the single current event record in DynamoDB. The `eventSlug` field is critical — it must match the event ID used in the Invite tab. No SMS goes out on save.
 
 **Invite** — auto-populates from saved event. Set capacity, female %, ghost buffer. Preview invite list with state-based market filter pills (all 50 states + DC covered by area code). Remove individuals before sending. Send blast or trigger a **manual reminder blast** — type a free-form message (use `{name}` to personalize), hit Send, and it goes immediately to all confirmed members. Next wave automatically excludes already-invited members — safe to run multiple times for the same event.
 
-**Attendance** — loads confirmed invitees for a specific event by slug. Mark attended or no-show. "Attended" increments the member's `attendedCount` and writes `attendedAt` to their invite record. "No Show" stamps `noShowAt` only — does not consume the check-in dedup guard and does not touch counters, so the person can still be checked in at the door if they show up late. No-show is blocked if the member is already checked in.
+**Attendance** — loads confirmed invitees for a specific event by slug. Mark attended or no-show. "Attended" increments the member's `attendedCount` and writes `attendedAt` to their invite record. "No Show" stamps `noShowAt` only — does not consume the check-in dedup guard, so the person can still be checked in at the door if they show up late. **No Show is blocked if the member is already checked in** — the backend rejects it and the frontend disables the button and shows an error.
 
 ### Market Filter Pills
 Preview groups confirmed members by state from area code. Every US area code is mapped. Unknown area codes show as the raw area code. As the member base grows into new cities the pills appear automatically — no code changes needed.
@@ -340,22 +344,28 @@ Mobile-first, tablet-optimized page for door staff. Same admin token.
 Jade is the member-facing AI. Lives in `sms_handler.py`.
 
 She handles:
-- Inbound questions about RSVP Society (dress code, event details, vibe)
+- Inbound questions about RSVP Society (dress code, event details, vibe, time, parking)
 - YES/NO RSVP replies — updates DynamoDB, sends confirmation SMS
-- STOP opt-out — wipes PII (name, lastName, email), retains phone + optOut flag as a tombstone, member never messaged again. Responds with the website URL so they can reapply.
-- Ignores anyone not approved, opted-in, and with an active invite
+- STOP opt-out — wipes PII (name, lastName, email), writes `optOut: true`, member never messaged again
+- Plus-one collection — asks for full name, handles first/last name split, detects existing members
+- Plus-one updates — "can I change who I'm bringing", "my plus one is X"
+- Plus-one recall — "who's my plus one" answered from the invite record
+- Running late acknowledgment — "see you there"
+- Cost/ticket questions — deterministic (no AI), answers from event record
+- Extra guest requests — firm "one guest per invite" policy
+- Ignores social acks (ok, bet, thanks, lol) — no unnecessary replies
 
-**Keyword routing:** Jade handles structured keyword sets before passing anything to Claude. CONFIRMED_KEYWORDS (YES, I'M IN, etc.) trigger RSVP confirmation. DECLINED_KEYWORDS (NO, CAN'T MAKE IT, SOMETHING CAME UP, etc.) trigger decline. IGNORE_KEYWORDS (slang closings like BET, SAY LESS, arrival phrases like OMW, I'M OUTSIDE, etc.) are silently dropped — no response sent. RUNNING_LATE_KEYWORDS get a brief acknowledgment. COST_KEYWORDS ("how much", "tickets", etc.) return "No tickets. You're already in." EXTRA_GUEST_KEYWORDS ("can I bring more people", etc.) return "One guest per invite." Anything not matched by a keyword set goes to Claude.
-
-**Plus one flow:** After a confirmed RSVP, if `allowPlusOnes` is true, Jade asks "Who are you bringing?" The response starts the plus one name collection flow (`awaitingPlusOneName` → `awaitingPlusOneLastName`). If the name submitted is already a confirmed member, Jade re-prompts. If the name is a member with their own invite (not confirmed), Jade re-prompts without storing them. Non-members are stored as `plusOneName`. Filler phrases ("is my plus one", "will be my guest") are stripped before name parsing. Jade receives `member_plus_one_name` in her event context so she can answer "who do I have down" directly.
-
-**Event context:** Jade receives structured fields (`event_label`, `date_text`, `time_text`, `end_time`, `venue_name`, `address_text`, `vibe_tag`, `dresscode`, `description`, `allow_plus_ones`, `member_plus_one_name`, `parking_info`, `ticket_url`, `section_info`, `event_status`, `member_invite_status`). Parking, food, amenities, and any event-specific facts that don't have dedicated fields belong in the `description` field — that is Jade's briefing document. Write it as a fact sheet, not marketing copy. If a detail isn't in the context, she deflects rather than inferring. Times are never converted — Jade outputs `time_text` exactly as stored.
+**Delivery tracking:** Quo sends `message.delivered` webhooks when carrier confirms delivery. The handler matches the Quo message ID against invite records and only counts invite blast deliveries. `deliveredCount` and per-invite `deliveredAt` are written to DynamoDB. Stats are visible on the Invite tab. Two signing secrets are supported (`WEBHOOK_SECRET_ID` for inbound, `WEBHOOK_SECRET_ID_2` for delivery) since Quo assigns separate secrets per webhook.
 
 **Capacity protection:** When a YES reply comes in and the event has a capacity set, Jade checks current confirmed count before updating status. If the show-rate-adjusted confirmation target is already met, she replies with a polite capacity message instead of confirming.
 
-**Webhook security:** Inbound Quo webhooks are signature-verified using the `openphone-signature` header, timestamp + raw body, and a base64-decoded signing secret fetched from Secrets Manager via `WEBHOOK_SECRET_ID` before any processing. If `WEBHOOK_SECRET_ID` is not set, all webhooks are hard-rejected. CloudFront must have `openphone-signature` in its forwarded headers list (`cloudfront_api.tf`) or the header is stripped before Lambda sees it. Quo sends webhook timestamps in milliseconds — the handler converts to seconds before the age check. Quo's inbound webhook payload puts the message text in the `body` field (not `text` or `content`).
+**Webhook security:** Inbound Quo webhooks are signature-verified using the `openphone-signature` header, timestamp + raw body, and a base64-decoded signing secret fetched from Secrets Manager. Verification tries all configured secrets (`WEBHOOK_SECRET_ID`, `WEBHOOK_SECRET_ID_2`). If no secrets are set, all webhooks are hard-rejected. CloudFront must have `openphone-signature` in its forwarded headers list (`cloudfront_api.tf`) or the header is stripped before Lambda sees it. Quo sends webhook timestamps in milliseconds — the handler converts to seconds before the age check.
 
-**Reminder guardrails:** Reminder timing is controlled per event — day-before, day-of, both, or manual only. Reminder SMS never includes closings like "Let me know" or "You in?" — the member already confirmed. Use restraint. The brand wins by not over-texting people.
+**Reminder guardrail per event:**
+1. The invite blast ("You're on the list. Reply YES.")
+2. Reminder logic is controlled per event: day-before, day-of, both, or manual only
+
+Use restraint. The system supports separate day-before and day-of copy, but the brand still wins by not over-texting people.
 
 Model: `claude-haiku-4-5-20251001`
 Prompt caching: enabled (~90% token savings after first call)
@@ -371,7 +381,7 @@ Status: **Live in production.** Sender ID `PNqC0tQSaI`, webhook secret in Secret
 | `rsvp-reminder-day-before` | `cron(0/5 22-23 * * ? *)` | 6:00 PM local event time | Event is tomorrow + `reminderTiming=day_before` or `both` |
 | `rsvp-reminder-day-of` | `cron(0/5 15-16 * * ? *)` | 11:00 AM local event time | Event is today + `reminderTiming=day_of` or `both` |
 
-The rules fire every 5 minutes within a 2-hour UTC window that covers both EST and EDT for the target local time. `reminder_handler.py` reads `event_timezone`, converts to the event's local time, validates the local event date, and only sends when within a 5-minute window of the configured send time (default 6 PM day-before, 11 AM day-of — configurable per event in 5-minute increments). If `reminderTiming` is `manual`, nothing sends on schedule. Dedup sentinels (`dayBeforeReminderSentAt` / `dayOfReminderSentAt`) on each invite record prevent double-sending even if a rule fires twice. Manual override: **Manual Blast** textarea on Invite tab fires immediately to all confirmed members for the current event with a custom message. **Important:** invite records are stored under `eventSlug` (e.g. `"The Deep End"`), not `"current"` — `reminder_handler` resolves the correct event_id from `eventSlug` before querying confirmed invites.
+The rules fire every 5 minutes within a 2-hour UTC window that covers both EST and EDT for the target local time. `reminder_handler.py` reads `event_timezone`, converts to the event's local time, validates the local event date, and only sends when within a 5-minute window of the configured send time (default 6 PM day-before, 11 AM day-of — configurable per event in 5-minute increments). If `reminderTiming` is `manual`, nothing sends on schedule. Dedup sentinels (`dayBeforeReminderSentAt` / `dayOfReminderSentAt`) on each invite record prevent double-sending even if a rule fires twice. Manual override: **Manual Blast** textarea on Invite tab fires immediately to all confirmed members for the current event with a custom message. **Important:** invite records are stored under `eventSlug` (e.g. `"Swim Test"`), not `"current"` — `reminder_handler` resolves the correct event_id from `eventSlug` before querying confirmed invites.
 
 ---
 
@@ -460,14 +470,14 @@ CloudFront URL: `https://d31o74npegx00h.cloudfront.net`
 | CloudFront (API) | < $1/month | Minimal at current volume |
 | S3 + CloudFront (photos) | < $1/month | |
 | Secrets Manager | ~$1.60/month | 4 secrets × $0.40/secret/month |
-| WAF | ~$8/month | Web ACL ($5) + 3 rate-limit rules × $1/month each |
+| WAF | ~$5/month | Web ACL + 3 rate-limit rules (`/access`, `/admin/invite`, `/admin/members`) |
 | CloudWatch Logs | < $1/month | 30-day retention on all 5 Lambda log groups |
 | EventBridge | Effectively $0 | 2 scheduled rules |
-| Quo SMS | $0.01/segment | 160 chars/segment GSM-7. Non-GSM chars (curly quotes, em dashes) drop limit to 70 chars — keep Jade messages in plain ASCII to avoid doubling segment cost. |
+| Quo SMS | Per-message | Invite blast is the main cost — check current rates |
 | Anthropic Claude | Very low | Haiku with caching — ~90% token savings |
 | Netlify | Free tier | |
 
-**Total: ~$12/month** in AWS costs at current scale. SMS cost (Quo) scales with blast size — $0.01/segment, 160 chars per segment in plain ASCII.
+**Total: under $10/month** in AWS costs until scale changes significantly. SMS cost (Quo) scales with blast size but is marginal per message.
 
 ---
 
@@ -475,13 +485,12 @@ CloudFront URL: `https://d31o74npegx00h.cloudfront.net`
 
 - **Video in hero** — no video asset yet. Replace static hero with looping 5–10 second moody venue clip when available
 - **Event photos** — gallery built and ready, waiting on first event
-- **Jade description field** — write each event description as a fact sheet, not marketing copy. Include parking, food, hookah, bar service, end time, anything members might ask about. The richer the description, the more Jade can answer directly.
+- **Jade system prompt tuning** — baseline personality set, refine tone as brand develops
 - **`search_members()` scan** — full-table scan used for name/phone search (check-in page). Acceptable at current scale. Revisit around 5,000+ members.
 - **Multi-city simultaneous events** — current architecture supports one active event at a time. Multi-city same-night would require a different `eventId` per city — doable but not needed yet
 - **Admin auth upgrade** — Cognito + MFA is the long-term play. Not needed at current scale. See Security section.
 - **Contract tests** — `route_contract_audit.py` catches route/method/body drift across frontend, backend, and Terraform. Good safety rail. Not a replacement for live integration tests.
 - **Confirmation cap show-rate** — currently hardcoded at 60%. If your actual show rate diverges significantly after 3–5 events, update this value or pull it from the event record.
-- **Host approval single-slot** — `pending_approval:{host_phone}` is one key per host. Rapid back-to-back form submissions overwrite each other. Fine at current volume; add a queue or timestamp-keyed records if submission rate increases.
 
 ---
 
@@ -513,7 +522,7 @@ The members table has a GSI on the `status` field. `list_members_by_status()` qu
 
 ### 3. Check-In Dedup Table (`rsvp-checkins`)
 
-`record_attendance(attended=True)` uses a conditional `put_item` on `rsvp-checkins` — `ConditionalCheckFailedException` on a duplicate tap means no counter update and no double-count. Keyed on `(eventId, phone)`. Records auto-expire after 90 days via TTL. The `attended=False` (No Show) path does **not** write to this table — so a no-show mark doesn't block a real check-in if the person shows up late. **No-show is blocked if the member is already checked in** — the admin panel prevents marking someone no-show after their physical check-in has been recorded.
+`record_attendance(attended=True)` uses a conditional `put_item` on `rsvp-checkins` — `ConditionalCheckFailedException` on a duplicate tap means no counter update and no double-count. Keyed on `(eventId, phone)`. Records auto-expire after 90 days via TTL. The `attended=False` (No Show) path does **not** write to this table — so a no-show mark doesn't block a real check-in if the person shows up late.
 
 ### 4. Audit Log (`rsvp-audit-log`)
 
@@ -527,14 +536,14 @@ Actions logged:
 
 ### 5. WAF Rate Limiting
 
-Three rate-limit rules on the API:
+Two rate-limit rules on the API plus a third for admin member operations:
 - **`/access`** — 500 requests per 5 minutes per IP. Protects the public sign-up form from enumeration and spam.
 - **`/admin/invite`** — 20 requests per 5 minutes per IP. Protects the SMS blast endpoints from scripted abuse even if the admin token leaks.
 - **`/admin/members`** — 100 requests per 5 minutes per IP. Protects bulk approval/deletion/import endpoints.
 
 ### 6. SMS Consent Enforcement
 
-`smsOptIn` is enforced at send time, not the query layer. `_get_approved_members()` returns all approved members — the invite loop (`invite_handler`) and the reminder loop (`reminder_handler`) each filter out opted-out members independently before any SMS is sent. The invite preview reflects this filtering so opted-out members never appear in the send list.
+`smsOptIn` and `optOut` are enforced at the send layer. The invite pool includes all approved members, but the send loop skips anyone with `optOut=true` or `smsOptIn=false` — no SMS goes out without consent. `reminder_handler` applies the same `smsOptIn` and `optOut` checks independently on every send. Members who text STOP get a soft PII wipe (name, lastName, email cleared) and `optOut=true` so they are permanently excluded from all outbound messaging.
 
 ### 7. Input Validation and Error Handling
 
@@ -609,13 +618,13 @@ Per-function IAM roles are fully deployed and verified in production. The legacy
 | Data backup / recovery | ✓ Good — PITR enabled |
 | Audit trail | ✓ Built — all three handler functions write to audit log |
 | Status query scans | ✓ Eliminated — status-index GSI live |
-| WAF rate limiting | ✓ Three rules live — `/access`, `/admin/invite`, `/admin/members` |
+| WAF rate limiting | ✓ `/access` + `/admin/invite` + `/admin/members` all covered |
 | Check-in dedup | ✓ Conditional write guard on `rsvp-checkins` |
 | Check-in event scoping | ✓ Door page queries the correct event bucket by slug |
 | Check-in state persistence | ✓ Checked-in state reseeds from server on refresh |
-| SMS consent enforcement | ✓ Enforced at send time in both invite loop and reminder loop — not at query layer |
+| SMS consent enforcement | ✓ Enforced at send time — invite loop and reminder loop both check `smsOptIn` and `optOut` before sending |
 | Input validation | ✓ Bad phone/JSON → 400, not 500. CSV bool parsing safe. Non-integer tier value → 400, not 500. |
-| Attendance integrity | ✓ No-show does not burn check-in guard or skew counters. No-show blocked if member is already checked in. Physical check-in increments `attendedCount` only. `confirmedCount` incremented in `sms_handler._update_invite_status` on SMS YES. |
+| Attendance integrity | ✓ No-show is blocked if the member is already checked in. Physical check-in increments `attendedCount` only. `confirmedCount` is incremented when a member texts YES — owned by the SMS confirmation path. |
 | Webhook signature verification | ✓ Live and verified in prod — HMAC-SHA256, millisecond timestamp handling, `openphone-signature` forwarded via CloudFront |
 | Confirmation cap | ✓ YES replies blocked at show-rate-adjusted target |
 | Reminder dedup | ✓ Per-invite sentinels prevent double-send |
@@ -623,9 +632,11 @@ Per-function IAM roles are fully deployed and verified in production. The legacy
 | Admin auth | ⚠ Acceptable. Not elite. One token = full access. |
 | `search_members()` scan | ⚠ Acceptable now. Revisit at 5,000+ members. |
 | SMS send (sms_adapter) | ✓ Live Quo API call via POST /v1/messages |
+| Delivery tracking | ✓ `message.delivered` webhook increments `deliveredCount` for invite blasts only — per-invite `deliveredAt` stamped |
+| CI integration tests | ✓ All deploys gated by `unittest` — tests must pass before Lambda code ships |
 
 The system is private-facing, not public-facing. The threat model is "someone who gets hold of the admin token" and "member data staying out of places it shouldn't be." Both are addressed at an acceptable level for current scale. The path to elite is Cognito + per-function IAM fully migrated.
 
 ---
 
-*Built February 2026. Audited and hardened March 2026. Full audit pass completed March 9, 2026 — host approval key mismatch fixed, plus-one state machine loop fixed, hmac auth hardened, upsert status protection added, EventBridge cron tightened to 5-min windows, ACM cert validation added, S3 SSE config added, test files excluded from Lambda zip, checkin inline handlers migrated to event listeners. Live in production — confirmation flow, manual blast, scheduled reminders, and Jade AI concierge all verified end-to-end. Second pass March 9, 2026 — Jade voice hardened (time format, no 24hr conversion, parking from description, never infer from event type), plus-one name injected into event context, filler word stripping on plus-one input, reminder closings removed, confirmation wording cleaned up, WAF third rule documented and cost corrected, SMS consent enforcement corrected to send-time, confirmedCount wired in sms_handler, no-show UI guard documented, smsOptInAt field added, host approval single-slot behavior documented.*
+*Built February 2026. Audited and hardened March 2026. Full audit pass completed March 10, 2026 — host approval key fixed, plus-one state machine fixed (all paths), hmac auth hardened, Jade voice aligned across templates and AI, rate-limited invite blasts with retry, delivery confirmation via Quo message.delivered webhooks, health check endpoint, smsOptInAt/submittedAt compliance fields, no-show blocked after check-in, ghost record prevention, eventSlug required on save, public event endpoint field-whitelisted, CI integration tests gate all deploys, packaging drift fixed. Live in production.*
