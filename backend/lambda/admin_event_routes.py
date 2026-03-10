@@ -191,6 +191,7 @@ def get_analytics(event: dict, headers: dict, token: str) -> dict:
         "rates": {
             "confirm_rate": rate(totals["confirmed"], totals["invited"]),
             "decline_rate": rate(totals["declined"], totals["invited"]),
+            "no_response_rate": rate(totals["no_response"], totals["invited"]),
             "show_rate": rate(totals["attended"], totals["confirmed"]),
             "ghost_rate": rate(totals["confirmed"] - totals["attended"], totals["confirmed"]),
         },

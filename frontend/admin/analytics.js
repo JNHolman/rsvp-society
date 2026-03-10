@@ -406,7 +406,7 @@ function renderEventAnalyticsView({
   confirmRatePct,
   showRatePct,
   ghostRatePct,
-  noShowRatePct,
+  noResponseRatePct,
   attendedFunnelPct,
 }) {
   const body = $('event-analytics-body');
@@ -473,8 +473,8 @@ function renderEventAnalyticsView({
   [
     createRateCard(`${confirmRatePct}%`, 'Confirm Rate', 'analytics-rate-value-gold'),
     createRateCard(`${showRatePct}%`, 'Show Rate', 'analytics-rate-value-green'),
-    createRateCard(`${ghostRatePct}%`, 'Ghost Rate', 'analytics-rate-value-dim'),
-    createRateCard(`${noShowRatePct}%`, 'No-Show Rate', 'analytics-rate-value-red'),
+    createRateCard(`${noResponseRatePct}%`, 'No Response', 'analytics-rate-value-dim'),
+    createRateCard(`${ghostRatePct}%`, 'Ghost Rate', 'analytics-rate-value-red'),
   ].forEach((card) => rateGrid.appendChild(card));
   ratesPanel.appendChild(rateGrid);
 
@@ -643,16 +643,16 @@ export async function loadEventAnalytics(eventId) {
 
     const confirmRate = totals.invited > 0 ? totals.confirmed / totals.invited : 0;
     const showRate = totals.confirmed > 0 ? totals.attended / totals.confirmed : 0;
-    const ghostRate = totals.invited > 0 ? (totals.no_response || 0) / totals.invited : 0;
-    const noShowRate = totals.confirmed > 0
+    const noResponseRate = totals.invited > 0 ? (totals.no_response || 0) / totals.invited : 0;
+    const ghostRate = totals.confirmed > 0
       ? (totals.declined_after_confirm || Math.max(0, (totals.confirmed || 0) - (totals.attended || 0))) / totals.confirmed
       : 0;
 
     const funnelMax = Math.max(totals.invited || 0, 1);
     const confirmRatePct = Math.round(confirmRate * 100);
     const showRatePct = Math.round(showRate * 100);
+    const noResponseRatePct = Math.round(noResponseRate * 100);
     const ghostRatePct = Math.round(ghostRate * 100);
-    const noShowRatePct = Math.round(noShowRate * 100);
     const attendedFunnelPct = Math.round(((totals.attended || 0) / funnelMax) * 100);
 
     $('analytics-subtitle').textContent = buildEventLabel(meta, eventId);
@@ -666,7 +666,7 @@ export async function loadEventAnalytics(eventId) {
       confirmRatePct,
       showRatePct,
       ghostRatePct,
-      noShowRatePct,
+      noResponseRatePct,
       attendedFunnelPct,
     });
 
