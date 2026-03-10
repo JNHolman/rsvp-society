@@ -51,12 +51,13 @@ PUBLIC_ROUTES = {
 
 
 def _match_route(method: str, path: str):
-    for (m, suffix), fn in PUBLIC_ROUTES.items():
-        if method == m and path.endswith(suffix):
-            return fn, False
+    # Check auth routes first — /admin/event must not match the public /event suffix
     for (m, suffix), fn in ROUTES.items():
         if method == m and path.endswith(suffix):
             return fn, True
+    for (m, suffix), fn in PUBLIC_ROUTES.items():
+        if method == m and path.endswith(suffix):
+            return fn, False
     return None, False
 
 
