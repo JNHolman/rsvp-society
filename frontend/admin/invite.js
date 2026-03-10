@@ -73,6 +73,25 @@ function createInviteEventSummary(event, capacity) {
   if (event.vibe_tag) addItem('VIBE', createNode('div', { className: 'invite-event-item-value', text: event.vibe_tag }));
   if (capacity) addItem('CAPACITY', createNode('div', { className: 'invite-event-item-value', text: capacity }));
 
+  // Delivery stats from last blast — only show if a blast has been sent
+  if (event.lastBlastSmsSent) {
+    const delivered = Number(event.deliveredCount || 0);
+    const sent = Number(event.lastBlastSmsSent || 0);
+    const failed = Number(event.lastBlastFailed || 0);
+    const pending = Math.max(0, sent - delivered - failed);
+    const wave = Number(event.lastBlastWave || 0);
+
+    const statsValue = createNode('div', { className: 'invite-event-item-value' });
+    statsValue.appendChild(createNode('span', { text: `${delivered} delivered`, attrs: { style: 'color:#4caf50' } }));
+    if (pending > 0) {
+      statsValue.appendChild(document.createTextNode(` · ${pending} pending`));
+    }
+    if (failed > 0) {
+      statsValue.appendChild(createNode('span', { text: ` · ${failed} failed`, attrs: { style: 'color:#f44336' } }));
+    }
+    addItem(`WAVE ${wave} SMS`, statsValue);
+  }
+
   card.appendChild(grid);
   return card;
 }

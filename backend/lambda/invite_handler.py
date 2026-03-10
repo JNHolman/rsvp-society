@@ -281,11 +281,7 @@ def _build_sms_message(member: Dict[str, Any], event: Dict[str, Any]) -> str:
         return template.replace("{name}", name).strip()
 
     if event and event.get("date"):
-        raw_date = event["date"]
-        try:
-            date = datetime.strptime(raw_date[:10], "%Y-%m-%d").strftime("%A %B %-d")
-        except (ValueError, TypeError):
-            date = raw_date
+        date = event["date"]
         time = event.get("startTime", "")
         reveal_venue = event.get("revealVenue", False)
         venue = event.get("venue", "") if reveal_venue else ""
@@ -538,9 +534,10 @@ def handle_send(body: dict, origin: str, token: str) -> dict:
                     # throttle. 300 invites ≈ 75 seconds — well within the 60s
                     # Lambda timeout at current scale. For blasts over 200, bump
                     # the Lambda timeout to 300s in Terraform.
+                    msg_id = None
                     for attempt in range(3):
                         try:
-                            send_sms(phone, message)
+                            msg_id = send_sms(phone, message)
                             sent += 1
                             break
                         except RuntimeError as sms_err:
@@ -558,27 +555,60 @@ def handle_send(body: dict, origin: str, token: str) -> dict:
                         # All 3 attempts rate-limited — count as failed
                         failed += 1
                         logger.error("invite send exhausted retries phone=...%s", phone[-4:])
+                    # Store Quo message ID on invite record for delivery tracking
+                    if msg_id:
+                        try:
+                            invites_t.update_item(
+                                Key={"eventId": event_id, "phone": phone},
+                                UpdateExpression="SET quoMessageId = :mid",
+                                ExpressionAttributeValues={":mid": msg_id},
+                            )
+                        except Exception:
+                            logger.exception("invite send: failed to store msg_id phone=...%s", phone[-4:])
                     # Pace between sends regardless of success
                     time.sleep(0.25)
 
         except Exception:
             failed += 1
             logger.exception("invite send failed event=%s phone=...%s", event_id, phone[-4:])
-            # Stamp the invite record so stuck invites are queryable.
-            # The row was already written with status=INVITED — mark it so
-            # an admin can find and re-process failed sends.
+            # Delete the invite row so a re-run of the blast can retry this member.
+            # The ConditionExpression on put_item would block re-writes otherwise.
+            # invitedCount was already incremented — accept the +1 drift rather
+            # than leaving someone stuck as INVITED-but-never-texted.
             try:
-                invites_t.update_item(
-                    Key={"eventId": event_id, "phone": phone},
-                    UpdateExpression="SET sendFailedAt = :now",
-                    ExpressionAttributeValues={":now": _now_iso()},
-                )
+                invites_t.delete_item(Key={"eventId": event_id, "phone": phone})
             except Exception:
-                logger.exception("invite send: failed to stamp sendFailedAt phone=...%s", phone[-4:])
+                logger.exception("invite send: failed to clean up invite row phone=...%s", phone[-4:])
             continue
 
     result["summary"]["waveNumber"] = wave_number
     result["summary"]["waveSize"]   = effective_capacity
+
+    # Write delivery stats to the event record — visible in admin panel
+    try:
+        events_t = boto3.resource("dynamodb").Table(os.getenv("EVENTS_TABLE_NAME", "rsvp-events"))
+        events_t.update_item(
+            Key={"eventId": "current"},
+            UpdateExpression=(
+                "SET lastBlastAt = :now, "
+                "lastBlastSmsSent = :sent, "
+                "lastBlastFailed = :failed, "
+                "lastBlastSkippedConsent = :skip, "
+                "lastBlastWave = :wave, "
+                "deliveredCount = if_not_exists(deliveredCount, :zero)"
+            ),
+            ExpressionAttributeValues={
+                ":now": _now_iso(),
+                ":sent": sent,
+                ":failed": failed,
+                ":skip": skipped_consent,
+                ":wave": wave_number,
+                ":zero": 0,
+            },
+        )
+    except Exception:
+        logger.exception("invite send: failed to write blast stats to event record")
+
     log_action(
         token=token,
         action=ACTION_INVITE_SENT,

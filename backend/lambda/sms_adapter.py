@@ -363,7 +363,21 @@ def send_sms(to_phone: str, message: str) -> None:
                 raise RuntimeError(
                     f"Quo send failed status={resp.status} phone=...{to_phone[-4:]} body={raw[:300]}"
                 )
-            logger.info("send_sms: sent to ...%s", to_phone[-4:])
+            # Extract Quo message ID from response for delivery tracking
+            msg_id = ""
+            try:
+                resp_data = json.loads(raw) if raw else {}
+                # Quo returns the message object — id might be top-level or nested
+                msg_id = (
+                    resp_data.get("id") or
+                    resp_data.get("data", {}).get("id") or
+                    resp_data.get("data", {}).get("object", {}).get("id") or
+                    ""
+                )
+            except Exception:
+                pass
+            logger.info("send_sms: sent to ...%s msg_id=%s", to_phone[-4:], msg_id or "unknown")
+            return msg_id or None
     except urllib.error.HTTPError as exc:
         body = exc.read().decode("utf-8", errors="replace") if hasattr(exc, "read") else ""
         raise RuntimeError(
