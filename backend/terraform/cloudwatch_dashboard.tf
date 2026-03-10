@@ -276,12 +276,12 @@ resource "aws_sns_topic_subscription" "alerts_email" {
   endpoint  = "info@rsvpsociety.com"
 }
 
-# SMS alerts → Quo number (update when number is confirmed)
-# resource "aws_sns_topic_subscription" "alerts_sms" {
-#   topic_arn = aws_sns_topic.rsvp_alerts.arn
-#   protocol  = "sms"
-#   endpoint  = "+1XXXXXXXXXX"  # replace with Quo alert number once approved
-# }
+# SMS alerts → host phone
+resource "aws_sns_topic_subscription" "alerts_sms" {
+  topic_arn = aws_sns_topic.rsvp_alerts.arn
+  protocol  = "sms"
+  endpoint  = "+12702269660"
+}
 
 resource "aws_cloudwatch_metric_alarm" "lambda_errors" {
   for_each = toset([
