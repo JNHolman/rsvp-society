@@ -28,7 +28,7 @@ jobs:
 
       - name: Run integration tests
         working-directory: ./backend/lambda
-        run: python -m pytest integration_tests.py -v --tb=short
+        run: python -m unittest integration_tests -v
         env:
           AWS_DEFAULT_REGION: us-east-1
           AWS_ACCESS_KEY_ID: testing
