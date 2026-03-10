@@ -595,7 +595,7 @@ def handle_send(body: dict, origin: str, token: str) -> dict:
                 "lastBlastFailed = :failed, "
                 "lastBlastSkippedConsent = :skip, "
                 "lastBlastWave = :wave, "
-                "deliveredCount = if_not_exists(deliveredCount, :zero)"
+                "deliveredCount = :zero"
             ),
             ExpressionAttributeValues={
                 ":now": _now_iso(),

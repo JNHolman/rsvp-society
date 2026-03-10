@@ -805,12 +805,51 @@ def handler(event, context):
                 msg_id = data_obj.get("id", "")
                 to_phone = data_obj.get("to", "")
 
-                _events_table().update_item(
-                    Key={"eventId": "current"},
-                    UpdateExpression="SET deliveredCount = if_not_exists(deliveredCount, :zero) + :one",
-                    ExpressionAttributeValues={":zero": 0, ":one": 1},
-                )
-                logger.info("sms_handler: delivery confirmed msg_id=%s to=...%s", msg_id, str(to_phone)[-4:])
+                if not msg_id:
+                    logger.info("sms_handler: delivery webhook with no message ID — skipping")
+                    return {"statusCode": 200, "body": json.dumps({"ok": True})}
+
+                # Only count deliveries for invite blast messages.
+                # Look up the invite record by quoMessageId using a scan on the
+                # current event's invites. If no match, this was a Jade reply or
+                # host notification — don't count it.
+                ev = _events_table().get_item(Key={"eventId": "current"}).get("Item") or {}
+                slug = (ev.get("eventSlug") or "").strip()
+                if not slug:
+                    return {"statusCode": 200, "body": json.dumps({"ok": True})}
+
+                # Normalize to_phone for lookup
+                try:
+                    to_normalized = normalize_phone(to_phone)
+                except Exception:
+                    to_normalized = ""
+
+                matched = False
+                if to_normalized:
+                    try:
+                        invite = _invites_table().get_item(
+                            Key={"eventId": slug, "phone": to_normalized}
+                        ).get("Item")
+                        if invite and invite.get("quoMessageId") == msg_id:
+                            matched = True
+                            # Stamp deliveredAt on the invite record
+                            _invites_table().update_item(
+                                Key={"eventId": slug, "phone": to_normalized},
+                                UpdateExpression="SET deliveredAt = :now",
+                                ExpressionAttributeValues={":now": datetime.now(timezone.utc).isoformat(timespec="seconds")},
+                            )
+                    except Exception:
+                        logger.exception("sms_handler: invite lookup for delivery failed msg_id=%s", msg_id[:30])
+
+                if matched:
+                    _events_table().update_item(
+                        Key={"eventId": "current"},
+                        UpdateExpression="SET deliveredCount = if_not_exists(deliveredCount, :zero) + :one",
+                        ExpressionAttributeValues={":zero": 0, ":one": 1},
+                    )
+                    logger.info("sms_handler: invite delivery confirmed msg_id=%s to=...%s", msg_id, str(to_phone)[-4:])
+                else:
+                    logger.info("sms_handler: delivery webhook for non-invite msg_id=%s — skipped", msg_id[:30])
             except Exception:
                 logger.exception("sms_handler: delivery tracking update failed")
             return {"statusCode": 200, "body": json.dumps({"ok": True})}
