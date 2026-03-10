@@ -339,38 +339,52 @@ Mobile-first, tablet-optimized page for door staff. Same admin token.
 
 ---
 
-## Jade — SMS AI Concierge
+## Jade — The Front Door
 
-Jade is the member-facing AI. Lives in `sms_handler.py`.
+Jade is the backbone of RSVP Society. She's not a chatbot. She's not an FAQ page. She's the person at the velvet rope.
 
-She handles:
-- Inbound questions about RSVP Society (dress code, event details, vibe, time, parking)
-- YES/NO RSVP replies — updates DynamoDB, sends confirmation SMS
-- STOP opt-out — wipes PII (name, lastName, email), writes `optOut: true`, member never messaged again
-- Plus-one collection — asks for full name, handles first/last name split, detects existing members
-- Plus-one updates — "can I change who I'm bringing", "my plus one is X"
-- Plus-one recall — "who's my plus one" answered from the invite record
-- Running late acknowledgment — "see you there"
-- Cost/ticket questions — deterministic (no AI), answers from event record
-- Extra guest requests — firm "one guest per invite" policy
-- Ignores social acks (ok, bet, thanks, lol) — no unnecessary replies
+Every member interaction after signup goes through Jade. She's the one who tells you you're on the list. She's the one who asks who you're bringing. She's the one who gives you the address, the dress code, the time — when she decides you need to know. She's the hostess who makes sure your night starts right and the bouncer who keeps the standard where it belongs. If you're not on the list, she doesn't explain why. She just redirects you to the website.
 
-**Delivery tracking:** Quo sends `message.delivered` webhooks when carrier confirms delivery. The handler matches the Quo message ID against invite records and only counts invite blast deliveries. `deliveredCount` and per-invite `deliveredAt` are written to DynamoDB. Stats are visible on the Invite tab. Two signing secrets are supported (`WEBHOOK_SECRET_ID` for inbound, `WEBHOOK_SECRET_ID_2` for delivery) since Quo assigns separate secrets per webhook.
+Jade runs the entire member-facing operation over SMS. There is no app. There is no portal. There is no email chain. You text, and Jade handles it. That's the experience.
 
-**Capacity protection:** When a YES reply comes in and the event has a capacity set, Jade checks current confirmed count before updating status. If the show-rate-adjusted confirmation target is already met, she replies with a polite capacity message instead of confirming.
+She lives in `sms_handler.py` and runs on Claude (`claude-haiku-4-5-20251001`) with prompt caching (~90% token savings). Her personality, rules, and boundaries are defined in `JADE_SYSTEM_PROMPT` — a carefully tuned system prompt that controls her voice, what she reveals, when she reveals it, and how she handles every type of member interaction.
 
-**Webhook security:** Inbound Quo webhooks are signature-verified using the `openphone-signature` header, timestamp + raw body, and a base64-decoded signing secret fetched from Secrets Manager. Verification tries all configured secrets (`WEBHOOK_SECRET_ID`, `WEBHOOK_SECRET_ID_2`). If no secrets are set, all webhooks are hard-rejected. CloudFront must have `openphone-signature` in its forwarded headers list (`cloudfront_api.tf`) or the header is stripped before Lambda sees it. Quo sends webhook timestamps in milliseconds — the handler converts to seconds before the age check.
+### What Jade does
 
-**Reminder guardrail per event:**
-1. The invite blast ("You're on the list. Reply YES.")
-2. Reminder logic is controlled per event: day-before, day-of, both, or manual only
+**The invite.** Jade sends the invite blast — your name, the event, the vibe, the time. She asks if you're in. One message. No fluff.
 
-Use restraint. The system supports separate day-before and day-of copy, but the brand still wins by not over-texting people.
+**The confirmation.** You text YES, Jade confirms you. She gives you the date. If the venue is revealed, she gives you the address. If there's a dress code, she tells you. If there's a ticket link, she sends it. If plus-ones are allowed, she lets you know. All in one message, nothing extra.
+
+**The plus-one.** Jade asks who you're bringing. She needs a full name — first and last. If you give her one word, she asks for the last name. If your plus-one is already a member, she flags it. If you want to change your plus-one later, just tell her. She handles updates, swaps, and "I don't know yet" with a held spot.
+
+**The questions.** Dress code? She knows. Time? She knows. Where is it? She knows — if the venue is revealed. If it's not, she doesn't give it up. Parking? Only if it's in her event context. She never guesses, never makes something up. If she doesn't have the answer, she deflects warm — "I'll reach out when I know more."
+
+**The door.** Non-members get redirected to the website. Unapproved members get redirected to the website. Opted-out members get nothing. Jade doesn't engage with people who aren't on the list. No explanation, no apology.
+
+**The reminders.** Day-before and day-of reminders go out on schedule through EventBridge. Jade's copy is customizable per event. Manual blasts are available anytime from the admin panel.
+
+**The opt-out.** Text STOP and Jade wipes your name, your last name, and your email from the record. The phone number stays as a tombstone so you're never contacted again. Clean, permanent, compliant.
+
+### What Jade doesn't do
+
+She doesn't over-text. She doesn't send confirmations twice. She doesn't volunteer information you didn't ask for. She doesn't say "friendly reminder" or "don't miss out" or "hope to see you there." She doesn't use your name in every message. She doesn't try to be your friend. She's warm but she's not soft.
+
+### How she's protected
+
+Every inbound SMS is signature-verified against Quo's signing secret before Jade sees it. Two webhook secrets are supported (`WEBHOOK_SECRET_ID` for inbound messages, `WEBHOOK_SECRET_ID_2` for delivery confirmations) since Quo assigns separate secrets per webhook. If no secrets are configured, all webhooks are hard-rejected. Capacity protection prevents over-confirmation — once the show-rate-adjusted target is met, new YES replies get a polite capacity message instead of a spot.
+
+### Delivery tracking
+
+When Jade sends an invite blast, each message's Quo message ID is stored on the invite record. Quo sends `message.delivered` webhooks when the carrier confirms delivery. The handler matches the message ID to the invite record — only blast deliveries are counted, not Jade's conversational replies. `deliveredCount` on the event record and `deliveredAt` on each invite record are updated in real time. Stats are visible on the Invite tab.
+
+### Technical details
 
 Model: `claude-haiku-4-5-20251001`
 Prompt caching: enabled (~90% token savings after first call)
 System prompt: `sms_handler.py` → `JADE_SYSTEM_PROMPT`
-Status: **Live in production.** Sender ID `PNqC0tQSaI`, webhook secret in Secrets Manager at `rsvp/webhook-secret`, SMS enabled. Override `TF_VAR_quo_phone_number_id` only if the sender number changes.
+Status: **Live in production.** Sender ID `PNqC0tQSaI`, webhook secrets in Secrets Manager at `rsvp/webhook-secret` and `rsvp/webhook-secret-delivery`.
+
+**Reminder guardrail:** The system supports separate day-before and day-of copy, but the brand wins by not over-texting people. Use restraint.
 
 ---
 
