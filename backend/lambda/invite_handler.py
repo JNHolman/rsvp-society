@@ -519,26 +519,19 @@ def handle_send(body: dict, origin: str, token: str) -> dict:
                     continue
                 raise
 
-            members_t.update_item(
-                Key={"phone": phone},
-                UpdateExpression="SET invitedCount = if_not_exists(invitedCount, :zero) + :one, lastSeenAt = :now",
-                ExpressionAttributeValues={":zero": 0, ":one": 1, ":now": now},
-            )
-
+            sms_succeeded = False
             if sms_enabled:
                 if coerce_bool(m.get("optOut", False)) or not coerce_bool(m.get("smsOptIn", False)):
                     skipped_consent += 1
+                    sms_succeeded = True  # not a send failure, just skipped
                 else:
                     message = _build_sms_message(m, current_event)
-                    # Rate limit: ~4 sends/second to stay under Quo's per-second
-                    # throttle. 300 invites ≈ 75 seconds — well within the 60s
-                    # Lambda timeout at current scale. For blasts over 200, bump
-                    # the Lambda timeout to 300s in Terraform.
                     msg_id = None
                     for attempt in range(3):
                         try:
                             msg_id = send_sms(phone, message)
                             sent += 1
+                            sms_succeeded = True
                             break
                         except RuntimeError as sms_err:
                             err_str = str(sms_err)
@@ -552,7 +545,6 @@ def handle_send(body: dict, origin: str, token: str) -> dict:
                             else:
                                 raise
                     else:
-                        # All 3 attempts rate-limited — count as failed
                         failed += 1
                         logger.error("invite send exhausted retries phone=...%s", phone[-4:])
                     # Store Quo message ID on invite record for delivery tracking
@@ -565,8 +557,19 @@ def handle_send(body: dict, origin: str, token: str) -> dict:
                             )
                         except Exception:
                             logger.exception("invite send: failed to store msg_id phone=...%s", phone[-4:])
-                    # Pace between sends regardless of success
                     time.sleep(0.25)
+            else:
+                sms_succeeded = True  # SMS disabled, invite row is still valid
+
+            # Only increment invitedCount after the invite row is written AND
+            # SMS either sent successfully or was intentionally skipped.
+            # This prevents count drift when sends fail and rows get cleaned up.
+            if sms_succeeded:
+                members_t.update_item(
+                    Key={"phone": phone},
+                    UpdateExpression="SET invitedCount = if_not_exists(invitedCount, :zero) + :one, lastSeenAt = :now",
+                    ExpressionAttributeValues={":zero": 0, ":one": 1, ":now": now},
+                )
 
         except Exception:
             failed += 1

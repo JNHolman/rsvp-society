@@ -9,7 +9,7 @@ from zoneinfo import ZoneInfo
 from botocore.exceptions import ClientError
 from boto3.dynamodb.conditions import Key as DKey
 from sms_adapter import send_sms, get_secret_string
-from admin_shared import coerce_bool, normalize_event_date, normalize_event_time
+from admin_shared import coerce_bool, normalize_event_date, normalize_event_time, resolve_event_slug
 from audit_log import log_action, ACTION_REMINDER_SENT
 
 logger = logging.getLogger()
@@ -153,15 +153,11 @@ def _batch_get_members(phones: list) -> dict:
 def send_reminders(event: dict, is_day_of: bool, token: str = "", custom_message: str = None) -> dict:
     """Send reminder SMS to all confirmed members who haven't been reminded yet."""
     event = {**event, "_is_day_of": is_day_of}
-    # Invites are stored under eventSlug (e.g. "Swim Test"), not "current".
-    # Fall back to eventId, then "current" only as last resort.
-    event_id = (
-        event.get("eventSlug")
-        or event.get("eventId")
-        or "current"
-    )
-    if event_id == "current":
-        event_id = event.get("eventSlug") or "current"
+    # Canonical event identity — always the slug, never "current".
+    event_id = resolve_event_slug(event)
+    if not event_id:
+        logger.warning("send_reminders: no eventSlug on current event — cannot query invites")
+        return {"sent": 0, "failed": 0, "skippedAlreadySent": 0, "skippedOptOut": 0}
     sms_enabled = (os.getenv("SMS_ENABLED", "false") or "").lower() == "true"
 
     reminder_field = "dayOfReminderSentAt" if is_day_of else "dayBeforeReminderSentAt"
@@ -185,10 +181,13 @@ def send_reminders(event: dict, is_day_of: bool, token: str = "", custom_message
         if not phone:
             continue
 
-        # Opt-out enforcement — never text someone who sent STOP, regardless of
-        # whether they're still marked CONFIRMED on an invite record.
+        # Opt-out and consent enforcement — never text someone who sent STOP
+        # or who hasn't opted in, regardless of invite status.
         member = member_map.get(phone)
         if member and member.get("optOut"):
+            skipped_opt_out += 1
+            continue
+        if member and not member.get("smsOptIn"):
             skipped_opt_out += 1
             continue
 

@@ -184,6 +184,18 @@ def event_identity(event: dict) -> str:
     return ""
 
 
+def resolve_event_slug(event: dict) -> str:
+    """Canonical event identity for invite/checkin/reminder queries.
+
+    The operational key for all invite, checkin, and reminder lookups is
+    the eventSlug — never 'current'. This helper resolves it consistently
+    so every handler uses the same logic.
+
+    Returns empty string if no slug can be resolved.
+    """
+    return str(event.get("eventSlug") or "").strip()
+
+
 def normalize_event_record(event: dict, *, source: str = "snapshot") -> dict:
     event = dict(event or {})
     identity = event_identity(event) or str(event.get("eventId") or "").strip()

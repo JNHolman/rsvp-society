@@ -147,12 +147,10 @@ def _create_tables():
     ddb.create_table(
         TableName="rsvp-audit-log-test",
         KeySchema=[
-            {"AttributeName": "pk", "KeyType": "HASH"},
-            {"AttributeName": "sk", "KeyType": "RANGE"},
+            {"AttributeName": "actionId", "KeyType": "HASH"},
         ],
         AttributeDefinitions=[
-            {"AttributeName": "pk", "AttributeType": "S"},
-            {"AttributeName": "sk", "AttributeType": "S"},
+            {"AttributeName": "actionId", "AttributeType": "S"},
         ],
         BillingMode="PAY_PER_REQUEST",
     )
