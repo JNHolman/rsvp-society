@@ -932,8 +932,22 @@ def handler(event, context):
                     if sms_enabled:
                         send_sms(from_phone, "Let me know.")
                 else:
+                    # Strip common filler phrases before treating as a name
+                    # e.g. "Raven Gillespie is my plus one" → "Raven Gillespie"
+                    FILLER_WORDS = {
+                        "IS", "IS MY", "IS MY PLUS ONE", "IS MY GUEST",
+                        "MY PLUS ONE IS", "MY GUEST IS",
+                        "WILL BE", "WILL BE MY PLUS ONE", "WILL BE MY GUEST",
+                    }
+                    clean_text = text.strip()
+                    for filler in sorted(FILLER_WORDS, key=len, reverse=True):
+                        pattern = re.compile(r'\s+' + re.escape(filler) + r'\s*$', re.IGNORECASE)
+                        clean_text = pattern.sub('', clean_text).strip()
+                        pattern2 = re.compile(r'^\s*' + re.escape(filler) + r'\s+', re.IGNORECASE)
+                        clean_text = pattern2.sub('', clean_text).strip()
+
                     # Require first AND last name — if only one word, ask for last name
-                    name_parts = text.strip().split()
+                    name_parts = clean_text.split()
                     if len(name_parts) < 2:
                         _invites_table().update_item(
                             Key={"eventId": event_id, "phone": from_phone},
@@ -1047,7 +1061,7 @@ def handler(event, context):
                             # If plus ones are allowed, ask for the name inline
                             if ev.get("allowPlusOnes"):
                                 _set_awaiting_plus_one(event_id, from_phone)
-                                confirmation_msg += " +1 welcome — who are you bringing?"
+                                confirmation_msg += " Who are you bringing?"
                             send_sms(from_phone, confirmation_msg)
                         except Exception:
                             logger.exception("sms_handler: confirmation SMS failed phone=...%s", from_phone[-4:])
@@ -1103,8 +1117,8 @@ def handler(event, context):
                 if len(name_parts) < 2:
                     _invites_table().update_item(
                         Key={"eventId": event_id, "phone": from_phone},
-                        UpdateExpression="SET awaitingPlusOneLastName = :fn, awaitingPlusOneName = :f",
-                        ExpressionAttributeValues={":fn": name_parts[0].title(), ":f": False},
+                        UpdateExpression="SET awaitingPlusOneLastName = :fn, awaitingPlusOneName = :t",
+                        ExpressionAttributeValues={":fn": name_parts[0].title(), ":t": True},
                     )
                     if sms_enabled:
                         send_sms(from_phone, "And their last name?")

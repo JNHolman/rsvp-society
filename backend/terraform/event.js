@@ -95,6 +95,8 @@ export function previewJadeMessages() {
 
   const closings = ['Let me know.', 'You in?', 'You coming?'];
   const inviteClosing = Math.random() < 0.4 ? closings[Math.floor(Math.random() * closings.length)] : '';
+  const dayBeforeClosing = Math.random() < 0.4 ? closings[Math.floor(Math.random() * closings.length)] : '';
+  const dayOfClosing = Math.random() < 0.4 ? closings[Math.floor(Math.random() * closings.length)] : '';
 
   const inviteParts = ['{name}.'];
   if (label) inviteParts.push(`${label}.`);
@@ -111,12 +113,14 @@ export function previewJadeMessages() {
   if (label) dayBeforeParts.push(`${label}.`);
   if (time) dayBeforeParts.push(`Doors at ${time}.`);
   if (revealVenue && venue) dayBeforeParts.push(`${venue}.`);
+  if (dayBeforeClosing) dayBeforeParts.push(dayBeforeClosing);
 
   const dayOfParts = ['{name}.', 'Tonight.'];
   if (label) dayOfParts.push(`${label}.`);
   if (time) dayOfParts.push(`Doors at ${time}.`);
   if (revealVenue && venue) dayOfParts.push(`${venue}.`);
   if (revealVenue && address) dayOfParts.push(`${address}.`);
+  if (dayOfClosing) dayOfParts.push(dayOfClosing);
 
   $('jade-invite-preview').value = inviteParts.join(' ');
   $('jade-day-before-preview').value = dayBeforeParts.join(' ');

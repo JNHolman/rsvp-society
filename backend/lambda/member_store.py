@@ -100,6 +100,7 @@ def upsert_member(
         "#n = :n",
         "#src = :src",
         "lastSeenAt = :ls",
+        "submittedAt = :ls",
         "createdAt = if_not_exists(createdAt, :ca)",
         # Only set PENDING for NEW members. Existing members keep their
         # current status so an APPROVED member can't be downgraded by a

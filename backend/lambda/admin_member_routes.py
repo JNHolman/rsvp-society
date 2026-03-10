@@ -310,6 +310,12 @@ def record_member_attendance(event: dict, headers: dict, token: str) -> dict:
     attended = coerce_bool(data.get("attended", False))
     if not phone:
         return resp(headers, 400, {"ok": False, "error": "phone required"})
+
+    # Guard: member must exist — prevent ghost records from typos or stale data
+    existing = get_member(phone)
+    if not existing:
+        return resp(headers, 400, {"ok": False, "error": "member not found"})
+
     is_new = record_attendance(phone, attended, event_id=event_id)
     log_action(token=token, action=ACTION_ATTENDANCE,
                target_phone=phone,

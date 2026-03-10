@@ -42,10 +42,14 @@ def _set_current_event(data: dict) -> dict:
     day_before_send_time = validate_schedule_time_step(data.get("day_before_send_time") or "18:00", field_name="day_before_send_time", minute_step=5)
     day_of_send_time = validate_schedule_time_step(data.get("day_of_send_time") or "11:00", field_name="day_of_send_time", minute_step=5)
 
+    event_slug = (data.get("eventSlug") or "").strip()
+    if not event_slug:
+        return resp(headers, 400, {"ok": False, "error": "eventSlug is required"})
+
     item = {
         "eventId": "current",
         "updatedAt": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-        "eventSlug": (data.get("eventSlug") or "").strip(),
+        "eventSlug": event_slug,
         "date": event_date,
         "venue": (data.get("venue") or "").strip(),
         "dresscode": (data.get("dresscode") or "").strip(),
@@ -84,9 +88,17 @@ def _set_current_event(data: dict) -> dict:
 def get_public_event(headers: dict) -> dict:
     ev = get_current_event()
     if ev:
+        # Only expose fields that are safe for the public landing page.
+        # Templates, reminder config, capacity, and ops metadata stay hidden.
+        PUBLIC_FIELDS = {
+            "eventSlug", "event_label", "date", "startTime", "endTime",
+            "city", "vibe_tag", "dresscode", "description", "event_type",
+            "allowPlusOnes", "ticketUrl", "sectionInfo", "event_status",
+        }
         reveal = coerce_bool(ev.get("revealVenue", False))
-        hidden = {"venue", "address"} if not reveal else set()
-        public = {k: v for k, v in ev.items() if k not in hidden}
+        if reveal:
+            PUBLIC_FIELDS.update({"venue", "address", "revealVenue"})
+        public = {k: v for k, v in ev.items() if k in PUBLIC_FIELDS}
     else:
         public = {}
     return resp(headers, 200, {"ok": True, "event": public})
