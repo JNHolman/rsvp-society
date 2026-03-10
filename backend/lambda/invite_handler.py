@@ -575,9 +575,8 @@ def handle_send(body: dict, origin: str, token: str) -> dict:
             failed += 1
             logger.exception("invite send failed event=%s phone=...%s", event_id, phone[-4:])
             # Delete the invite row so a re-run of the blast can retry this member.
-            # The ConditionExpression on put_item would block re-writes otherwise.
-            # invitedCount was already incremented — accept the +1 drift rather
-            # than leaving someone stuck as INVITED-but-never-texted.
+            # invitedCount has NOT been incremented yet (it only increments after
+            # successful send), so cleanup is clean — no counter drift.
             try:
                 invites_t.delete_item(Key={"eventId": event_id, "phone": phone})
             except Exception:
