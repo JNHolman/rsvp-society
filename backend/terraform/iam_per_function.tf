@@ -164,6 +164,7 @@ resource "aws_iam_role_policy" "lambda_sms_handler" {
           "arn:aws:secretsmanager:${local.region}:${local.account}:secret:${var.quo_api_key_secret_id}*",
           "arn:aws:secretsmanager:${local.region}:${local.account}:secret:rsvp/claude-api-key*",
           "arn:aws:secretsmanager:${local.region}:${local.account}:secret:${var.webhook_secret_id}*",
+          "arn:aws:secretsmanager:${local.region}:${local.account}:secret:rsvp/webhook-secret-delivery*",
         ]
       },
     ]

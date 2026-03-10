@@ -488,6 +488,7 @@ def _verify_webhook_signature(event: dict) -> bool:
     so it must be base64-decoded before computing the HMAC.
     """
     secret_id = os.getenv("WEBHOOK_SECRET_ID")
+    secret_id_2 = os.getenv("WEBHOOK_SECRET_ID_2", "")
     if not secret_id:
         # Hard-reject: without a secret we cannot verify anything.
         # Soft-failing open lets any actor POST forged webhooks.
@@ -497,6 +498,12 @@ def _verify_webhook_signature(event: dict) -> bool:
         )
         return False
 
+    # Collect all signing secrets to try — supports separate secrets for
+    # message.received and message.delivered webhooks in Quo.
+    secret_ids = [secret_id]
+    if secret_id_2:
+        secret_ids.append(secret_id_2)
+
     def _debug_write(reason: str, extra: dict = None):
         """Log rejection reason to CloudWatch for debugging."""
         detail = f"webhook_verify: {reason}"
@@ -505,24 +512,7 @@ def _verify_webhook_signature(event: dict) -> bool:
         logger.warning(detail)
 
     try:
-        secret_raw = get_secret_string(secret_id)
-        secret = secret_raw
-        try:
-            parsed = json.loads(secret_raw)
-            if isinstance(parsed, dict):
-                secret = (
-                    parsed.get("signing_secret")
-                    or parsed.get("secret")
-                    or parsed.get("token")
-                    or secret_raw
-                )
-        except Exception:
-            pass
-
         headers = event.get("headers") or {}
-        # Log all headers for debugging
-        header_keys = list(headers.keys())
-
         signature_header = (
             headers.get("openphone-signature")
             or headers.get("Openphone-Signature")
@@ -532,8 +522,7 @@ def _verify_webhook_signature(event: dict) -> bool:
             or ""
         ).strip()
         if not signature_header:
-            logger.warning("sms_handler: webhook received with no signature header")
-            _debug_write("no_signature_header", {"header_keys": str(header_keys)[:400]})
+            _debug_write("no_signature_header", {"header_keys": str(list(headers.keys()))[:400]})
             return False
 
         raw_body = event.get("body") or ""
@@ -542,57 +531,61 @@ def _verify_webhook_signature(event: dict) -> bool:
 
         now = datetime.now(timezone.utc)
 
-        try:
-            signing_key = base64.b64decode(secret)
-        except Exception as e:
-            _debug_write("base64_decode_failed", {"error": str(e), "secret_prefix": secret[:20]})
-            return False
-
-        # Future versions may include multiple signatures separated by commas.
-        for candidate in [c.strip() for c in signature_header.split(",") if c.strip()]:
-            parts = candidate.split(";")
-            if len(parts) != 4:
-                _debug_write("bad_sig_format", {"sig": signature_header[:200], "parts": str(len(parts))})
-                continue
-
-            scheme, version, ts_raw, provided_digest = parts
-            if scheme.lower() != "hmac" or version != "1":
-                _debug_write("bad_scheme_or_version", {"scheme": scheme, "version": version})
-                continue
-
+        # Try each signing secret — supports separate Quo webhooks for
+        # message.received and message.delivered with different secrets.
+        for sid in secret_ids:
             try:
-                ts_int = int(ts_raw)
-                # Quo sends milliseconds; convert to seconds if needed
-                if ts_int > 1_000_000_000_000:
-                    ts_int = ts_int // 1000
-                ts = datetime.fromtimestamp(ts_int, tz=timezone.utc)
-            except Exception as e:
-                _debug_write("bad_timestamp", {"ts_raw": ts_raw, "error": str(e)})
+                secret_raw = get_secret_string(sid)
+                secret = secret_raw
+                try:
+                    parsed_secret = json.loads(secret_raw)
+                    if isinstance(parsed_secret, dict):
+                        secret = (
+                            parsed_secret.get("signing_secret")
+                            or parsed_secret.get("secret")
+                            or parsed_secret.get("token")
+                            or secret_raw
+                        )
+                except Exception:
+                    pass
+
+                try:
+                    signing_key = base64.b64decode(secret)
+                except Exception:
+                    continue
+
+                for candidate in [c.strip() for c in signature_header.split(",") if c.strip()]:
+                    parts = candidate.split(";")
+                    if len(parts) != 4:
+                        continue
+
+                    scheme, version, ts_raw, provided_digest = parts
+                    if scheme.lower() != "hmac" or version != "1":
+                        continue
+
+                    try:
+                        ts_int = int(ts_raw)
+                        if ts_int > 1_000_000_000_000:
+                            ts_int = ts_int // 1000
+                        ts = datetime.fromtimestamp(ts_int, tz=timezone.utc)
+                    except Exception:
+                        continue
+
+                    age = abs((now - ts).total_seconds())
+                    if age > 300:
+                        continue
+
+                    signed_data = b"".join([ts_raw.encode("utf-8"), b".", raw_body.encode("utf-8")])
+                    computed_digest = base64.b64encode(
+                        hmac.new(signing_key, signed_data, hashlib.sha256).digest()
+                    ).decode()
+
+                    if hmac.compare_digest(provided_digest, computed_digest):
+                        return True
+            except Exception:
                 continue
 
-            age = abs((now - ts).total_seconds())
-            if age > 300:
-                logger.warning("sms_handler: webhook timestamp outside tolerance")
-                _debug_write("timestamp_too_old", {"age_seconds": str(age), "ts_raw": ts_raw})
-                continue
-
-            signed_data = b"".join([ts_raw.encode("utf-8"), b".", raw_body.encode("utf-8")])
-            computed_digest = base64.b64encode(
-                hmac.new(signing_key, signed_data, hashlib.sha256).digest()
-            ).decode()
-
-            if hmac.compare_digest(provided_digest, computed_digest):
-                return True
-
-            _debug_write("digest_mismatch", {
-                "provided": provided_digest[:60],
-                "computed": computed_digest[:60],
-                "sig_header": signature_header[:200],
-                "body_prefix": raw_body[:100],
-                "secret_b64_prefix": secret[:20],
-            })
-
-        logger.warning("sms_handler: webhook signature mismatch — possible forgery")
+        logger.warning("sms_handler: webhook signature mismatch — no secret matched")
         return False
 
     except Exception as e:
@@ -801,7 +794,28 @@ def handler(event, context):
             logger.error("sms_handler: rejected request with invalid signature — check CloudWatch for webhook_verify logs")
             return {"statusCode": 200, "body": json.dumps({"ok": True})}
 
-        # Ignore delivery/status webhooks — only inbound member messages should trigger Jade logic.
+        # ── Delivery confirmation webhook ─────────────────────────────────────
+        # Quo sends message.delivered when carrier confirms delivery.
+        # Increment the deliveredCount on the current event record.
+        if event_type == "message.delivered":
+            try:
+                msg_id = ""
+                raw_body_parsed = json.loads(raw_body or "{}")
+                data_obj = raw_body_parsed.get("data", {}).get("object", {})
+                msg_id = data_obj.get("id", "")
+                to_phone = data_obj.get("to", "")
+
+                _events_table().update_item(
+                    Key={"eventId": "current"},
+                    UpdateExpression="SET deliveredCount = if_not_exists(deliveredCount, :zero) + :one",
+                    ExpressionAttributeValues={":zero": 0, ":one": 1},
+                )
+                logger.info("sms_handler: delivery confirmed msg_id=%s to=...%s", msg_id, str(to_phone)[-4:])
+            except Exception:
+                logger.exception("sms_handler: delivery tracking update failed")
+            return {"statusCode": 200, "body": json.dumps({"ok": True})}
+
+        # Ignore other non-message webhooks (call events, transcripts, etc.)
         if event_type and event_type != "message.received":
             return {"statusCode": 200, "body": json.dumps({"ok": True})}
 
@@ -932,22 +946,8 @@ def handler(event, context):
                     if sms_enabled:
                         send_sms(from_phone, "Let me know.")
                 else:
-                    # Strip common filler phrases before treating as a name
-                    # e.g. "Raven Gillespie is my plus one" → "Raven Gillespie"
-                    FILLER_WORDS = {
-                        "IS", "IS MY", "IS MY PLUS ONE", "IS MY GUEST",
-                        "MY PLUS ONE IS", "MY GUEST IS",
-                        "WILL BE", "WILL BE MY PLUS ONE", "WILL BE MY GUEST",
-                    }
-                    clean_text = text.strip()
-                    for filler in sorted(FILLER_WORDS, key=len, reverse=True):
-                        pattern = re.compile(r'\s+' + re.escape(filler) + r'\s*$', re.IGNORECASE)
-                        clean_text = pattern.sub('', clean_text).strip()
-                        pattern2 = re.compile(r'^\s*' + re.escape(filler) + r'\s+', re.IGNORECASE)
-                        clean_text = pattern2.sub('', clean_text).strip()
-
                     # Require first AND last name — if only one word, ask for last name
-                    name_parts = clean_text.split()
+                    name_parts = text.strip().split()
                     if len(name_parts) < 2:
                         _invites_table().update_item(
                             Key={"eventId": event_id, "phone": from_phone},
@@ -1061,7 +1061,7 @@ def handler(event, context):
                             # If plus ones are allowed, ask for the name inline
                             if ev.get("allowPlusOnes"):
                                 _set_awaiting_plus_one(event_id, from_phone)
-                                confirmation_msg += " Who are you bringing?"
+                                confirmation_msg += " +1 welcome — who are you bringing?"
                             send_sms(from_phone, confirmation_msg)
                         except Exception:
                             logger.exception("sms_handler: confirmation SMS failed phone=...%s", from_phone[-4:])
@@ -1117,8 +1117,8 @@ def handler(event, context):
                 if len(name_parts) < 2:
                     _invites_table().update_item(
                         Key={"eventId": event_id, "phone": from_phone},
-                        UpdateExpression="SET awaitingPlusOneLastName = :fn, awaitingPlusOneName = :t",
-                        ExpressionAttributeValues={":fn": name_parts[0].title(), ":t": True},
+                        UpdateExpression="SET awaitingPlusOneLastName = :fn, awaitingPlusOneName = :f",
+                        ExpressionAttributeValues={":fn": name_parts[0].title(), ":f": False},
                     )
                     if sms_enabled:
                         send_sms(from_phone, "And their last name?")

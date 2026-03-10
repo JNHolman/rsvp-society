@@ -285,6 +285,7 @@ resource "aws_lambda_function" "sms_handler" {
       QUO_PHONE_NUMBER_ID      = var.quo_phone_number_id
       CLAUDE_API_KEY_SECRET_ID = "rsvp/claude-api-key"
       WEBHOOK_SECRET_ID        = var.webhook_secret_id
+      WEBHOOK_SECRET_ID_2      = "rsvp/webhook-secret-delivery"
       HOST_PHONE_1             = "+12702269660"
       HOST_PHONE_2             = ""
     }
