@@ -764,7 +764,7 @@ class TestLegacyNameNormalization(unittest.TestCase):
 class TestApprovalQueueMultiSlot(unittest.TestCase):
     """Burst signups each create their own member record (last-write-wins for host approval queue)."""
 
-    def test_two_signups_create_separate_queue_slots(self):
+    def test_two_signups_create_separate_member_records(self):
         with mock_aws():
             _create_tables()
             _stub_secret()
@@ -1029,7 +1029,7 @@ if __name__ == "__main__":
         TestApprovalQueueMultiSlot,
         TestDualHostFinalization,
         TestOptOutEnforcedInReminders,
-        TestInviteStateSendBeforeWrite,
+        TestInviteWriteWithoutSend,
         TestCheckinNoDoubleConfirmedCount,
         TestDateNormalization,
     ]:
