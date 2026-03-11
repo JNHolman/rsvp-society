@@ -885,10 +885,10 @@ class TestOptOutEnforcedInReminders(unittest.TestCase):
             self.assertNotIn("+15025550010", sent_to)
 
 
-class TestInviteStateSendBeforeWrite(unittest.TestCase):
-    """If SMS send fails, invite status is written as SEND_FAILED, not INVITED."""
+class TestInviteWriteWithoutSend(unittest.TestCase):
+    """Opted-out member gets an invite row but no SMS — consent check skips the send."""
 
-    def test_send_failure_writes_send_failed_status(self):
+    def test_opted_out_member_gets_invite_row_but_no_sms(self):
         with mock_aws():
             _create_tables()
             _stub_secret()
