@@ -1,4 +1,6 @@
-# RSVP Society — Project Runbook
+# RSVP Society — Invite-Only Event Platform
+
+> Operational runbook and single source of truth. For Jade (AI SMS concierge), see `JADE.md`.
 
 **Invitation-only R&B experiences. No flyers. No walk-ins.**
 
