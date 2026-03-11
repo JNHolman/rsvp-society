@@ -1,4 +1,4 @@
-# RSVP Society — Project Runbook
+# RSVP Society — Invite-Only Event Platform
 
 **Invitation-only R&B experiences. No flyers. No walk-ins.**
 
