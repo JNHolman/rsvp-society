@@ -1,4 +1,9 @@
 # RSVP Society — Invite-Only Event Platform
+<<<<<<< HEAD
+=======
+
+Operational runbook and single source of truth. For Jade (AI SMS concierge), see `JADE.md`.
+>>>>>>> 1db3e4911e987d496b1609613d6870d5bede4143
 
 **Invitation-only R&B experiences. No flyers. No walk-ins.**
 
