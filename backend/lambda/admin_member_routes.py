@@ -385,7 +385,8 @@ def import_members(event: dict, headers: dict, token: str) -> dict:
     except Exception as e:
         logger.warning("batch_get_existing failed, falling back to empty map: %s", e)
 
-    # ── Step 3: write each member with a single update_item call ─────────────
+    # ── Step 3: build full item dicts by merging existing + import data ─────────
+    put_items = []
     for idx, phone_e164, row in valid_rows:
         try:
             existing = existing_map.get(phone_e164) or {}
@@ -416,58 +417,53 @@ def import_members(event: dict, headers: dict, token: str) -> dict:
             else:
                 source_val = requested_source or existing_source or "csv"
 
-            # Single update_item covers everything upsert_member + status write used to do
-            expr_names = {"#n": "name", "#s": "status", "#src": "source"}
-            expr_vals: dict = {
-                ":n":       first_name[:120],
-                ":src":     (source_val or "csv")[:40],
-                ":ls":      now,
-                ":ca":      now,
-                ":pending": "PENDING",
-                ":status":  import_status,
-                ":soi":     sms_opt_in,
-            }
-            set_parts = [
-                "#n = :n",
-                "#src = :src",
-                "lastSeenAt = :ls",
-                "submittedAt = :ls",
-                "createdAt = if_not_exists(createdAt, :ca)",
-                # Use import_status for new members; keep existing status for returning members
-                # unless import_status is APPROVED (always upgrade on import)
-                "#s = :status" if import_status == "APPROVED" else "#s = if_not_exists(#s, :pending)",
-                "smsOptIn = :soi",
-            ]
-
-            if sms_opt_in:
-                expr_vals[":oiat"] = now
-                set_parts.append("smsOptInAt = if_not_exists(smsOptInAt, :oiat)")
+            # Preserve all existing fields, overlay with import data
+            item = dict(existing)
+            item["phone"]      = phone_e164
+            item["name"]       = first_name[:120]
+            item["source"]     = (source_val or "csv")[:40]
+            item["lastSeenAt"] = now
+            item["submittedAt"] = now
+            item["createdAt"]  = existing.get("createdAt") or now
+            item["smsOptIn"]   = sms_opt_in
+            # APPROVED import always sets status; otherwise preserve existing or default PENDING
+            item["status"]     = import_status if import_status == "APPROVED" else (existing.get("status") or "PENDING")
+            # TCPA: stamp first opt-in time, never overwrite
+            if sms_opt_in and not existing.get("smsOptInAt"):
+                item["smsOptInAt"] = now
             if last_name:
-                expr_vals[":ln"] = last_name[:120]
-                set_parts.append("lastName = :ln")
+                item["lastName"] = last_name[:120]
             if email:
-                expr_vals[":e"] = email[:200]
-                set_parts.append("email = :e")
+                item["email"] = email[:200]
             if tags:
-                expr_vals[":tg"] = tags[:200]
-                set_parts.append("tags = :tg")
+                item["tags"] = tags[:200]
             if instagram:
-                expr_vals[":ig"] = instagram[:80]
-                set_parts.append("instagram = :ig")
+                item["instagram"] = instagram[:80]
 
-            members_t.update_item(
-                Key={"phone": phone_e164},
-                UpdateExpression="SET " + ", ".join(set_parts),
-                ExpressionAttributeNames=expr_names,
-                ExpressionAttributeValues=expr_vals,
-            )
-            imported += 1
+            put_items.append((idx, phone_e164, item))
 
         except Exception as row_err:
             logger.error("import row %d phone=%s: %s", idx, row.get("phone"), row_err)
             errors.append(f"row {idx}: {type(row_err).__name__}")
             skipped += 1
-            continue
+
+    # ── Step 4: batch_write_item in chunks of 25 ─────────────────────────────
+    table_name = members_t.name
+    for i in range(0, len(put_items), 25):
+        chunk = put_items[i:i + 25]
+        requests = [{"PutRequest": {"Item": item}} for _, _, item in chunk]
+        unprocessed = {table_name: requests}
+        retries = 0
+        while unprocessed and retries < 4:
+            batch_resp = members_t.meta.client.batch_write_item(RequestItems=unprocessed)
+            unprocessed = batch_resp.get("UnprocessedItems") or {}
+            retries += 1
+        if unprocessed:
+            for _, phone_e164, _ in chunk:
+                errors.append(f"phone {phone_e164}: unprocessed after retries")
+                skipped += 1
+        else:
+            imported += len(chunk)
 
     log_action(token=token, action=ACTION_MEMBER_IMPORTED,
                metadata={"imported": imported, "skipped": skipped,
