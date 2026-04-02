@@ -326,6 +326,23 @@ def record_member_attendance(event: dict, headers: dict, token: str) -> dict:
 
 # ── POST /admin/members/import ────────────────────────────────────────────────
 
+def _batch_get_existing(members_t, phones: list) -> dict:
+    """Fetch up to N existing member records in batch (25 per call). Returns {phone: item}."""
+    table_name = members_t.name
+    existing = {}
+    for i in range(0, len(phones), 25):
+        chunk = phones[i:i + 25]
+        unprocessed = {table_name: {"Keys": [{"phone": p} for p in chunk]}}
+        retries = 0
+        while unprocessed and retries < 4:
+            batch_resp = members_t.meta.client.batch_get_item(RequestItems=unprocessed)
+            for item in batch_resp.get("Responses", {}).get(table_name, []):
+                existing[item["phone"]] = item
+            unprocessed = batch_resp.get("UnprocessedKeys") or {}
+            retries += 1
+    return existing
+
+
 def import_members(event: dict, headers: dict, token: str) -> dict:
     data = get_body(event)
     members_to_import = data.get("members") or []
@@ -340,28 +357,44 @@ def import_members(event: dict, headers: dict, token: str) -> dict:
     skipped = 0
     errors = []
     request_source = normalize_import_source(data.get("source") or "csv") or "csv"
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
     members_t = boto3.resource("dynamodb").Table(
         os.getenv("MEMBERS_TABLE_NAME", "rsvp-members")
     )
 
+    # ── Step 1: normalize phones and collect valid rows ──────────────────────
+    valid_rows = []
     for idx, row in enumerate(members_to_import):
+        raw_phone = (row.get("phone") or "").strip()
+        if not raw_phone:
+            skipped += 1
+            continue
         try:
-            raw_phone = (row.get("phone") or "").strip()
-            if not raw_phone:
-                skipped += 1
-                continue
-
             phone_e164 = normalize_phone(raw_phone)
+            valid_rows.append((idx, phone_e164, row))
+        except Exception as e:
+            errors.append(f"row {idx}: bad phone — {e}")
+            skipped += 1
 
-            # Accept both firstName (new form) and legacy name field
+    # ── Step 2: batch-fetch all existing records in one shot ─────────────────
+    all_phones = [phone for _, phone, _ in valid_rows]
+    existing_map = {}
+    try:
+        existing_map = _batch_get_existing(members_t, all_phones)
+    except Exception as e:
+        logger.warning("batch_get_existing failed, falling back to empty map: %s", e)
+
+    # ── Step 3: write each member with a single update_item call ─────────────
+    for idx, phone_e164, row in valid_rows:
+        try:
+            existing = existing_map.get(phone_e164) or {}
+
             first_name = (row.get("firstName") or row.get("name") or "").strip() or "Unknown"
             last_name  = (row.get("lastName") or "").strip() or None
             email      = (row.get("email") or "").strip() or None
             instagram  = (row.get("instagram") or "").strip() or None
             tags       = (row.get("tags") or "").strip() or None
-
-            existing = get_member(phone_e164) or {}
 
             # smsOptIn: explicit row value > existing value > default True for CSV imports
             if "smsOptIn" in row and row.get("smsOptIn") is not None:
@@ -383,26 +416,48 @@ def import_members(event: dict, headers: dict, token: str) -> dict:
             else:
                 source_val = requested_source or existing_source or "csv"
 
-            upsert_member(
-                phone=phone_e164,
-                name=first_name,
-                last_name=last_name,
-                email=email,
-                source=source_val,
-                sms_opt_in=sms_opt_in,
-                tags=tags,
-            )
+            # Single update_item covers everything upsert_member + status write used to do
+            expr_names = {"#n": "name", "#s": "status", "#src": "source"}
+            expr_vals: dict = {
+                ":n":       first_name[:120],
+                ":src":     (source_val or "csv")[:40],
+                ":ls":      now,
+                ":ca":      now,
+                ":pending": "PENDING",
+                ":status":  import_status,
+                ":soi":     sms_opt_in,
+            }
+            set_parts = [
+                "#n = :n",
+                "#src = :src",
+                "lastSeenAt = :ls",
+                "submittedAt = :ls",
+                "createdAt = if_not_exists(createdAt, :ca)",
+                # Use import_status for new members; keep existing status for returning members
+                # unless import_status is APPROVED (always upgrade on import)
+                "#s = :status" if import_status == "APPROVED" else "#s = if_not_exists(#s, :pending)",
+                "smsOptIn = :soi",
+            ]
 
-            update_expr = "SET #status = :status"
-            expr_names  = {"#status": "status"}
-            expr_vals: dict = {":status": import_status}
+            if sms_opt_in:
+                expr_vals[":oiat"] = now
+                set_parts.append("smsOptInAt = if_not_exists(smsOptInAt, :oiat)")
+            if last_name:
+                expr_vals[":ln"] = last_name[:120]
+                set_parts.append("lastName = :ln")
+            if email:
+                expr_vals[":e"] = email[:200]
+                set_parts.append("email = :e")
+            if tags:
+                expr_vals[":tg"] = tags[:200]
+                set_parts.append("tags = :tg")
             if instagram:
-                update_expr += ", instagram = :ig"
                 expr_vals[":ig"] = instagram[:80]
+                set_parts.append("instagram = :ig")
 
             members_t.update_item(
                 Key={"phone": phone_e164},
-                UpdateExpression=update_expr,
+                UpdateExpression="SET " + ", ".join(set_parts),
                 ExpressionAttributeNames=expr_names,
                 ExpressionAttributeValues=expr_vals,
             )
