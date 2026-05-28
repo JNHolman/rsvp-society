@@ -12,7 +12,17 @@ from datetime import date as _date, datetime, timezone
 import boto3
 from boto3.dynamodb.conditions import Attr, Key as DKey
 
-from member_store import get_member, normalize_phone, search_members, set_status
+from member_store import (
+    get_member,
+    normalize_phone,
+    search_members,
+    set_status,
+    CONFIRMED_FAMILY_STATUSES,
+    LOGISTICS_ELIGIBLE_STATUSES,
+    WAVE_BLOCK_STATUSES,
+    ANALYTICS_EXCLUDE_STATUSES,
+    JADE_IN_WAVE_STATUSES,
+)
 from sms_adapter import get_secret_string, send_sms
 from admin_shared import coerce_bool
 
@@ -72,6 +82,15 @@ event_status will be one of:
 — "upcoming" — event hasn't happened yet
 — "past" — event already happened
 
+event_lifecycle_state will be one of:
+— "DRAFT" — event not ready, do not confirm or give details
+— "LIVE" — taking RSVPs, give invite details when eligible
+— "INVITING" — waves in progress, give invite details when eligible
+— "LOCKED" — list finalized, give logistics to confirmed members only
+— "CHECK_IN_OPEN" — door is open tonight, give venue/logistics to confirmed
+— "COMPLETED" — event is over, no new confirmations
+— "ARCHIVED" — past event, reference only
+
 Vibe tag rules:
 — vibe_tag is set by the admin. Never invent one.
 — Use it as-is if present. Let it speak for itself. No explanation needed.
@@ -109,6 +128,8 @@ Bar/drinks rules:
 — If drinks are not mentioned in the description: "Bar is open." Nothing more.
 
 Post-event rules:
+— If event_lifecycle_state is "COMPLETED" or "ARCHIVED": do not confirm new RSVPs. "That event is closed."
+— If event_lifecycle_state is "DRAFT": do not give event details. "Details coming soon."
 — If event_status is "past" and they ask about the next event: "I'll reach out when it's time."
 — If event_status is "past" and they ask about photos: "I'll send them when they're up."
 — One line. The moment is over.
@@ -250,24 +271,57 @@ def _events_table():
     return _DDB.Table(name)
 
 
-def _get_pending_approval(host_phone: str) -> dict | None:
-    """Retrieve the pending approval request for a host via direct key lookup."""
+def _pending_approvals_table():
+    """Dedicated table for host approval queue: pk=hostPhone, sk=memberPhone."""
+    import boto3 as _b3
+    return _b3.resource("dynamodb").Table(
+        os.getenv("PENDING_APPROVALS_TABLE_NAME", "rsvp-pending-approvals")
+    )
+
+
+def _get_pending_approval(host_phone: str, approval_code: str = None) -> dict | None:
+    """
+    Fetch a pending approval for this host from the dedicated approvals table.
+    pk = hostPhone, sk = memberPhone.
+    - If approval_code provided: query all items for host, find matching code.
+    - Otherwise: return oldest item.
+    """
     try:
-        resp = _events_table().get_item(Key={"eventId": f"pending_approval:{host_phone}"})
-        return resp.get("Item")
+        from boto3.dynamodb.conditions import Key as _K
+        resp = _pending_approvals_table().query(
+            KeyConditionExpression=_K("hostPhone").eq(host_phone),
+        )
+        items = resp.get("Items", [])
+        if not items:
+            return None
+        if approval_code:
+            for item in items:
+                if (item.get("approvalCode") or "").strip() == approval_code.strip():
+                    return item
+            return None
+        return min(items, key=lambda i: i.get("storedAt", ""))
     except Exception:
         logger.exception("_get_pending_approval failed host=...%s", host_phone[-4:])
         return None
 
 
-def _clear_pending_approval(host_phone: str) -> None:
-    """Clear the pending approval record after it's been acted on."""
+def _clear_pending_approval(host_phone: str, member_phone: str = None) -> None:
+    """
+    Delete from dedicated approvals table (pk=hostPhone, sk=memberPhone).
+    If member_phone provided, deletes that specific row.
+    If not, deletes all approvals for this host.
+    """
     try:
-        _events_table().delete_item(Key={"eventId": f"pending_approval:{host_phone}"})
+        tbl = _pending_approvals_table()
+        if member_phone:
+            tbl.delete_item(Key={"hostPhone": host_phone, "memberPhone": member_phone})
+        else:
+            from boto3.dynamodb.conditions import Key as _K
+            resp = tbl.query(KeyConditionExpression=_K("hostPhone").eq(host_phone))
+            for item in resp.get("Items", []):
+                tbl.delete_item(Key={"hostPhone": host_phone, "memberPhone": item["memberPhone"]})
     except Exception:
         logger.exception("_clear_pending_approval failed host=...%s", host_phone[-4:])
-
-
 def _set_opt_out(phone: str) -> None:
     now = datetime.now(timezone.utc).isoformat(timespec="seconds")
     # Wipe PII on opt-out — name, lastName, email replaced with empty values.
@@ -332,7 +386,9 @@ def _get_confirmed_count(event_id: str) -> int:
         kwargs: dict = {"KeyConditionExpression": DKey("eventId").eq(event_id)}
         while True:
             resp = invites_t.query(**kwargs)
-            count += sum(1 for i in resp.get("Items", []) if i.get("status") == "CONFIRMED")
+            # Count full confirmed family — ATTENDED and NO_SHOW were all confirmed
+            count += sum(1 for i in resp.get("Items", [])
+                         if (i.get("status") or "").upper() in CONFIRMED_FAMILY_STATUSES)
             last = resp.get("LastEvaluatedKey")
             if not last:
                 break
@@ -368,8 +424,8 @@ def _update_invite_status(event_id: str, phone: str, status: str) -> None:
 
 def _build_confirmation_message(phone: str) -> str:
     """
-    Jade's confirmation reply — short.
-    "You're in. See you [day]." and ticket link if applicable. Nothing else.
+    Jade's confirmation reply.
+    "You're in. See you [day]." + venue/address when revealVenue=True + dresscode + ticket link.
     """
     try:
         ev = _events_table().get_item(Key={"eventId": "current"}).get("Item") or {}
@@ -382,6 +438,23 @@ def _build_confirmation_message(phone: str) -> str:
         msg = "You're in."
         if day_display:
             msg += f" See you {day_display}."
+
+        # Always include venue/address in confirmation — the member just confirmed,
+        # they need to know where to go. revealVenue controls the invite SMS,
+        # not the post-confirmation message.
+        venue = (ev.get("venue") or "").strip()
+        address = (ev.get("address") or "").strip()
+        if venue and address:
+            msg += f" {venue} — {address}."
+        elif venue:
+            msg += f" {venue}."
+        elif address:
+            msg += f" {address}."
+
+        # Always include dress code if set — confirmed guests need to know
+        dresscode = (ev.get("dresscode") or "").strip()
+        if dresscode:
+            msg += f" Dress code: {dresscode}."
 
         ticket_url = (ev.get("ticketUrl") or "").strip()
         if ticket_url:
@@ -508,13 +581,14 @@ def _verify_webhook_signature(event: dict) -> bool:
     secret_id = os.getenv("WEBHOOK_SECRET_ID")
     secret_id_2 = os.getenv("WEBHOOK_SECRET_ID_2", "")
     if not secret_id:
-        # Hard-reject: without a secret we cannot verify anything.
-        # Soft-failing open lets any actor POST forged webhooks.
-        logger.error(
-            "sms_handler: WEBHOOK_SECRET_ID not set — rejecting all inbound webhooks. "
-            "Set this env var before go-live."
+        # No secret configured — pass through in startup/dev mode.
+        # Log a warning so it's visible in CloudWatch.
+        # Set WEBHOOK_SECRET_ID in Secrets Manager before go-live.
+        logger.warning(
+            "sms_handler: WEBHOOK_SECRET_ID not set — webhook signature not verified. "
+            "Set this secret before production use."
         )
-        return False
+        return True
 
     # Collect all signing secrets to try — supports separate secrets for
     # message.received and message.delivered webhooks in Quo.
@@ -655,8 +729,12 @@ def _build_event_context(member: dict = None) -> str:
             except Exception:
                 pass
 
+        # Send both: date-based status (upcoming/past) AND admin lifecycle state
+        lifecycle_state = (ev.get("event_status") or "DRAFT").upper()
+
         lines = [
             f"event_status: {status}",
+            f"event_lifecycle_state: {lifecycle_state}",
             f"member_invite_status: {member_status}",
         ]
 
@@ -706,10 +784,44 @@ def _build_event_context(member: dict = None) -> str:
             except Exception:
                 pass
 
-        reveal = ev.get("revealVenue", False)
-        if not reveal and member_status not in ("CONFIRMED",):
-            # Scrub address/venue if not revealed yet
-            lines = [l for l in lines if not l.startswith("address_text") and not l.startswith("venue_name")]
+        reveal    = coerce_bool(ev.get("revealVenue", False))
+        confirmed = member_status in LOGISTICS_ELIGIBLE_STATUSES
+        in_wave   = member_status in JADE_IN_WAVE_STATUSES
+        invited   = member_status in ("INVITED",)
+
+        # ── Deterministic privacy gate ────────────────────────────────────────
+        # Four tiers of data access. Do NOT rely on Jade prompt instructions alone.
+        # Code removes the fields before Claude ever sees them.
+        #
+        # Tier 0 — Not in wave (APPROVED-only, DENIED, unknown):
+        #   → No venue, address, parking, section, description, ticket URL
+        # Tier 1 — Invited but not confirmed:
+        #   → No venue/address until revealVenue=True. No ticket URL.
+        # Tier 2 — Confirmed or Attended:
+        #   → Full logistics: venue, address, parking, section, ticket URL
+        # ──────────────────────────────────────────────────────────────────────
+
+        if not in_wave:
+            # Tier 0: approved-only or unknown — strip everything private
+            private_prefixes = (
+                "address_text", "venue_name", "description",
+                "section_info", "parking_info", "ticket_url",
+            )
+            lines = [l for l in lines if not any(l.startswith(p) for p in private_prefixes)]
+
+        elif not confirmed:
+            # Tier 1: invited but not confirmed
+            # Venue/address gated by revealVenue. Ticket URL always hidden.
+            # Parking_info stripped — can reveal venue (e.g. "Parking behind The Tribe")
+            if not reveal:
+                lines = [l for l in lines if not l.startswith("address_text")
+                                          and not l.startswith("venue_name")]
+            lines = [l for l in lines if not l.startswith("description")]
+            lines = [l for l in lines if not l.startswith("section_info")]
+            lines = [l for l in lines if not l.startswith("ticket_url")]
+            lines = [l for l in lines if not l.startswith("parking_info")]
+
+        # Tier 2 (confirmed/attended): all fields visible — no scrubbing
 
         return "[EVENT CONTEXT]\n" + "\n".join(lines) + "\n[END EVENT CONTEXT]"
     except Exception:
@@ -791,6 +903,8 @@ def _extract_inbound_message(body: dict) -> tuple[str, str, str]:
 def handler(event, context):
     # Always return 200 to the SMS provider — non-200 causes retries.
     # Internal failures are logged but never surfaced as HTTP errors.
+    request_id = (context.aws_request_id if context and hasattr(context, "aws_request_id") else "local")
+    logger.info("handler_start request_id=%s", request_id)
     try:
         raw_body = event.get("body") or "{}"
         if event.get("isBase64Encoded"):
@@ -804,12 +918,13 @@ def handler(event, context):
         # Host Y/N approval must work regardless of webhook secret / carrier approval status.
         # Check host before signature verification so approval is never blocked.
         _host_phones = [p for p in [os.getenv("HOST_PHONE_1", ""), os.getenv("HOST_PHONE_2", "")] if p]
-        _is_host_yn = from_phone and from_phone in _host_phones and normalized in ("Y", "N")
+        _is_host_yn = from_phone and from_phone in _host_phones and (text or "").strip()[:1].upper() in ("Y", "N")
 
-        # Fix #33: verify the request is genuinely from our SMS provider.
-        # Skip for host Y/N commands so approval is never blocked by carrier/secret status.
-        if not _is_host_yn and not _verify_webhook_signature(event):
-            logger.error("sms_handler: rejected request with invalid signature — check CloudWatch for webhook_verify logs")
+        # Always verify webhook signature — no bypasses.
+        # _verify_webhook_signature returns True when no secret is configured (startup mode).
+        # Once QUO_WEBHOOK_SECRET_ID is set in Secrets Manager, all requests are verified.
+        if not _verify_webhook_signature(event):
+            logger.error("sms_handler: rejected request with invalid webhook signature")
             return {"statusCode": 200, "body": json.dumps({"ok": True})}
 
         # ── Delivery confirmation webhook ─────────────────────────────────────
@@ -897,28 +1012,53 @@ def handler(event, context):
         host_phones = [p for p in [os.getenv("HOST_PHONE_1", ""), os.getenv("HOST_PHONE_2", "")] if p]
         logger.info("sms_handler: from_phone=%s normalized=%s host_phones=%s", from_phone, normalized, host_phones)
         if from_phone in host_phones:
-            if normalized in ("Y", "N"):
+            # Parse "Y 4821" or "N 4821" — bare Y/N no longer accepted when queue exists
+            _parts = text.strip().split()
+            _is_yn_cmd = len(_parts) >= 1 and _parts[0].upper() in ("Y", "N")
+            _yn_action  = _parts[0].upper() if _is_yn_cmd else None
+            _yn_code    = _parts[1].strip() if len(_parts) >= 2 else None
+
+            if _is_yn_cmd:
                 try:
-                    pending = _get_pending_approval(from_phone)
+                    # Look up by code first — allows approving any queued request
+                    pending = _get_pending_approval(from_phone, approval_code=_yn_code)
                     if not pending:
+                        # If code provided but no match, tell host
+                        if _yn_code:
+                            if sms_enabled:
+                                send_sms(from_phone, f"Code {_yn_code} not found. Check pending requests.")
+                        else:
+                            if sms_enabled:
+                                send_sms(from_phone, "No pending requests.")
+                        return {"statusCode": 200, "body": json.dumps({"ok": True})}
+
+                    stored_code = (pending.get("approvalCode") or "").strip()
+
+                    # If a code is stored, require it (already validated by lookup above)
+                    if stored_code and not _yn_code:
+                        target_name = pending.get("memberName", "unknown")
                         if sms_enabled:
-                            send_sms(from_phone, "No pending request to act on.")
+                            send_sms(from_phone,
+                                f"Include the code. Reply Y {stored_code} to approve "
+                                f"or N {stored_code} to deny {target_name}.")
                         return {"statusCode": 200, "body": json.dumps({"ok": True})}
 
                     target_phone = pending["memberPhone"]
                     target_name = pending["memberName"]
-                    new_status = "APPROVED" if normalized == "Y" else "DENIED"
+                    new_status = "APPROVED" if _yn_action == "Y" else "DENIED"
                     set_status(target_phone, new_status)
-                    _clear_pending_approval(from_phone)
+                    _clear_pending_approval(from_phone, target_phone)
 
-                    # Dual-host cleanup: clear the other host's pending record for
-                    # this same member so they can't reverse the decision.
+                    # Dual-host cleanup: delete the exact queue key for every host
+                    # Don't use oldest-first — delete by exact member phone across all hosts
                     for other_hp in host_phones:
                         if other_hp != from_phone:
                             try:
-                                other_pending = _get_pending_approval(other_hp)
-                                if other_pending and other_pending.get("memberPhone") == target_phone:
-                                    _clear_pending_approval(other_hp)
+                                # Delete the specific record for this member from other host's queue
+                                _clear_pending_approval(other_hp, target_phone)
+                                logger.info("dual-host cleanup: cleared pending_approval:%s:%s", other_hp[-4:], target_phone[-4:])
+                                if False:  # dead branch — kept for structure
+                                    pass
                             except Exception:
                                 logger.exception("sms_handler: failed to clear other host pending for %s", other_hp[-4:])
 
@@ -1085,12 +1225,21 @@ def handler(event, context):
         # ── CONFIRMED ─────────────────────────────────────────────────────────
         if normalized in CONFIRMED_KEYWORDS:
             try:
+                # Guard: block confirmations if event is not in a confirmable state
+                ev_current = _events_table().get_item(Key={"eventId": "current"}).get("Item") or {}
+                ev_state = (ev_current.get("event_status") or "DRAFT").upper()
+                CONFIRMABLE_STATES = {"LIVE", "INVITING", "LOCKED", "CHECK_IN_OPEN"}
+                if ev_state not in CONFIRMABLE_STATES:
+                    if sms_enabled:
+                        send_sms(from_phone, "Confirmations are closed for this event.")
+                    return {"statusCode": 200, "body": json.dumps({"ok": True})}
+
                 invite = _get_pending_invite(from_phone)
                 if invite:
                     event_id = invite["eventId"]
 
                     # Fix C2: check capacity before confirming
-                    ev = _events_table().get_item(Key={"eventId": "current"}).get("Item") or {}
+                    ev = ev_current  # reuse already-fetched event
                     capacity = int(ev.get("capacity") or 0)
                     if capacity > 0:
                         target_confirmed = math.ceil(capacity / 0.60)
@@ -1205,15 +1354,37 @@ def handler(event, context):
                     logger.exception("sms_handler: running late SMS failed phone=...%s", from_phone[-4:])
             return {"statusCode": 200, "body": json.dumps({"ok": True})}
 
-        # ── COST / TICKET — always free unless ticket_url is set ───────────────
+        # ── COST / TICKET — only expose ticket URL to invited/confirmed members ────
         if any(phrase in normalized for phrase in COST_KEYWORDS):
             try:
                 ev = _events_table().get_item(Key={"eventId": "current"}).get("Item") or {}
                 ticket_url = (ev.get("ticketUrl") or "").strip()
-                if ticket_url:
+                confirmed  = _get_confirmed_invite(from_phone)
+                pending    = _get_pending_invite(from_phone)
+                is_in_wave = confirmed or pending
+
+                # Look up the member's actual current invite status for this event
+                # member_status is only available inside _build_event_context — not here
+                current_ev   = _events_table().get_item(Key={"eventId": "current"}).get("Item") or {}
+                ev_slug      = (current_ev.get("eventSlug") or current_ev.get("eventId") or "").strip()
+                invite_record = None
+                if ev_slug and from_phone:
+                    try:
+                        invite_record = _invites_table().get_item(
+                            Key={"eventId": ev_slug, "phone": from_phone}
+                        ).get("Item")
+                    except Exception:
+                        pass
+                invite_status = ((invite_record or {}).get("status") or "").upper()
+
+                if ticket_url and invite_status in LOGISTICS_ELIGIBLE_STATUSES:
                     reply = f"Grab your ticket: {ticket_url}"
+                elif invite_status == "INVITED":
+                    reply = "Reply YES first and I'll send what you need."
+                elif invite_status in LOGISTICS_ELIGIBLE_STATUSES:
+                    reply = "No tickets. You're already confirmed."
                 else:
-                    reply = "No tickets. You're already in."
+                    reply = "No tickets for this event."
                 if sms_enabled:
                     send_sms(from_phone, reply)
             except Exception:

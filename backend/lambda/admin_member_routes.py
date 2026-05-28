@@ -316,12 +316,33 @@ def record_member_attendance(event: dict, headers: dict, token: str) -> dict:
     if not existing:
         return resp(headers, 400, {"ok": False, "error": "member not found"})
 
-    is_new = record_attendance(phone, attended, event_id=event_id)
+    result = record_attendance(phone, attended, event_id=event_id)
+
+    # record_attendance now returns {"ok": bool, "result": str, "reason": str}
+    ok     = result.get("ok", False)
+    code   = result.get("result", "UNKNOWN")
+    reason = result.get("reason", "")
+
     log_action(token=token, action=ACTION_ATTENDANCE,
                target_phone=phone,
-               metadata={"attended": attended, "eventId": event_id,
-                         "alreadyCheckedIn": not is_new})
-    return resp(headers, 200, {"ok": True, "alreadyCheckedIn": not is_new})
+               metadata={
+                   "attended":        attended,
+                   "eventId":         event_id,
+                   "ok":              ok,
+                   "result":          code,
+                   "reason":          reason,
+               })
+
+    if not ok:
+        # Return specific failure reason so admin UI can show useful messages
+        status_code = 409 if code == "ALREADY_CHECKED_IN" else 400
+        return resp(headers, status_code, {
+            "ok":     False,
+            "result": code,
+            "reason": reason,
+        })
+
+    return resp(headers, 200, {"ok": True, "result": code})
 
 
 # ── POST /admin/members/import ────────────────────────────────────────────────

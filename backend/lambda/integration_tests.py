@@ -762,7 +762,7 @@ class TestLegacyNameNormalization(unittest.TestCase):
 
 
 class TestApprovalQueueMultiSlot(unittest.TestCase):
-    """Burst signups each create their own member record (last-write-wins for host approval queue)."""
+    """Burst signups each create their own member record with unique queue keys — no overwrite."""
 
     def test_two_signups_create_separate_member_records(self):
         with mock_aws():
@@ -794,17 +794,21 @@ class TestDualHostFinalization(unittest.TestCase):
     """Once one host approves/denies, the second host's pending record is cleared."""
 
     def _setup_pending(self, sms_handler, host1, member_phone):
-        """Write a pending_approval record for both hosts in the events table."""
+        """Write a pending_approval record for both hosts using new queue key format."""
         import boto3 as b3
         events_t = b3.resource("dynamodb", region_name="us-east-1").Table("rsvp-events-test")
         now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        # Queue key format: pending_approval:{host_phone}:{member_phone}
+        # Each signup gets its own row — no last-signup-wins overwrite
         for host in [host1, "+15559990002"]:
             events_t.put_item(Item={
-                "eventId": f"pending_approval:{host}",
+                "eventId": f"pending_approval:{host}:{member_phone}",
                 "memberPhone": member_phone,
                 "memberName": "Test User",
                 "hostPhone": host,
                 "storedAt": now,
+                "status": "PENDING",
+                "approvalCode": "1234",  # fixed code for test predictability
             })
 
     def test_second_host_cannot_reverse_after_first_approves(self):
@@ -827,12 +831,12 @@ class TestDualHostFinalization(unittest.TestCase):
             with patch("sms_handler.send_sms", return_value=True):
                 # Host 1 approves
                 sms_handler.handler(_event("POST", "/sms/inbound", {
-                    "from": "+15559990001", "body": "Y"
+                    "from": "+15559990001", "body": "Y 1234"
                 }, token=""), None)
 
                 # Host 2 tries to deny — should be ignored (record finalized)
                 sms_handler.handler(_event("POST", "/sms/inbound", {
-                    "from": "+15559990002", "body": "N"
+                    "from": "+15559990002", "body": "N 1234"
                 }, token=""), None)
 
             import member_store
@@ -908,7 +912,9 @@ class TestInviteWriteWithoutSend(unittest.TestCase):
             })
 
             # Invite record is always written before SMS attempt (write-before-send contract).
-            # Member has smsOptIn=False so SMS is skipped but record must still be INVITED.
+            # Member has smsOptIn=False so SMS is skipped.
+    # With the SKIPPED_CONSENT fix, record should be SKIPPED_CONSENT (not INVITED).
+    # invitedCount should NOT be incremented for this member.
             ddb.Table("rsvp-members-test").update_item(
                 Key={"phone": "+15025550020"},
                 UpdateExpression="SET smsOptIn = :f",
@@ -937,7 +943,7 @@ class TestInviteWriteWithoutSend(unittest.TestCase):
                 Key={"eventId": "current", "phone": "+15025550020"}
             ).get("Item")
             self.assertIsNotNone(invite, "Invite record must be written even when SMS is skipped")
-            self.assertEqual(invite["status"], "INVITED")
+            self.assertEqual(invite["status"], "SKIPPED_CONSENT")  # Fixed: no-consent never gets INVITED
             self.assertNotIn("+15025550020", sent_to, "No SMS should be sent to opted-out member")
 
 
@@ -953,17 +959,23 @@ class TestCheckinNoDoubleConfirmedCount(unittest.TestCase):
             ddb = boto3.resource("dynamodb", region_name="us-east-1")
             ddb.Table("rsvp-members-test").put_item(Item={
                 "phone": "+15025550030", "name": "Check", "status": "APPROVED",
-                "confirmedCount": 1,  # already set when they texted YES
+                "confirmedCount": 1,
                 "createdAt": datetime.now(timezone.utc).isoformat(),
+            })
+            # Must have CONFIRMED invite row — check-in now requires it
+            ddb.Table("rsvp-event-invites-test").put_item(Item={
+                "eventId": "test-event",
+                "phone":   "+15025550030",
+                "status":  "CONFIRMED",
             })
 
             import member_store
             result = member_store.record_attendance("+15025550030", attended=True, event_id="test-event")
-            self.assertTrue(result)
+            self.assertTrue(result["ok"], f"Check-in failed: {result}")
+            self.assertEqual(result["result"], member_store.ATTENDANCE_OK)
 
             member = member_store.get_member("+15025550030")
             self.assertEqual(int(member["attendedCount"]), 1)
-            # confirmedCount must stay at 1 — check-in should not bump it
             self.assertEqual(int(member["confirmedCount"]), 1)
 
     def test_duplicate_checkin_returns_false(self):
@@ -977,12 +989,20 @@ class TestCheckinNoDoubleConfirmedCount(unittest.TestCase):
                 "phone": "+15025550031", "name": "Dup", "status": "APPROVED",
                 "createdAt": datetime.now(timezone.utc).isoformat(),
             })
+            # Must have CONFIRMED invite row
+            ddb.Table("rsvp-event-invites-test").put_item(Item={
+                "eventId": "test-event",
+                "phone":   "+15025550031",
+                "status":  "CONFIRMED",
+            })
 
             import member_store
             first  = member_store.record_attendance("+15025550031", attended=True, event_id="test-event")
             second = member_store.record_attendance("+15025550031", attended=True, event_id="test-event")
-            self.assertTrue(first)
-            self.assertFalse(second)
+            self.assertTrue(first["ok"], f"First check-in failed: {first}")
+            self.assertFalse(second["ok"], f"Duplicate should fail: {second}")
+            self.assertEqual(second["result"], member_store.ATTENDANCE_ALREADY,
+                             f"Duplicate check-in must return ALREADY_CHECKED_IN, got: {second['result']}")
 
             member = member_store.get_member("+15025550031")
             self.assertEqual(int(member["attendedCount"]), 1)
@@ -1011,30 +1031,176 @@ class TestDateNormalization(unittest.TestCase):
         with self.assertRaises(ValueError):
             normalize_event_date("not a date")
 
+class TestJadeTicketParkingGate(unittest.TestCase):
+    """Ticket URL and parking info must not reach Jade before CONFIRMED/ATTENDED."""
+
+    def test_ticket_url_blocked_for_invited_not_confirmed(self):
+        """INVITED member gets no ticket URL — must confirm first."""
+        import sms_handler
+        fake_ev = {
+            "eventId": "current", "event_label": "Test",
+            "date": "2026-06-01", "ticketUrl": "https://posh.vip/test",
+            "revealVenue": True, "event_status": "LIVE",
+        }
+        fake_member = {"phone": "+15550001", "status": "INVITED"}
+        orig = sms_handler._events_table
+        sms_handler._events_table = lambda: type("T", (), {
+            "get_item": lambda self, **kw: {"Item": fake_ev}
+        })()
+        orig_inv = sms_handler._invites_table
+        sms_handler._invites_table = lambda: type("T", (), {
+            "get_item": lambda self, **kw: {"Item": {"status": "INVITED"}}
+        })()
+        try:
+            context = sms_handler._build_event_context(member=fake_member)
+        finally:
+            sms_handler._events_table  = orig
+            sms_handler._invites_table = orig_inv
+        self.assertNotIn("ticket_url", context,
+                         "ticket_url must not appear in Jade context for INVITED member")
+
+    def test_parking_info_blocked_before_confirmation(self):
+        """Parking info must not appear in Jade context before CONFIRMED."""
+        import sms_handler
+        fake_ev = {
+            "eventId": "current", "event_label": "Test",
+            "date": "2026-06-01", "parkingInfo": "Parking behind The Tribe.",
+            "revealVenue": True, "event_status": "LIVE",
+        }
+        fake_member = {"phone": "+15550001", "status": "INVITED"}
+        orig = sms_handler._events_table
+        sms_handler._events_table = lambda: type("T", (), {
+            "get_item": lambda self, **kw: {"Item": fake_ev}
+        })()
+        orig_inv = sms_handler._invites_table
+        sms_handler._invites_table = lambda: type("T", (), {
+            "get_item": lambda self, **kw: {"Item": {"status": "INVITED"}}
+        })()
+        try:
+            context = sms_handler._build_event_context(member=fake_member)
+        finally:
+            sms_handler._events_table  = orig
+            sms_handler._invites_table = orig_inv
+        self.assertNotIn("parking_info", context,
+                         "parking_info must not appear before confirmation — can reveal venue")
+
+    def test_ticket_url_visible_after_confirmation(self):
+        """CONFIRMED member can see ticket URL."""
+        import sms_handler
+        fake_ev = {
+            "eventId": "current", "event_label": "Test",
+            "date": "2026-06-01", "ticketUrl": "https://posh.vip/test",
+            "revealVenue": True, "event_status": "LIVE",
+        }
+        fake_member = {"phone": "+15550001", "status": "CONFIRMED"}
+        orig = sms_handler._events_table
+        sms_handler._events_table = lambda: type("T", (), {
+            "get_item": lambda self, **kw: {"Item": fake_ev}
+        })()
+        orig_inv = sms_handler._invites_table
+        sms_handler._invites_table = lambda: type("T", (), {
+            "get_item": lambda self, **kw: {"Item": {"status": "CONFIRMED"}}
+        })()
+        try:
+            context = sms_handler._build_event_context(member=fake_member)
+        finally:
+            sms_handler._events_table  = orig
+            sms_handler._invites_table = orig_inv
+        self.assertIn("ticket_url", context,
+                      "ticket_url must be visible to CONFIRMED member")
+
+
+class TestTransactionalAttendanceState(unittest.TestCase):
+    """Attendance/no-show state transitions must be strict and side-effect safe."""
+
+    def _seed_member(self, phone: str):
+        ddb = boto3.resource("dynamodb", region_name="us-east-1")
+        ddb.Table("rsvp-members-test").put_item(Item={
+            "phone": phone,
+            "name": "State",
+            "status": "APPROVED",
+            "createdAt": datetime.now(timezone.utc).isoformat(),
+        })
+
+    def _seed_invite(self, phone: str, status: str):
+        ddb = boto3.resource("dynamodb", region_name="us-east-1")
+        ddb.Table("rsvp-event-invites-test").put_item(Item={
+            "eventId": "test-event",
+            "phone": phone,
+            "status": status,
+        })
+
+    def test_invited_cannot_check_in_and_no_side_effects(self):
+        with mock_aws():
+            _create_tables()
+            _stub_secret()
+            _reload_lambda_modules()
+            phone = "+15025550080"
+            self._seed_member(phone)
+            self._seed_invite(phone, "INVITED")
+
+            import member_store
+            result = member_store.record_attendance(phone, attended=True, event_id="test-event")
+            self.assertFalse(result["ok"])
+            self.assertIn(result["result"], {
+                member_store.ATTENDANCE_NOT_CONFIRMED,
+                member_store.ATTENDANCE_INVALID_STATUS,
+            })
+
+            ddb = boto3.resource("dynamodb", region_name="us-east-1")
+            invite = ddb.Table("rsvp-event-invites-test").get_item(
+                Key={"eventId": "test-event", "phone": phone}
+            )["Item"]
+            self.assertEqual(invite["status"], "INVITED")
+            checkin = ddb.Table("rsvp-checkins-test").get_item(
+                Key={"eventId": "test-event", "phone": phone}
+            ).get("Item")
+            self.assertIsNone(checkin)
+            member = member_store.get_member(phone)
+            self.assertNotIn("attendedCount", member)
+
+    def test_confirmed_no_show_updates_only_valid_invite(self):
+        with mock_aws():
+            _create_tables()
+            _stub_secret()
+            _reload_lambda_modules()
+            phone = "+15025550081"
+            self._seed_member(phone)
+            self._seed_invite(phone, "CONFIRMED")
+
+            import member_store
+            result = member_store.record_attendance(phone, attended=False, event_id="test-event")
+            self.assertTrue(result["ok"], f"No-show failed: {result}")
+
+            ddb = boto3.resource("dynamodb", region_name="us-east-1")
+            invite = ddb.Table("rsvp-event-invites-test").get_item(
+                Key={"eventId": "test-event", "phone": phone}
+            )["Item"]
+            self.assertEqual(invite["status"], "NO_SHOW")
+            member = member_store.get_member(phone)
+            self.assertEqual(int(member["noShowCount"]), 1)
+
+    def test_invited_cannot_be_marked_no_show(self):
+        with mock_aws():
+            _create_tables()
+            _stub_secret()
+            _reload_lambda_modules()
+            phone = "+15025550082"
+            self._seed_member(phone)
+            self._seed_invite(phone, "INVITED")
+
+            import member_store
+            result = member_store.record_attendance(phone, attended=False, event_id="test-event")
+            self.assertFalse(result["ok"])
+
+            ddb = boto3.resource("dynamodb", region_name="us-east-1")
+            invite = ddb.Table("rsvp-event-invites-test").get_item(
+                Key={"eventId": "test-event", "phone": phone}
+            )["Item"]
+            self.assertEqual(invite["status"], "INVITED")
+            member = member_store.get_member(phone)
+            self.assertNotIn("noShowCount", member)
+
 
 if __name__ == "__main__":
-    loader = unittest.TestLoader()
-    suite  = unittest.TestSuite()
-    for cls in [
-        TestVenueReveal,
-        TestUnauthorizedRejection,
-        TestFirstApprovalWelcome,
-        TestDeleteTombstoning,
-        TestDuplicateAttendance,
-        TestEventSaveValidation,
-        TestEventSchedulingNormalization,
-        TestReminderSchedulePrecision,
-        TestAccessRequestNameCapture,
-        TestLegacyNameNormalization,
-        TestApprovalQueueMultiSlot,
-        TestDualHostFinalization,
-        TestOptOutEnforcedInReminders,
-        TestInviteWriteWithoutSend,
-        TestCheckinNoDoubleConfirmedCount,
-        TestDateNormalization,
-    ]:
-        suite.addTests(loader.loadTestsFromTestCase(cls))
-
-    runner = unittest.TextTestRunner(verbosity=2)
-    result = runner.run(suite)
-    sys.exit(0 if result.wasSuccessful() else 1)
+    unittest.main(verbosity=2)

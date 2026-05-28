@@ -109,7 +109,10 @@ def _get_confirmed_invites(event_id: str) -> list:
     }
     while True:
         resp = invites_t.query(**kwargs)
-        items.extend([i for i in resp.get("Items", []) if i.get("status") == "CONFIRMED"])
+        # Include CONFIRMED and ATTENDED — ATTENDED members were confirmed and
+        # may still need reminders (e.g. logistics day-of)
+        items.extend([i for i in resp.get("Items", [])
+                      if i.get("status") in ("CONFIRMED", "ATTENDED")])
         last = resp.get("LastEvaluatedKey")
         if not last:
             break
@@ -333,6 +336,20 @@ def handler(event, context):
                     "body": json.dumps({"ok": False, "error": "No current event"}),
                 }
 
+            # Lifecycle guard — reminders only send for active events
+            ev_state = (current_event.get("event_status") or "DRAFT").upper()
+            REMINDER_ALLOWED_STATES = {"LIVE", "INVITING", "LOCKED", "CHECK_IN_OPEN"}
+            if ev_state not in REMINDER_ALLOWED_STATES:
+                return {
+                    "statusCode": 400,
+                    "headers": _cors_headers(origin),
+                    "body": json.dumps({
+                        "ok": False,
+                        "error": f"Cannot send reminders — event is {ev_state}. "
+                                 f"Event must be LIVE, INVITING, LOCKED, or CHECK_IN_OPEN."
+                    }),
+                }
+
             manual_timing = str(body.get("timing") or "").strip().lower()
             if manual_timing in {"day_before", "day_of"}:
                 is_day_of = manual_timing == "day_of"
@@ -358,6 +375,13 @@ def handler(event, context):
         if not current_event:
             logger.info("reminder_handler: no current event — skipping")
             return {"ok": True, "skipped": True}
+
+        # Lifecycle guard — never fire scheduled reminders for inactive events
+        sched_ev_state = (current_event.get("event_status") or "DRAFT").upper()
+        REMINDER_ALLOWED_STATES = {"LIVE", "INVITING", "LOCKED", "CHECK_IN_OPEN"}
+        if sched_ev_state not in REMINDER_ALLOWED_STATES:
+            logger.info("reminder_handler: skipping scheduled reminder — event is %s", sched_ev_state)
+            return {"ok": True, "skipped": True, "reason": f"event_status={sched_ev_state}"}
 
         reminder_timing = current_event.get("reminderTiming", "manual")
         if reminder_timing == "manual":

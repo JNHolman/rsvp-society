@@ -5,6 +5,7 @@ import math
 import os
 import random
 import time
+import uuid
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Tuple
 
@@ -103,18 +104,27 @@ def _get_approved_members() -> List[Dict[str, Any]]:
     return items
 
 
+# Import wave-blocking statuses from member_store — single source of truth
+from member_store import WAVE_BLOCK_STATUSES as _REAL_INVITE_STATUSES
+from member_store import ANALYTICS_EXCLUDE_STATUSES as _ANALYTICS_EXCLUDE_STATUSES
+from member_store import CONFIRMED_FAMILY_STATUSES as _CONFIRMED_FAMILY_STATUSES
+from member_store import RETRYABLE_INVITE_STATUSES as _RETRYABLE_STATUSES_IMPORTED
+
 def _get_existing_invited_phones(event_id: str) -> set:
     invites_t = _invites_table()
     phones: set = set()
     kwargs: Dict[str, Any] = {
         "KeyConditionExpression": DKey("eventId").eq(event_id),
-        "ProjectionExpression": "phone",
+        "ProjectionExpression": "phone, #s",
+        "ExpressionAttributeNames": {"#s": "status"},
     }
     while True:
         resp = invites_t.query(**kwargs)
         for item in resp.get("Items", []):
-            phone = item.get("phone")
-            if phone:
+            phone  = item.get("phone")
+            status = (item.get("status") or "").upper()
+            # Only block future waves for members who actually received the SMS
+            if phone and status in _REAL_INVITE_STATUSES:
                 phones.add(phone)
         last = resp.get("LastEvaluatedKey")
         if not last:
@@ -175,7 +185,11 @@ def _resolve_wave_capacity(
     if wave_number == 1:
         return max(1, round(capacity * 2.5))
     suggestion = _calc_invite_suggestion(capacity, confirmed, already_invited, actual_confirm_rate)
-    return max(1, suggestion["suggestedInvites"])
+    suggested = suggestion["suggestedInvites"]
+    # Wave 1: seed with at least 1. Wave 2+: allow 0 — gap is closed.
+    if wave_number <= 1:
+        return max(1, suggested)
+    return max(0, suggested)
 
 
 def _get_current_event() -> Dict[str, Any]:
@@ -184,6 +198,81 @@ def _get_current_event() -> Dict[str, Any]:
         return result.get("Item") or {}
     except Exception:
         return {}
+
+
+# ── Async blast job helpers ───────────────────────────────────────────────────
+
+def _job_key(job_id: str) -> str:
+    return f"blast_job:{job_id}"
+
+
+def _write_job(job_id: str, body: dict, origin: str) -> None:
+    """Write a QUEUED blast job record to the events table."""
+    _events_table().put_item(Item={
+        "eventId":     _job_key(job_id),
+        "jobId":       job_id,
+        "status":      "QUEUED",
+        "submittedAt": _now_iso(),
+        "origin":      origin or "",
+        "requestBody": json.dumps(body),
+    })
+
+
+def _update_job(job_id: str, updates: dict) -> None:
+    """Update a job record with status/results."""
+    expr_parts = []
+    names = {}
+    vals = {}
+    for i, (k, v) in enumerate(updates.items()):
+        placeholder = f":v{i}"
+        name_ph = f"#k{i}"
+        expr_parts.append(f"{name_ph} = {placeholder}")
+        names[name_ph] = k
+        vals[placeholder] = v
+    try:
+        _events_table().update_item(
+            Key={"eventId": _job_key(job_id)},
+            UpdateExpression="SET " + ", ".join(expr_parts),
+            ExpressionAttributeNames=names,
+            ExpressionAttributeValues=vals,
+        )
+    except Exception:
+        logger.exception("_update_job failed job_id=%s", job_id)
+
+
+def handle_job_status(qs: dict, origin: str) -> dict:
+    """GET /admin/invite/status?jobId=xxx — poll async blast job."""
+    job_id = (qs.get("jobId") or "").strip()
+    if not job_id:
+        return _resp(400, {"ok": False, "error": "jobId required"}, origin)
+    try:
+        item = _events_table().get_item(Key={"eventId": _job_key(job_id)}).get("Item")
+        if not item:
+            return _resp(404, {"ok": False, "error": "job not found"}, origin)
+        breakdown = {}
+        if item.get("breakdown"):
+            try:
+                breakdown = json.loads(item["breakdown"])
+            except Exception:
+                pass
+
+        return _resp(200, {
+            "ok":             True,
+            "jobId":          item.get("jobId"),
+            "status":         item.get("status"),
+            "submittedAt":    item.get("submittedAt"),
+            "startedAt":      item.get("startedAt"),
+            "completedAt":    item.get("completedAt"),
+            "invitesWritten": item.get("invitesWritten"),
+            "smsSent":        item.get("smsSent"),
+            "failed":         item.get("failed"),
+            "skippedConsent": item.get("skippedConsent"),
+            "error":          item.get("error"),
+            "breakdown":      breakdown,
+        }, origin)
+    except Exception:
+        logger.exception("handle_job_status failed job_id=%s", job_id)
+        return _resp(500, {"ok": False, "error": "internal error"}, origin)
 
 
 def _build_invite_list(
@@ -289,9 +378,7 @@ def _build_sms_message(member: Dict[str, Any], event: Dict[str, Any]) -> str:
         event_label = (event.get("event_label") or "").strip()
         vibe_tag = (event.get("vibe_tag") or "").strip()
 
-        closings = ["Let me know.", "You in?", "You coming?"]
-        closing = random.choice(closings) if random.random() < 0.3 else ""
-
+        # Deterministic closing — no random choices so preview matches what sends
         parts = []
         if name:        parts.append(f"{name}.")
         if event_label: parts.append(f"{event_label}.")
@@ -300,14 +387,14 @@ def _build_sms_message(member: Dict[str, Any], event: Dict[str, Any]) -> str:
         if time:        parts.append(f"{time}.")
         if venue:       parts.append(f"{venue}.")
         if address:     parts.append(f"{address}.")
-        if closing:     parts.append(closing)
+        parts.append("Reply YES to confirm.")
 
         return " ".join(parts)
     else:
         if name:
-            return f"{name}. You're on the list. You in?"
+            return f"{name}. You're on the list. Reply YES to confirm."
         else:
-            return "You're on the list. You in?"
+            return "You're on the list. Reply YES to confirm."
 
 
 def _get_analytics(event_id: str) -> dict:
@@ -327,11 +414,12 @@ def _get_analytics(event_id: str) -> dict:
                 break
             kwargs["ExclusiveStartKey"] = last
 
-        # Fix: exclude DELETED so they don't inflate invited count and drag down confirm rate
-        items = [i for i in items if i.get("status") != "DELETED"]
+        # Exclude non-real invite statuses from all analytics (uses central constant)
+        items = [i for i in items if (i.get("status") or "").upper() not in _ANALYTICS_EXCLUDE_STATUSES]
 
         invited = len(items)
-        confirmed = sum(1 for i in items if i.get("status") == "CONFIRMED")
+        # ATTENDED and NO_SHOW were confirmed — use centralized constant
+        confirmed = sum(1 for i in items if (i.get("status") or "").upper() in _CONFIRMED_FAMILY_STATUSES)
         declined  = sum(1 for i in items if i.get("status") == "DECLINED")
         attended  = sum(1 for i in items if i.get("attendedAt"))
         confirm_rate = (confirmed / invited) if invited > 0 else None
@@ -396,6 +484,7 @@ def handle_preview(body: dict, origin: str) -> dict:
             "tier":         m["_tier"],
             "attendedCount": int(m.get("attendedCount", 0)),
             "invitedCount":  int(m.get("invitedCount", 0)),
+            "noShowCount":   int(m.get("noShowCount", 0)),
         })
 
     result["summary"]["waveNumber"]             = wave_number
@@ -414,10 +503,78 @@ def handle_preview(body: dict, origin: str) -> dict:
 
 
 def handle_send(body: dict, origin: str, token: str) -> dict:
+    """
+    Dispatch invite blast asynchronously.
+    1. Write a QUEUED job record.
+    2. Invoke this Lambda with InvocationType=Event (fire and forget).
+    3. Return 202 immediately with jobId.
+    Admin polls GET /admin/invite/status?jobId=xxx for results.
+    """
     if not body.get("confirmSend"):
         return _resp(400, {"ok": False, "error": "confirmSend: true required"}, origin)
 
+    job_id = str(uuid.uuid4())
+    try:
+        _write_job(job_id, body, origin)
+    except Exception:
+        logger.exception("handle_send: failed to write job record")
+        return _resp(500, {"ok": False, "error": "failed to queue blast"}, origin)
+
+    # Invoke this Lambda asynchronously — returns immediately
+    try:
+        import boto3 as _b3
+        fn_name = os.getenv("AWS_LAMBDA_FUNCTION_NAME", "rsvp-invite-handler")
+        _b3.client("lambda").invoke(
+            FunctionName=fn_name,
+            InvocationType="Event",  # async — no response body
+            Payload=json.dumps({
+                "asyncBlast": True,
+                "jobId": job_id,
+                "token": token,
+            }).encode(),
+        )
+    except Exception:
+        logger.exception("handle_send: failed to invoke async Lambda")
+        _update_job(job_id, {"status": "FAILED", "error": "Lambda invoke failed"})
+        return _resp(500, {"ok": False, "error": "failed to dispatch blast"}, origin)
+
+    return _resp(202, {"ok": True, "jobId": job_id, "status": "QUEUED"}, origin)
+
+
+def _run_blast(body: dict, origin: str, token: str, job_id: str) -> None:
+    """
+    The actual blast logic — runs asynchronously inside a self-invoked Lambda.
+    Updates the job record throughout. Never returns an HTTP response.
+    """
+    _update_job(job_id, {"status": "PROCESSING", "startedAt": _now_iso()})
+    try:
+        _execute_send(body, origin, token, job_id)
+    except Exception as e:
+        logger.exception("_run_blast failed job_id=%s", job_id)
+        _update_job(job_id, {"status": "FAILED", "completedAt": _now_iso(), "error": str(e)[:500]})
+
+
+def _execute_send(body: dict, origin: str, token: str, job_id: str) -> None:
+    """Core blast execution — extracted from handle_send for async use."""
     event_id   = (body.get("eventId") or "").strip()
+
+    # ── Guard: check event lifecycle state before sending ────────────────────
+    try:
+        current_ev = _events_table().get_item(Key={"eventId": "current"}).get("Item") or {}
+        ev_status  = (current_ev.get("event_status") or "DRAFT").upper()
+        INVITABLE_STATES = {"LIVE", "INVITING"}
+        if ev_status not in INVITABLE_STATES:
+            raise ValueError(
+                f"Cannot send invites — event is in state '{ev_status}'. "
+                f"Event must be LIVE or INVITING to send invite waves."
+            )
+    except ValueError:
+        raise
+    except Exception:
+        logger.exception("invite: failed to check event state before blast event=%s", event_id)
+        raise ValueError("Could not verify event state — blast aborted")
+    # ─────────────────────────────────────────────────────────────────────────
+
     capacity   = int(body.get("capacity") or 0)
     wave_number = int(body.get("waveNumber") or 1)
     wave_size   = int(body.get("waveSize") or 0)
@@ -438,15 +595,15 @@ def handle_send(body: dict, origin: str, token: str) -> dict:
         female_pct   = int(body.get("femalePercent") or 60)
         tier2_buffer = int(body.get("tier2BufferPct") or 30)
     except (ValueError, TypeError):
-        return _resp(400, {"ok": False, "error": "femalePercent and tier2BufferPct must be integers"}, origin)
+        raise ValueError("femalePercent and tier2BufferPct must be integers")
 
     if not (0 <= female_pct <= 100):
-        return _resp(400, {"ok": False, "error": "femalePercent must be 0–100"}, origin)
+        raise ValueError("femalePercent must be 0–100")
     if not (0 <= tier2_buffer <= 200):
-        return _resp(400, {"ok": False, "error": "tier2BufferPct must be 0–200"}, origin)
+        raise ValueError("tier2BufferPct must be 0–200")
 
     if not event_id or capacity < 1:
-        return _resp(400, {"ok": False, "error": "eventId and capacity required"}, origin)
+        raise ValueError("eventId and capacity required")
 
     # Fix C5: wave 2+ must use live analytics to compute effective_capacity,
     # matching exactly what handle_preview showed the admin.
@@ -484,10 +641,11 @@ def handle_send(body: dict, origin: str, token: str) -> dict:
     now = _now_iso()
 
     sms_enabled = (os.getenv("SMS_ENABLED", "false") or "").lower() == "true"
-    sent = 0
-    failed = 0
+    sent            = 0
+    failed          = 0
     skipped_consent = 0
     invites_written = 0
+    already_invited = 0   # initialized here, incremented when member already has real invite
 
     for m in selected_members:
         phone = normalize_phone(m.get("phone", ""))
@@ -495,35 +653,74 @@ def handle_send(body: dict, origin: str, token: str) -> dict:
             continue
 
         try:
+            # Statuses that should NOT block a new invite attempt
+            _RETRYABLE_STATUSES = _RETRYABLE_STATUSES_IMPORTED  # centralized in member_store
+
+            new_invite_item = {
+                "eventId":    event_id,
+                "phone":      phone,
+                "status":     "INVITED",
+                "gender":     m.get("gender", ""),
+                "tier":       m["_tier"],
+                "invitedAt":  now,
+                "waveNumber": wave_number,
+                "waveSentAt": now,
+                "name":       m.get("name", ""),
+                "lastName":   m.get("lastName", ""),
+            }
+
             try:
                 invites_t.put_item(
-                    Item={
-                        "eventId":    event_id,
-                        "phone":      phone,
-                        "status":     "INVITED",
-                        "gender":     m.get("gender", ""),
-                        "tier":       m["_tier"],
-                        "invitedAt":  now,
-                        "waveNumber": wave_number,
-                        "waveSentAt": now,
-                        # Snapshot names at blast time so door list works even if member is later deleted
-                        "name":       m.get("name", ""),
-                        "lastName":   m.get("lastName", ""),
-                    },
+                    Item=new_invite_item,
                     ConditionExpression="attribute_not_exists(phone)",
                 )
                 invites_written += 1
             except ClientError as ce:
-                if ce.response["Error"]["Code"] == "ConditionalCheckFailedException":
-                    # Already invited — idempotent, skip silently
-                    continue
-                raise
+                if ce.response["Error"]["Code"] != "ConditionalCheckFailedException":
+                    raise
+                # Row exists — check if it's a retryable status or a real invite
+                try:
+                    existing = invites_t.get_item(
+                        Key={"eventId": event_id, "phone": phone},
+                        ProjectionExpression="#s",
+                        ExpressionAttributeNames={"#s": "status"},
+                    ).get("Item", {})
+                    existing_status = (existing.get("status") or "").upper()
+                except Exception:
+                    existing_status = "INVITED"  # assume real invite if lookup fails
 
-            sms_succeeded = False
+                if existing_status in _RETRYABLE_STATUSES:
+                    # Previous attempt never reached them — overwrite with fresh invite
+                    invites_t.put_item(Item=new_invite_item)
+                    invites_written += 1
+                    logger.info(
+                        "invite: overwrote %s row with fresh INVITED phone=...%s",
+                        existing_status, phone[-4:],
+                    )
+                else:
+                    # Genuinely already invited — skip silently, track count
+                    already_invited += 1
+                    continue
+
+            sms_succeeded   = False
+            consent_skipped = False
             if sms_enabled:
                 if coerce_bool(m.get("optOut", False)) or not coerce_bool(m.get("smsOptIn", False)):
                     skipped_consent += 1
-                    sms_succeeded = True  # not a send failure, just skipped
+                    # Fix: mark as SKIPPED_CONSENT not INVITED — they never received the message
+                    # so they should not be treated as invited or excluded from future waves
+                    try:
+                        invites_t.update_item(
+                            Key={"eventId": event_id, "phone": phone},
+                            UpdateExpression="SET #s = :status",
+                            ExpressionAttributeNames={"#s": "status"},
+                            ExpressionAttributeValues={":status": "SKIPPED_CONSENT"},
+                        )
+                    except Exception:
+                        logger.exception("invite: failed to update SKIPPED_CONSENT phone=...%s", phone[-4:])
+                    invites_written -= 1  # don't count as a real invite
+                    sms_succeeded = True   # not a send failure, just skipped
+                    consent_skipped = True # prevent invitedCount from incrementing
                 else:
                     message = _build_sms_message(m, current_event)
                     msg_id = None
@@ -547,6 +744,19 @@ def handle_send(body: dict, origin: str, token: str) -> dict:
                     else:
                         failed += 1
                         logger.error("invite send exhausted retries phone=...%s", phone[-4:])
+                        # Mark the invite row as FAILED so it:
+                        # (a) doesn't count as invited in analytics
+                        # (b) is eligible to retry in the next wave
+                        # (c) doesn't inflate confirm rate
+                        try:
+                            invites_t.update_item(
+                                Key={"eventId": event_id, "phone": phone},
+                                UpdateExpression="SET #s = :failed",
+                                ExpressionAttributeNames={"#s": "status"},
+                                ExpressionAttributeValues={":failed": "FAILED"},
+                            )
+                        except Exception:
+                            logger.exception("invite: failed to mark FAILED status phone=...%s", phone[-4:])
                     # Store Quo message ID on invite record for delivery tracking
                     if msg_id:
                         try:
@@ -564,7 +774,9 @@ def handle_send(body: dict, origin: str, token: str) -> dict:
             # Only increment invitedCount after the invite row is written AND
             # SMS either sent successfully or was intentionally skipped.
             # This prevents count drift when sends fail and rows get cleaned up.
-            if sms_succeeded:
+            # Only increment invitedCount when SMS was actually delivered
+            # SKIPPED_CONSENT means they were never reached — don't credit the wave
+            if sms_succeeded and not consent_skipped:
                 members_t.update_item(
                     Key={"phone": phone},
                     UpdateExpression="SET invitedCount = if_not_exists(invitedCount, :zero) + :one, lastSeenAt = :now",
@@ -625,19 +837,53 @@ def handle_send(body: dict, origin: str, token: str) -> dict:
         },
     )
 
-    return _resp(200, {
-        "ok":            True,
-        "eventId":       event_id,
-        "summary":       result["summary"],
+    # Update job record with final results + per-recipient breakdown
+    _update_job(job_id, {
+        "status":         "COMPLETE",
+        "completedAt":    _now_iso(),
         "invitesWritten": invites_written,
-        "smsSent":       sent,
-        "failed":        failed,
+        "smsSent":        sent,
+        "failed":         failed,
         "skippedConsent": skipped_consent,
-    }, origin)
+        "eventId":        event_id,
+        "waveNumber":     wave_number,
+        # Summary breakdown for admin dashboard
+        "breakdown": json.dumps({
+            "queued":         len(selected_members) if selected_members else len(selected_phones),
+            "sent":           sent,
+            "failed":         failed,
+            "skippedConsent": skipped_consent,
+            "alreadyInvited": already_invited,
+        }),
+    })
 
 
 def handler(event, context):
+    # Structured observability — request ID in every log
+    request_id = (context.aws_request_id if context and hasattr(context, "aws_request_id") else "local")
+    logger.info("handler_start request_id=%s", request_id)
     try:
+        # ── Async blast: self-invoked by Lambda — no HTTP headers, auth via payload token
+        if event.get("asyncBlast"):
+            job_id      = event.get("jobId", "")
+            async_token = (event.get("token") or "").strip()
+            expected    = _admin_token()
+            if not async_token or not hmac.compare_digest(async_token, expected):
+                logger.error("async blast: invalid token for job_id=%s", job_id)
+                _update_job(job_id, {"status": "FAILED", "error": "unauthorized async token"})
+                return {"statusCode": 200, "body": json.dumps({"ok": False, "error": "unauthorized"})}
+            try:
+                job_item = _events_table().get_item(Key={"eventId": _job_key(job_id)}).get("Item") or {}
+                blast_body_raw = job_item.get("requestBody", "{}")
+            except Exception:
+                logger.exception("async blast: failed to load job body job_id=%s", job_id)
+                return {"statusCode": 200, "body": json.dumps({"ok": False})}
+            if blast_body_raw:
+                blast_body = json.loads(blast_body_raw)
+                blast_body["confirmSend"] = True
+                _run_blast(blast_body, None, async_token, job_id)
+            return {"statusCode": 200, "body": json.dumps({"ok": True})}
+
         method  = _get_method(event).upper()
         headers = _get_headers(event)
         origin  = headers.get("origin") or headers.get("Origin")
@@ -661,6 +907,10 @@ def handler(event, context):
 
         if method == "POST" and path.endswith("/admin/invite/send"):
             return handle_send(body, origin, token)
+
+        if method == "GET" and path.endswith("/admin/invite/status"):
+            qs = event.get("queryStringParameters") or {}
+            return handle_job_status(qs, origin)
 
         return _resp(404, {"ok": False, "error": "not found"}, origin)
 

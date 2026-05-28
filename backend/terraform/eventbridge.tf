@@ -6,8 +6,8 @@ resource "aws_lambda_function" "reminder_handler" {
   role          = aws_iam_role.lambda_reminder_handler.arn
   handler       = "reminder_handler.handler"
   runtime       = "python3.11"
-  timeout       = 300  # rate-limited sends to 300+ confirmed members
-  filename         = data.archive_file.lambda_bundle.output_path
+  timeout       = 300 # rate-limited sends to 300+ confirmed members
+  filename      = data.archive_file.lambda_bundle.output_path
 
   source_code_hash = data.archive_file.lambda_bundle.output_base64sha256
 
@@ -66,10 +66,10 @@ resource "aws_api_gateway_method" "admin_invite_reminder_options" {
   authorization = "NONE"
 }
 resource "aws_api_gateway_integration" "admin_invite_reminder_options" {
-  rest_api_id = aws_api_gateway_rest_api.api.id
-  resource_id = aws_api_gateway_resource.admin_invite_reminder.id
-  http_method = aws_api_gateway_method.admin_invite_reminder_options.http_method
-  type        = "MOCK"
+  rest_api_id       = aws_api_gateway_rest_api.api.id
+  resource_id       = aws_api_gateway_resource.admin_invite_reminder.id
+  http_method       = aws_api_gateway_method.admin_invite_reminder_options.http_method
+  type              = "MOCK"
   request_templates = { "application/json" = local.cors_mock_request_template }
 }
 resource "aws_api_gateway_method_response" "admin_invite_reminder_options_200" {
@@ -103,14 +103,14 @@ resource "aws_api_gateway_integration_response" "admin_invite_reminder_options_2
 # -----------------------------
 resource "aws_cloudwatch_event_rule" "reminder_day_before" {
   name                = "rsvp-reminder-day-before"
-  description         = "Every 5 min during 6 PM ET window (22-23 UTC covers EST and EDT)"
-  schedule_expression = "cron(0/5 22-23 * * ? *)"
+  description         = "Every 5 min all day — Lambda checks event timezone and fires at correct local time"
+  schedule_expression = "cron(0/5 * * * ? *)"
 }
 
 resource "aws_cloudwatch_event_rule" "reminder_day_of" {
   name                = "rsvp-reminder-day-of"
-  description         = "Every 5 min during 11 AM ET window (15-16 UTC covers EST and EDT)"
-  schedule_expression = "cron(0/5 15-16 * * ? *)"
+  description         = "Every 5 min all day — Lambda checks event timezone and fires at correct local time"
+  schedule_expression = "cron(0/5 * * * ? *)"
 }
 
 resource "aws_cloudwatch_event_target" "reminder_day_before" {

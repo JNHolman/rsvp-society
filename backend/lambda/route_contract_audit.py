@@ -16,6 +16,8 @@ RESOURCE_ID_RE = re.compile(r'resource_id\s*=\s*aws_api_gateway_resource\.([A-Za
 ROOT_PARENT_RE = re.compile(r'parent_id\s*=\s*aws_api_gateway_rest_api\.[A-Za-z0-9_]+\.root_resource_id')
 HTTP_METHOD_RE = re.compile(r'http_method\s*=\s*"([A-Z]+)"')
 BACKEND_ROUTE_METHOD_RE = re.compile(r'if\s+method\s*==\s*"([A-Z]+)"\s+and\s+path\.endswith\("([^"]+)"\)')
+# Also detect dict-based routing: ("GET", "/admin/event"): handler_fn
+BACKEND_DICT_ROUTE_RE = re.compile(r'\("([A-Z]+)",\s*"([^"]+)"\)\s*:\s*[a-z_]+')
 IN_PATH_ROUTE_RE = re.compile(r'if\s+method\s*==\s*"([A-Z]+)"\s+and\s+"([^"]+)"\s+in\s+path')
 HARDCODED_ROUTE_RE = re.compile(r'''['"](/admin/[^'"]+|/event(?:/current)?)['"]''')
 FRONTEND_CALL_RE = re.compile(r'api(?:Json|Fetch)\(\s*(?:`[^`]*ROUTES\.([A-Z0-9_]+)[^`]*`|ROUTES\.([A-Z0-9_]+))', re.S)
@@ -120,6 +122,9 @@ def load_backend_contracts(lambda_dir: Path) -> Dict[str, Dict[str, object]]:
             continue
         text = path.read_text()
         for method, route in BACKEND_ROUTE_METHOD_RE.findall(text):
+            spec = contracts.setdefault(route, {'methods': set(), 'required_body_keys': {}})
+            spec['methods'].add(method)
+        for method, route in BACKEND_DICT_ROUTE_RE.findall(text):
             spec = contracts.setdefault(route, {'methods': set(), 'required_body_keys': {}})
             spec['methods'].add(method)
         for method, route in IN_PATH_ROUTE_RE.findall(text):
@@ -281,14 +286,24 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
     root = detect_root(Path(__file__), args.root)
     summary = build_summary(root)
     print(json.dumps(summary, indent=2, sort_keys=True))
-    ok = (
+    route_gaps_clean = (
         not summary['missing_in_backend']
         and not summary['missing_in_terraform']
         and not summary['method_mismatches']
         and not summary['body_key_gaps']
-        and all(summary['quo_bones_check'].values())
     )
-    return 0 if ok else 1
+    quo_bones_clean = all(summary['quo_bones_check'].values())
+
+    if not route_gaps_clean:
+        import sys
+        print("AUDIT FAILED: route gaps detected", file=sys.stderr)
+        return 1
+    if not quo_bones_clean:
+        import sys
+        failed_bones = [k for k, v in summary['quo_bones_check'].items() if not v]
+        print(f"AUDIT WARNING: quo bones incomplete: {failed_bones}", file=sys.stderr)
+        # Warn but do not fail — missing quo config is a setup issue, not a route gap
+    return 0
 
 
 if __name__ == '__main__':

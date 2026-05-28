@@ -32,6 +32,25 @@ resource "aws_dynamodb_table" "audit_log" {
     enabled        = true
   }
 
+  # GSI — enables querying by actor or action type with time ordering
+  # Supports future admin audit viewer: "show all actions by this admin"
+  global_secondary_index {
+    name            = "action-timestamp-index"
+    hash_key        = "action"
+    range_key       = "timestamp"
+    projection_type = "ALL"
+  }
+
+  attribute {
+    name = "action"
+    type = "S"
+  }
+
+  attribute {
+    name = "timestamp"
+    type = "S"
+  }
+
   point_in_time_recovery {
     enabled = true
   }

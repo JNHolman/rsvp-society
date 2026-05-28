@@ -27,10 +27,10 @@ variable "members_table_name" {
 }
 
 variable "allowed_origins" {
-  type    = list(string)
+  type = list(string)
   default = [
-  "https://rsvpsociety.com",
-  "https://www.rsvpsociety.com",
+    "https://rsvpsociety.com",
+    "https://www.rsvpsociety.com",
   "http://localhost:8000"]
 }
 
@@ -59,12 +59,21 @@ variable "webhook_secret_id" {
 locals {
   allowed_origins_csv     = join(",", var.allowed_origins)
   primary_frontend_origin = "https://rsvpsociety.com"
-  cors_allow_origin_expr  = "'${local.primary_frontend_origin}'"
-  cors_methods            = "'GET,POST,PUT,DELETE,OPTIONS'"
-  cors_headers            = "'content-type,x-admin-token'"
+  # CORS preflight (OPTIONS) always returns apex origin.
+  # www.rsvpsociety.com MUST redirect to apex before any page loads — ensure
+  # DNS/CloudFront serves a 301 from www to apex so the browser's origin is
+  # always https://rsvpsociety.com when API calls are made.
+  # If www → apex redirect is not in place, browser API calls from www will
+  # fail the CORS preflight. This is a DNS/hosting configuration requirement,
+  # not a code change — set up the redirect at your DNS provider or CloudFront.
+  cors_allow_origin_expr     = "'${local.primary_frontend_origin}'"
+  cors_methods               = "'GET,POST,PUT,DELETE,OPTIONS'"
+  cors_headers               = "'content-type,x-admin-token'"
   cors_mock_request_template = <<-EOT
 {"statusCode": 200}
 EOT
+
+  pending_approvals_arn = aws_dynamodb_table.pending_approvals.arn
 }
 
 # -----------------------------
@@ -174,6 +183,37 @@ resource "aws_dynamodb_table" "event_invites" {
   }
 }
 
+# =============================================================================
+# Pending Approvals — dedicated host approval queue (pk=hostPhone sk=memberPhone)
+# Replaces broken begins_with query on rsvp-events partition key
+# =============================================================================
+resource "aws_dynamodb_table" "pending_approvals" {
+  name         = "rsvp-pending-approvals"
+  billing_mode = "PAY_PER_REQUEST"
+  hash_key     = "hostPhone"
+  range_key    = "memberPhone"
+
+  attribute {
+    name = "hostPhone"
+    type = "S"
+  }
+
+  attribute {
+    name = "memberPhone"
+    type = "S"
+  }
+
+  ttl {
+    attribute_name = "expiresAt"
+    enabled        = true
+  }
+
+  tags = {
+    Project = "rsvp-society"
+  }
+}
+
+
 # -----------------------------
 # IAM (Lambda execution)
 # -----------------------------
@@ -212,16 +252,17 @@ resource "aws_lambda_function" "access_request" {
 
   environment {
     variables = {
-      ENVIRONMENT           = "prod"
-      MEMBERS_TABLE_NAME    = aws_dynamodb_table.members.name
-      EVENTS_TABLE_NAME     = aws_dynamodb_table.events.name
-      ALLOWED_ORIGINS       = local.allowed_origins_csv
-      SMS_ENABLED           = "true"
-      SMS_PROVIDER          = "quo"
-      QUO_API_KEY_SECRET_ID = var.quo_api_key_secret_id
-      QUO_PHONE_NUMBER_ID   = var.quo_phone_number_id
-      HOST_PHONE_1          = "+12702269660"
-      HOST_PHONE_2          = ""
+      ENVIRONMENT                  = "prod"
+      MEMBERS_TABLE_NAME           = aws_dynamodb_table.members.name
+      EVENTS_TABLE_NAME            = aws_dynamodb_table.events.name
+      PENDING_APPROVALS_TABLE_NAME = aws_dynamodb_table.pending_approvals.name
+      ALLOWED_ORIGINS              = local.allowed_origins_csv
+      SMS_ENABLED                  = "true"
+      SMS_PROVIDER                 = "quo"
+      QUO_API_KEY_SECRET_ID        = var.quo_api_key_secret_id
+      QUO_PHONE_NUMBER_ID          = var.quo_phone_number_id
+      HOST_PHONE_1                 = "+12702269660"
+      HOST_PHONE_2                 = ""
     }
   }
 }
@@ -235,7 +276,7 @@ resource "aws_lambda_function" "admin_handler" {
   filename         = data.archive_file.lambda_bundle.output_path
   source_code_hash = data.archive_file.lambda_bundle.output_base64sha256
 
-  timeout = 60  # increased for bulk import
+  timeout = 60 # increased for bulk import
 
   environment {
     variables = {
@@ -272,22 +313,23 @@ resource "aws_lambda_function" "sms_handler" {
 
   environment {
     variables = {
-      ENVIRONMENT              = "prod"
-      MEMBERS_TABLE_NAME       = aws_dynamodb_table.members.name
-      EVENTS_TABLE_NAME        = aws_dynamodb_table.events.name
-      INVITES_TABLE_NAME       = aws_dynamodb_table.event_invites.name
-      CHECKINS_TABLE_NAME      = aws_dynamodb_table.checkins.name
-      AUDIT_LOG_TABLE_NAME     = aws_dynamodb_table.audit_log.name
-      ALLOWED_ORIGINS          = local.allowed_origins_csv
-      SMS_ENABLED              = "true"
-      SMS_PROVIDER             = "quo"
-      QUO_API_KEY_SECRET_ID    = var.quo_api_key_secret_id
-      QUO_PHONE_NUMBER_ID      = var.quo_phone_number_id
-      CLAUDE_API_KEY_SECRET_ID = "rsvp/claude-api-key"
-      WEBHOOK_SECRET_ID        = var.webhook_secret_id
-      WEBHOOK_SECRET_ID_2      = "rsvp/webhook-secret-delivery"
-      HOST_PHONE_1             = "+12702269660"
-      HOST_PHONE_2             = ""
+      ENVIRONMENT                  = "prod"
+      MEMBERS_TABLE_NAME           = aws_dynamodb_table.members.name
+      EVENTS_TABLE_NAME            = aws_dynamodb_table.events.name
+      PENDING_APPROVALS_TABLE_NAME = aws_dynamodb_table.pending_approvals.name
+      INVITES_TABLE_NAME           = aws_dynamodb_table.event_invites.name
+      CHECKINS_TABLE_NAME          = aws_dynamodb_table.checkins.name
+      AUDIT_LOG_TABLE_NAME         = aws_dynamodb_table.audit_log.name
+      ALLOWED_ORIGINS              = local.allowed_origins_csv
+      SMS_ENABLED                  = "true"
+      SMS_PROVIDER                 = "quo"
+      QUO_API_KEY_SECRET_ID        = var.quo_api_key_secret_id
+      QUO_PHONE_NUMBER_ID          = var.quo_phone_number_id
+      CLAUDE_API_KEY_SECRET_ID     = "rsvp/claude-api-key"
+      WEBHOOK_SECRET_ID            = var.webhook_secret_id
+      WEBHOOK_SECRET_ID_2          = "rsvp/webhook-secret-delivery"
+      HOST_PHONE_1                 = "+12702269660"
+      HOST_PHONE_2                 = ""
     }
   }
 }
@@ -306,7 +348,7 @@ resource "aws_lambda_function" "invite_handler" {
   filename         = data.archive_file.lambda_bundle.output_path
   source_code_hash = data.archive_file.lambda_bundle.output_base64sha256
 
-  timeout = 300  # 300 invites × 0.25s pacing + retries ≈ 90s typical, 300s max
+  timeout = 300 # 300 invites × 0.25s pacing + retries ≈ 90s typical, 300s max
 
   environment {
     variables = {
@@ -1410,6 +1452,72 @@ resource "aws_api_gateway_integration_response" "admin_invite_send_options_200" 
   }
 }
 
+# =============================================================================
+# /admin/invite/status — poll async blast job status
+# =============================================================================
+resource "aws_api_gateway_resource" "admin_invite_status" {
+  rest_api_id = aws_api_gateway_rest_api.api.id
+  parent_id   = aws_api_gateway_resource.admin_invite.id
+  path_part   = "status"
+}
+resource "aws_api_gateway_method" "admin_invite_status_get" {
+  rest_api_id   = aws_api_gateway_rest_api.api.id
+  resource_id   = aws_api_gateway_resource.admin_invite_status.id
+  http_method   = "GET"
+  authorization = "NONE"
+}
+resource "aws_api_gateway_integration" "admin_invite_status_get" {
+  rest_api_id             = aws_api_gateway_rest_api.api.id
+  resource_id             = aws_api_gateway_resource.admin_invite_status.id
+  http_method             = aws_api_gateway_method.admin_invite_status_get.http_method
+  integration_http_method = "POST"
+  type                    = "AWS_PROXY"
+  uri                     = aws_lambda_function.invite_handler.invoke_arn
+}
+resource "aws_api_gateway_method_response" "admin_invite_status_get_200" {
+  rest_api_id         = aws_api_gateway_rest_api.api.id
+  resource_id         = aws_api_gateway_resource.admin_invite_status.id
+  http_method         = aws_api_gateway_method.admin_invite_status_get.http_method
+  status_code         = "200"
+  response_parameters = { "method.response.header.Access-Control-Allow-Origin" = true }
+}
+resource "aws_api_gateway_method" "admin_invite_status_options" {
+  rest_api_id   = aws_api_gateway_rest_api.api.id
+  resource_id   = aws_api_gateway_resource.admin_invite_status.id
+  http_method   = "OPTIONS"
+  authorization = "NONE"
+}
+resource "aws_api_gateway_integration" "admin_invite_status_options" {
+  rest_api_id       = aws_api_gateway_rest_api.api.id
+  resource_id       = aws_api_gateway_resource.admin_invite_status.id
+  http_method       = aws_api_gateway_method.admin_invite_status_options.http_method
+  type              = "MOCK"
+  request_templates = { "application/json" = local.cors_mock_request_template }
+}
+resource "aws_api_gateway_method_response" "admin_invite_status_options_200" {
+  rest_api_id = aws_api_gateway_rest_api.api.id
+  resource_id = aws_api_gateway_resource.admin_invite_status.id
+  http_method = aws_api_gateway_method.admin_invite_status_options.http_method
+  status_code = "200"
+  response_parameters = {
+    "method.response.header.Access-Control-Allow-Origin"  = true
+    "method.response.header.Access-Control-Allow-Methods" = true
+    "method.response.header.Access-Control-Allow-Headers" = true
+  }
+}
+resource "aws_api_gateway_integration_response" "admin_invite_status_options_200" {
+  rest_api_id = aws_api_gateway_rest_api.api.id
+  resource_id = aws_api_gateway_resource.admin_invite_status.id
+  http_method = aws_api_gateway_method.admin_invite_status_options.http_method
+  status_code = aws_api_gateway_method_response.admin_invite_status_options_200.status_code
+  response_parameters = {
+    "method.response.header.Access-Control-Allow-Origin"  = local.cors_allow_origin_expr
+    "method.response.header.Access-Control-Allow-Methods" = "'GET,OPTIONS'"
+    "method.response.header.Access-Control-Allow-Headers" = local.cors_headers
+  }
+}
+
+
 # -----------------------------
 # CORS OPTIONS — missing endpoints (batch fix)
 # -----------------------------
@@ -1421,10 +1529,10 @@ resource "aws_api_gateway_method" "admin_event_options" {
   authorization = "NONE"
 }
 resource "aws_api_gateway_integration" "admin_event_options" {
-  rest_api_id = aws_api_gateway_rest_api.api.id
-  resource_id = aws_api_gateway_resource.admin_event.id
-  http_method = aws_api_gateway_method.admin_event_options.http_method
-  type        = "MOCK"
+  rest_api_id       = aws_api_gateway_rest_api.api.id
+  resource_id       = aws_api_gateway_resource.admin_event.id
+  http_method       = aws_api_gateway_method.admin_event_options.http_method
+  type              = "MOCK"
   request_templates = { "application/json" = local.cors_mock_request_template }
 }
 resource "aws_api_gateway_method_response" "admin_event_options_200" {
@@ -1457,10 +1565,10 @@ resource "aws_api_gateway_method" "admin_members_gender_options" {
   authorization = "NONE"
 }
 resource "aws_api_gateway_integration" "admin_members_gender_options" {
-  rest_api_id = aws_api_gateway_rest_api.api.id
-  resource_id = aws_api_gateway_resource.admin_members_gender.id
-  http_method = aws_api_gateway_method.admin_members_gender_options.http_method
-  type        = "MOCK"
+  rest_api_id       = aws_api_gateway_rest_api.api.id
+  resource_id       = aws_api_gateway_resource.admin_members_gender.id
+  http_method       = aws_api_gateway_method.admin_members_gender_options.http_method
+  type              = "MOCK"
   request_templates = { "application/json" = local.cors_mock_request_template }
 }
 resource "aws_api_gateway_method_response" "admin_members_gender_options_200" {
@@ -1493,10 +1601,10 @@ resource "aws_api_gateway_method" "admin_members_tier_options" {
   authorization = "NONE"
 }
 resource "aws_api_gateway_integration" "admin_members_tier_options" {
-  rest_api_id = aws_api_gateway_rest_api.api.id
-  resource_id = aws_api_gateway_resource.admin_members_tier.id
-  http_method = aws_api_gateway_method.admin_members_tier_options.http_method
-  type        = "MOCK"
+  rest_api_id       = aws_api_gateway_rest_api.api.id
+  resource_id       = aws_api_gateway_resource.admin_members_tier.id
+  http_method       = aws_api_gateway_method.admin_members_tier_options.http_method
+  type              = "MOCK"
   request_templates = { "application/json" = local.cors_mock_request_template }
 }
 resource "aws_api_gateway_method_response" "admin_members_tier_options_200" {
@@ -1529,10 +1637,10 @@ resource "aws_api_gateway_method" "admin_members_attendance_options" {
   authorization = "NONE"
 }
 resource "aws_api_gateway_integration" "admin_members_attendance_options" {
-  rest_api_id = aws_api_gateway_rest_api.api.id
-  resource_id = aws_api_gateway_resource.admin_members_attendance.id
-  http_method = aws_api_gateway_method.admin_members_attendance_options.http_method
-  type        = "MOCK"
+  rest_api_id       = aws_api_gateway_rest_api.api.id
+  resource_id       = aws_api_gateway_resource.admin_members_attendance.id
+  http_method       = aws_api_gateway_method.admin_members_attendance_options.http_method
+  type              = "MOCK"
   request_templates = { "application/json" = local.cors_mock_request_template }
 }
 resource "aws_api_gateway_method_response" "admin_members_attendance_options_200" {
@@ -1565,10 +1673,10 @@ resource "aws_api_gateway_method" "event_current_options" {
   authorization = "NONE"
 }
 resource "aws_api_gateway_integration" "event_current_options" {
-  rest_api_id = aws_api_gateway_rest_api.api.id
-  resource_id = aws_api_gateway_resource.event_current.id
-  http_method = aws_api_gateway_method.event_current_options.http_method
-  type        = "MOCK"
+  rest_api_id       = aws_api_gateway_rest_api.api.id
+  resource_id       = aws_api_gateway_resource.event_current.id
+  http_method       = aws_api_gateway_method.event_current_options.http_method
+  type              = "MOCK"
   request_templates = { "application/json" = local.cors_mock_request_template }
 }
 resource "aws_api_gateway_method_response" "event_current_options_200" {
@@ -1601,10 +1709,10 @@ resource "aws_api_gateway_method" "event_public_options" {
   authorization = "NONE"
 }
 resource "aws_api_gateway_integration" "event_public_options" {
-  rest_api_id = aws_api_gateway_rest_api.api.id
-  resource_id = aws_api_gateway_resource.event.id
-  http_method = aws_api_gateway_method.event_public_options.http_method
-  type        = "MOCK"
+  rest_api_id       = aws_api_gateway_rest_api.api.id
+  resource_id       = aws_api_gateway_resource.event.id
+  http_method       = aws_api_gateway_method.event_public_options.http_method
+  type              = "MOCK"
   request_templates = { "application/json" = local.cors_mock_request_template }
 }
 resource "aws_api_gateway_method_response" "event_public_options_200" {

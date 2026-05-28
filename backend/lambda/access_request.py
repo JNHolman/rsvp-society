@@ -137,28 +137,36 @@ def handler(event, context):
         )
 
         # Notify hosts of new pending member.
-        # Single slot per host: eventId = pending_approval:{host_phone}.
-        # Last signup wins — if multiple people sign up before the host replies,
-        # only the most recent one is in the approval slot. This is intentional
-        # at RSVP Society scale where signups trickle in, not burst.
-        # sms_handler._get_pending_approval does a direct GetItem on this key.
+        # Writes to rsvp-pending-approvals table (pk=hostPhone, sk=memberPhone).
+        # sms_handler reads from the same table via Query on hostPhone pk.
         try:
             sms_enabled = (os.getenv("SMS_ENABLED", "false") or "").lower() == "true"
             host_phones = [p for p in [os.getenv("HOST_PHONE_1", ""), os.getenv("HOST_PHONE_2", "")] if p]
             if sms_enabled and host_phones and (member.get("status") or "PENDING") == "PENDING":
                 display_name = f"{name} {last_name}".strip()
-                events_table = boto3.resource("dynamodb").Table(os.getenv("EVENTS_TABLE_NAME", "rsvp-events"))
+                # Use dedicated pending-approvals table — NOT rsvp-events
+                approvals_table = boto3.resource("dynamodb").Table(
+                    os.getenv("PENDING_APPROVALS_TABLE_NAME", "rsvp-pending-approvals")
+                )
                 from datetime import datetime, timezone
+                import random as _rnd
+                now_iso = datetime.now(timezone.utc).isoformat(timespec="seconds")
+                # TTL: expire approval records after 7 days
+                import time as _time
+                expires_at = int(_time.time()) + (7 * 24 * 60 * 60)
                 for hp in host_phones:
                     try:
-                        events_table.put_item(Item={
-                            "eventId": f"pending_approval:{hp}",
-                            "memberPhone": phone_e164,
-                            "memberName": display_name,
-                            "hostPhone": hp,
-                            "storedAt": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                        approval_code = "".join([str(_rnd.randint(0, 9)) for _ in range(6)])
+                        approvals_table.put_item(Item={
+                            "hostPhone":    hp,
+                            "memberPhone":  phone_e164,
+                            "memberName":   display_name,
+                            "approvalCode": approval_code,
+                            "status":       "PENDING",
+                            "storedAt":     now_iso,
+                            "expiresAt":    expires_at,
                         })
-                        send_sms(hp, f"New request: {display_name}\nY to approve, N to deny")
+                        send_sms(hp, f"New request: {display_name} [{approval_code}]\nReply Y {approval_code} to approve, N {approval_code} to deny")
                     except Exception:
                         logger.exception("access_request: host notification failed to %s", hp[-4:])
         except Exception:

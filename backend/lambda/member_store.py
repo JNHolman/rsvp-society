@@ -6,8 +6,156 @@ from typing import Any, Dict, List, Optional
 
 import boto3
 from boto3.dynamodb.conditions import Key as DKey
+from boto3.dynamodb.types import TypeSerializer
 
 logger = logging.getLogger()
+
+# ── Member/Invite State Machine ──────────────────────────────────────────────
+# Formal definition of every status: what causes it, what it blocks,
+# what analytics it feeds, whether Jade can engage the member.
+# This is the single source of truth for state behavior across the system.
+
+INVITE_STATUS_RULES = {
+    "INVITED": {
+        "description":        "Invite SMS was successfully delivered",
+        "entered_by":         "invite_handler after SMS confirmed sent",
+        "counts_as_invited":  True,
+        "blocks_future_wave": True,   # already got an invite — skip
+        "jade_can_engage":    True,
+        "can_receive_logistics": False,  # venue gated by revealVenue
+        "can_check_in":       False,
+        "counts_in_analytics": True,
+    },
+    "CONFIRMED": {
+        "description":        "Member replied YES and confirmed attendance",
+        "entered_by":         "sms_handler on YES/CONFIRM keyword",
+        "counts_as_invited":  True,
+        "blocks_future_wave": True,
+        "jade_can_engage":    True,
+        "can_receive_logistics": True,  # full venue/address unlocked
+        "can_check_in":       True,
+        "counts_in_analytics": True,
+    },
+    "DECLINED": {
+        "description":        "Member replied NO and declined",
+        "entered_by":         "sms_handler on NO/DECLINE keyword",
+        "counts_as_invited":  True,
+        "blocks_future_wave": True,   # respected their decline
+        "jade_can_engage":    False,
+        "can_receive_logistics": False,
+        "can_check_in":       False,
+        "counts_in_analytics": True,
+    },
+    "ATTENDED": {
+        "description":        "Member checked in at the door",
+        "entered_by":         "member_store.record_attendance(attended=True)",
+        "counts_as_invited":  True,
+        "blocks_future_wave": True,
+        "jade_can_engage":    True,
+        "can_receive_logistics": True,
+        "can_check_in":       False,  # already checked in
+        "counts_in_analytics": True,
+        "feeds_invite_score": True,   # +attendedCount, improves tier
+    },
+    "NO_SHOW": {
+        "description":        "Confirmed but did not check in by event end",
+        "entered_by":         "member_store.record_attendance(attended=False)",
+        "counts_as_invited":  True,
+        "blocks_future_wave": True,
+        "jade_can_engage":    False,
+        "can_receive_logistics": False,
+        "can_check_in":       False,
+        "counts_in_analytics": True,
+        "feeds_invite_score": True,   # +noShowCount, degrades tier
+    },
+    "SKIPPED_CONSENT": {
+        "description":        "Member has no SMS opt-in — invite row written but SMS not sent",
+        "entered_by":         "invite_handler when smsOptIn=False",
+        "counts_as_invited":  False,  # never reached — does NOT count
+        "blocks_future_wave": False,  # eligible for retry if they opt in
+        "jade_can_engage":    False,
+        "can_receive_logistics": False,
+        "can_check_in":       False,
+        "counts_in_analytics": False,
+    },
+    "FAILED": {
+        "description":        "SMS send failed after all retries",
+        "entered_by":         "invite_handler after rate-limit retry exhaustion",
+        "counts_as_invited":  False,  # never reached — does NOT count
+        "blocks_future_wave": False,  # eligible for retry in next wave
+        "jade_can_engage":    False,
+        "can_receive_logistics": False,
+        "can_check_in":       False,
+        "counts_in_analytics": False,
+    },
+    "DELETED": {
+        "description":        "Tombstoned — PII wiped, row kept for integrity",
+        "entered_by":         "admin_member_routes on DELETE",
+        "counts_as_invited":  False,
+        "blocks_future_wave": False,
+        "jade_can_engage":    False,
+        "can_receive_logistics": False,
+        "can_check_in":       False,
+        "counts_in_analytics": False,
+    },
+}
+
+MEMBER_STATUS_RULES = {
+    "PENDING": {
+        "description":        "Applied — waiting for host approval",
+        "entered_by":         "access_request on form submission",
+        "can_be_invited":     False,
+        "jade_can_engage":    True,   # Jade handles inquiries
+        "can_receive_event_info": False,
+    },
+    "APPROVED": {
+        "description":        "Approved by host — eligible for invite waves",
+        "entered_by":         "admin action or host Y code",
+        "can_be_invited":     True,
+        "jade_can_engage":    True,
+        "can_receive_event_info": False,  # no logistics until invited/confirmed
+    },
+    "DENIED": {
+        "description":        "Denied by host — not eligible",
+        "entered_by":         "admin action or host N code",
+        "can_be_invited":     False,
+        "jade_can_engage":    False,
+        "can_receive_event_info": False,
+    },
+}
+
+# States excluded from analytics invite counts
+ANALYTICS_EXCLUDE_STATUSES = frozenset({"SKIPPED_CONSENT", "FAILED", "DELETED"})
+
+# States that block a member from future invite waves
+WAVE_BLOCK_STATUSES = frozenset({"INVITED", "CONFIRMED", "DECLINED", "ATTENDED", "NO_SHOW"})
+
+# States where Jade should share full logistics
+LOGISTICS_ELIGIBLE_STATUSES = frozenset({"CONFIRMED", "ATTENDED"})
+
+# Family of statuses that represent a completed confirmation (used for analytics + capacity math)
+CONFIRMED_FAMILY_STATUSES = frozenset({"CONFIRMED", "ATTENDED", "NO_SHOW"})
+
+# Statuses eligible for check-in (ATTENDED transition)
+# Strict RSVP Society: only CONFIRMED members can check in.
+# INVITED (not yet confirmed) cannot check in — must confirm first.
+# This matches the INVITE_STATUS_RULES["INVITED"]["can_check_in"] = False rule above.
+CHECKIN_ELIGIBLE_STATUSES = frozenset({"CONFIRMED"})
+
+# Only CONFIRMED can become NO_SHOW
+NO_SHOW_ELIGIBLE_STATUSES = frozenset({"CONFIRMED"})
+
+# Invite statuses that accept a confirmation (YES reply)
+CONFIRMABLE_INVITE_STATUSES = frozenset({"INVITED"})
+
+# Invite rows in these statuses should be overwritten on retry
+# (never reached the member — eligible for the next wave)
+RETRYABLE_INVITE_STATUSES = frozenset({"SKIPPED_CONSENT", "FAILED", "DELETED"})
+
+# Statuses that mean a member is actively in the current wave
+# Used by Jade context to determine what info to share
+JADE_IN_WAVE_STATUSES = frozenset({"INVITED", "CONFIRMED", "ATTENDED"})
+
 def _ddb():
     return boto3.resource("dynamodb")
 
@@ -269,81 +417,202 @@ def _invites_table():
     return boto3.resource("dynamodb").Table(name)
 
 
-def record_attendance(phone: str, attended: bool, event_id: str = "current") -> bool:
-    """
-    Record attendance for a member at a specific event.
+# Structured attendance result codes
+ATTENDANCE_OK               = "OK"
+ATTENDANCE_ALREADY          = "ALREADY_CHECKED_IN"
+ATTENDANCE_NOT_CONFIRMED    = "NOT_CONFIRMED"
+ATTENDANCE_INVITE_NOT_FOUND = "INVITE_NOT_FOUND"
+ATTENDANCE_INVALID_STATUS   = "INVALID_STATUS"
+ATTENDANCE_DDB_ERROR        = "DDB_ERROR"
 
-    Uses rsvp-checkins as an idempotent write guard keyed on (eventId, phone):
-    - First check-in → writes member counters, returns True
-    - Repeat tap     → ConditionalCheckFailedException, no counter change, returns False
+
+def _ddb_av(value):
+    """Serialize a Python value to a DynamoDB AttributeValue for transactions."""
+    return TypeSerializer().serialize(value)
+
+
+def _ddb_key(**kwargs) -> Dict[str, Any]:
+    return {k: _ddb_av(v) for k, v in kwargs.items()}
+
+
+def _attendance_failure_reason(phone_e164: str, event_id: str, *, attended: bool) -> dict:
+    """
+    Diagnose a failed transactional attendance/no-show write.
+    This keeps the admin response useful without trusting partial writes.
+    """
+    try:
+        existing = _checkins_table().get_item(
+            Key={"eventId": event_id, "phone": phone_e164}
+        ).get("Item")
+        if existing:
+            return {"ok": False, "result": ATTENDANCE_ALREADY, "reason": "Already checked in"}
+    except Exception:
+        logger.exception("record_attendance: checkin diagnostic failed phone=...%s", phone_e164[-4:])
+
+    try:
+        invite = _invites_table().get_item(
+            Key={"eventId": event_id, "phone": phone_e164}
+        ).get("Item")
+    except Exception:
+        logger.exception("record_attendance: invite diagnostic failed phone=...%s", phone_e164[-4:])
+        return {"ok": False, "result": ATTENDANCE_DDB_ERROR, "reason": "Database error while checking invite status"}
+
+    if not invite:
+        return {"ok": False, "result": ATTENDANCE_INVITE_NOT_FOUND, "reason": "Invite not found"}
+
+    status = (invite.get("status") or "").upper()
+    if attended and status == "ATTENDED":
+        return {"ok": False, "result": ATTENDANCE_ALREADY, "reason": "Already checked in"}
+    if not attended and status == "NO_SHOW":
+        return {"ok": False, "result": ATTENDANCE_INVALID_STATUS, "reason": "Already marked no-show"}
+
+    return {
+        "ok": False,
+        "result": ATTENDANCE_NOT_CONFIRMED,
+        "reason": f"Invite status is {status or 'missing'}; CONFIRMED required",
+    }
+
+
+def record_attendance(phone: str, attended: bool, event_id: str = "current") -> dict:
+    """
+    Record attendance/no-show for a member at a specific event.
+    Returns {"ok": bool, "result": ATTENDANCE_* constant, "reason": str}.
+
+    10/10 state-integrity rule:
+      - Check-in is transactional: invite status, check-in row, and member counter
+        succeed together or fail together.
+      - No-show is transactional: invite status and noShowCount succeed together
+        or fail together.
+      - Only CONFIRMED can become ATTENDED or NO_SHOW.
     """
     from botocore.exceptions import ClientError
 
     phone_e164 = normalize_phone(phone)
+    now = _now_iso()
+    client = _ddb().meta.client
+
+    members_table = _table().name
+    invites_table = _invites_table().name
+    checkins_table = _checkins_table().name
 
     if attended:
-        # ── Physical check-in ─────────────────────────────────────────────────
-        # Write an idempotent checkin row. ConditionalCheckFailedException means
-        # this person was already tapped in — return False so the caller knows
-        # not to double-increment counters or show a duplicate toast.
-        ct = _checkins_table()
+        # Fast path for clearer door/admin UX; the transaction below also protects races.
         try:
-            ct.put_item(
-                Item={
-                    "eventId":     event_id,
-                    "phone":       phone_e164,
-                    "checkedInAt": _now_iso(),
-                    "ttl":         _ttl_90_days(),
+            existing = _checkins_table().get_item(
+                Key={"eventId": event_id, "phone": phone_e164}
+            ).get("Item")
+            if existing:
+                return {"ok": False, "result": ATTENDANCE_ALREADY, "reason": "Already checked in"}
+        except Exception:
+            logger.exception("record_attendance: checkin lookup failed phone=...%s", phone_e164[-4:])
+
+        try:
+            client.transact_write_items(
+                TransactItems=[
+                    {
+                        "Update": {
+                            "TableName": invites_table,
+                            "Key": _ddb_key(eventId=event_id, phone=phone_e164),
+                            "UpdateExpression": "SET attendedAt = :now, #s = :attended",
+                            "ConditionExpression": "attribute_exists(phone) AND #s = :confirmed",
+                            "ExpressionAttributeNames": {"#s": "status"},
+                            "ExpressionAttributeValues": {
+                                ":now": _ddb_av(now),
+                                ":attended": _ddb_av("ATTENDED"),
+                                ":confirmed": _ddb_av("CONFIRMED"),
+                            },
+                        }
+                    },
+                    {
+                        "Put": {
+                            "TableName": checkins_table,
+                            "Item": {
+                                "eventId": _ddb_av(event_id),
+                                "phone": _ddb_av(phone_e164),
+                                "checkedInAt": _ddb_av(now),
+                                "ttl": _ddb_av(_ttl_90_days()),
+                            },
+                            "ConditionExpression": "attribute_not_exists(phone)",
+                        }
+                    },
+                    {
+                        "Update": {
+                            "TableName": members_table,
+                            "Key": _ddb_key(phone=phone_e164),
+                            "UpdateExpression": (
+                                "SET attendedCount = if_not_exists(attendedCount, :zero) + :one, "
+                                "lastSeenAt = :ls"
+                            ),
+                            "ExpressionAttributeValues": {
+                                ":zero": _ddb_av(0),
+                                ":one": _ddb_av(1),
+                                ":ls": _ddb_av(now),
+                            },
+                        }
+                    },
+                ]
+            )
+            return {"ok": True, "result": ATTENDANCE_OK, "reason": ""}
+        except ClientError as ce:
+            code = ce.response.get("Error", {}).get("Code")
+            if code in {"TransactionCanceledException", "ConditionalCheckFailedException"}:
+                return _attendance_failure_reason(phone_e164, event_id, attended=True)
+            logger.exception("record_attendance: transactional check-in failed phone=...%s", phone_e164[-4:])
+            return {"ok": False, "result": ATTENDANCE_DDB_ERROR, "reason": "Database error during check-in"}
+        except Exception:
+            logger.exception("record_attendance: transactional check-in failed phone=...%s", phone_e164[-4:])
+            return {"ok": False, "result": ATTENDANCE_DDB_ERROR, "reason": "Unexpected error during check-in"}
+
+    # No-show path
+    try:
+        existing = _checkins_table().get_item(
+            Key={"eventId": event_id, "phone": phone_e164}
+        ).get("Item")
+        if existing:
+            return {"ok": False, "result": ATTENDANCE_ALREADY, "reason": "Already checked in — cannot mark no-show"}
+    except Exception:
+        logger.exception("record_attendance: checkin lookup failed phone=...%s", phone_e164[-4:])
+
+    try:
+        client.transact_write_items(
+            TransactItems=[
+                {
+                    "Update": {
+                        "TableName": invites_table,
+                        "Key": _ddb_key(eventId=event_id, phone=phone_e164),
+                        "UpdateExpression": "SET noShowAt = :now, #s = :noshow",
+                        "ConditionExpression": "attribute_exists(phone) AND #s = :confirmed",
+                        "ExpressionAttributeNames": {"#s": "status"},
+                        "ExpressionAttributeValues": {
+                            ":now": _ddb_av(now),
+                            ":noshow": _ddb_av("NO_SHOW"),
+                            ":confirmed": _ddb_av("CONFIRMED"),
+                        },
+                    }
                 },
-                ConditionExpression="attribute_not_exists(phone)",
-            )
-        except ClientError as e:
-            if e.response["Error"]["Code"] == "ConditionalCheckFailedException":
-                return False
-            raise
-
-        t = _table()
-        t.update_item(
-            Key={"phone": phone_e164},
-            UpdateExpression=(
-                "SET attendedCount = if_not_exists(attendedCount, :zero) + :one, "
-                "lastSeenAt = :ls"
-            ),
-            ExpressionAttributeValues={":zero": 0, ":one": 1, ":ls": _now_iso()},
+                {
+                    "Update": {
+                        "TableName": members_table,
+                        "Key": _ddb_key(phone=phone_e164),
+                        "UpdateExpression": "SET noShowCount = if_not_exists(noShowCount, :zero) + :one",
+                        "ExpressionAttributeValues": {
+                            ":zero": _ddb_av(0),
+                            ":one": _ddb_av(1),
+                        },
+                    }
+                },
+            ]
         )
-        try:
-            _invites_table().update_item(
-                Key={"eventId": event_id, "phone": phone_e164},
-                UpdateExpression="SET attendedAt = :now",
-                ExpressionAttributeValues={":now": _now_iso()},
-            )
-        except Exception:
-            logger.exception("record_attendance: invite attendedAt write failed phone=...%s", phone_e164[-4:])
-
-    else:
-        # ── No Show ───────────────────────────────────────────────────────────
-        # Only stamp if they haven't already been checked in. A checked-in
-        # member has a row in rsvp-checkins — if that exists, reject the
-        # no-show mark so we don't end up with conflicting state.
-        try:
-            ct = _checkins_table()
-            existing_checkin = ct.get_item(Key={"eventId": event_id, "phone": phone_e164}).get("Item")
-            if existing_checkin:
-                logger.info("record_attendance: no-show blocked — already checked in phone=...%s event=%s", phone_e164[-4:], event_id)
-                return False
-        except Exception:
-            logger.exception("record_attendance: checkin lookup failed during no-show phone=...%s", phone_e164[-4:])
-
-        try:
-            _invites_table().update_item(
-                Key={"eventId": event_id, "phone": phone_e164},
-                UpdateExpression="SET noShowAt = :now",
-                ExpressionAttributeValues={":now": _now_iso()},
-            )
-        except Exception:
-            logger.exception("record_attendance: no-show stamp failed phone=...%s", phone_e164[-4:])
-
-    return True
+        return {"ok": True, "result": ATTENDANCE_OK, "reason": ""}
+    except ClientError as ce:
+        code = ce.response.get("Error", {}).get("Code")
+        if code in {"TransactionCanceledException", "ConditionalCheckFailedException"}:
+            return _attendance_failure_reason(phone_e164, event_id, attended=False)
+        logger.exception("record_attendance: transactional no-show failed phone=...%s", phone_e164[-4:])
+        return {"ok": False, "result": ATTENDANCE_DDB_ERROR, "reason": "Database error during no-show"}
+    except Exception:
+        logger.exception("record_attendance: transactional no-show failed phone=...%s", phone_e164[-4:])
+        return {"ok": False, "result": ATTENDANCE_DDB_ERROR, "reason": "Unexpected error during no-show"}
 
 
 def claim_welcome_send(phone: str) -> bool:

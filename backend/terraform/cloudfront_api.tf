@@ -1,3 +1,27 @@
+# CloudFront Function — dynamic CORS origin header
+# Allows both https://rsvpsociety.com and https://www.rsvpsociety.com
+# without changing 14 API Gateway MOCK integrations
+resource "aws_cloudfront_function" "cors_origin" {
+  name    = "rsvp-cors-allow-origin"
+  runtime = "cloudfront-js-2.0"
+  comment = "Set Access-Control-Allow-Origin dynamically based on request Origin header"
+  publish = true
+  code    = <<-EOT
+    function handler(event) {
+      var response = event.response;
+      var request  = event.request;
+      var headers  = response.headers;
+      var origin   = request.headers['origin'] ? request.headers['origin'].value : '';
+      var allowed  = ['https://rsvpsociety.com', 'https://www.rsvpsociety.com'];
+      if (allowed.indexOf(origin) !== -1) {
+        headers['access-control-allow-origin'] = { value: origin };
+        headers['vary'] = { value: 'Origin' };
+      }
+      return response;
+    }
+  EOT
+}
+
 # ─────────────────────────────────────────────────────────────────────────────
 # ACM Certificate for api.rsvpsociety.com
 # Must be in us-east-1 for CloudFront
@@ -62,9 +86,14 @@ resource "aws_cloudfront_distribution" "api" {
     target_origin_id       = local.api_gateway_origin_id
     viewer_protocol_policy = "redirect-to-https"
     compress               = true
-    min_ttl                = 0
-    default_ttl            = 0
-    max_ttl                = 0
+
+    function_association {
+      event_type   = "viewer-response"
+      function_arn = aws_cloudfront_function.cors_origin.arn
+    }
+    min_ttl     = 0
+    default_ttl = 0
+    max_ttl     = 0
 
     forwarded_values {
       query_string = true

@@ -59,17 +59,22 @@ resource "aws_iam_role_policy" "lambda_access_request" {
       { Effect = "Allow", Action = local.log_actions, Resource = "*" },
       {
         Effect   = "Allow"
-        Action   = ["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:UpdateItem"]
+        Action   = ["dynamodb:PutItem"]
+        Resource = [local.pending_approvals_arn]
+      },
+      {
+        Effect   = "Allow"
+        Action   = ["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:UpdateItem", "dynamodb:Scan"]
         Resource = [local.members_arn]
       },
       {
         Effect   = "Allow"
-        Action   = ["dynamodb:PutItem"]
+        Action   = ["dynamodb:PutItem", "dynamodb:Query"]
         Resource = [local.events_arn]
       },
       {
-        Effect   = "Allow"
-        Action   = ["secretsmanager:GetSecretValue"]
+        Effect = "Allow"
+        Action = ["secretsmanager:GetSecretValue"]
         Resource = [
           "arn:aws:secretsmanager:${local.region}:${local.account}:secret:${var.quo_api_key_secret_id}*",
         ]
@@ -99,6 +104,7 @@ resource "aws_iam_role_policy" "lambda_admin_handler" {
           "dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:UpdateItem",
           "dynamodb:DeleteItem", "dynamodb:Query", "dynamodb:Scan",
           "dynamodb:BatchGetItem", "dynamodb:BatchWriteItem",
+          "dynamodb:TransactWriteItems",
         ]
         Resource = [
           local.members_arn,
@@ -112,8 +118,8 @@ resource "aws_iam_role_policy" "lambda_admin_handler" {
         ]
       },
       {
-        Effect   = "Allow"
-        Action   = ["secretsmanager:GetSecretValue"]
+        Effect = "Allow"
+        Action = ["secretsmanager:GetSecretValue"]
         Resource = [
           "arn:aws:secretsmanager:${local.region}:${local.account}:secret:${var.admin_token_secret_id}*",
           "arn:aws:secretsmanager:${local.region}:${local.account}:secret:${var.quo_api_key_secret_id}*",
@@ -154,12 +160,17 @@ resource "aws_iam_role_policy" "lambda_sms_handler" {
       },
       {
         Effect   = "Allow"
-        Action   = ["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:DeleteItem", "dynamodb:UpdateItem"]
+        Action   = ["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:DeleteItem", "dynamodb:UpdateItem", "dynamodb:Query"]
         Resource = [local.events_arn]
       },
       {
         Effect   = "Allow"
-        Action   = ["secretsmanager:GetSecretValue"]
+        Action   = ["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:DeleteItem", "dynamodb:Query"]
+        Resource = [local.pending_approvals_arn]
+      },
+      {
+        Effect = "Allow"
+        Action = ["secretsmanager:GetSecretValue"]
         Resource = [
           "arn:aws:secretsmanager:${local.region}:${local.account}:secret:${var.quo_api_key_secret_id}*",
           "arn:aws:secretsmanager:${local.region}:${local.account}:secret:rsvp/claude-api-key*",
@@ -193,13 +204,18 @@ resource "aws_iam_role_policy" "lambda_invite_handler" {
       },
       {
         Effect   = "Allow"
-        Action   = ["dynamodb:PutItem", "dynamodb:GetItem", "dynamodb:UpdateItem", "dynamodb:Query", "dynamodb:Scan"]
+        Action   = ["dynamodb:PutItem", "dynamodb:GetItem", "dynamodb:UpdateItem", "dynamodb:DeleteItem", "dynamodb:Query", "dynamodb:Scan"]
         Resource = [local.invites_arn, local.invites_index]
       },
       {
         Effect   = "Allow"
-        Action   = ["dynamodb:GetItem", "dynamodb:UpdateItem"]
+        Action   = ["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:UpdateItem"]
         Resource = [local.events_arn]
+      },
+      {
+        Effect   = "Allow"
+        Action   = ["lambda:InvokeFunction"]
+        Resource = "arn:aws:lambda:${local.region}:${local.account}:function:rsvp-invite-handler"
       },
       {
         Effect   = "Allow"
@@ -207,8 +223,8 @@ resource "aws_iam_role_policy" "lambda_invite_handler" {
         Resource = [local.audit_log_arn]
       },
       {
-        Effect   = "Allow"
-        Action   = ["secretsmanager:GetSecretValue"]
+        Effect = "Allow"
+        Action = ["secretsmanager:GetSecretValue"]
         Resource = [
           "arn:aws:secretsmanager:${local.region}:${local.account}:secret:${var.admin_token_secret_id}*",
           "arn:aws:secretsmanager:${local.region}:${local.account}:secret:${var.quo_api_key_secret_id}*",
@@ -263,8 +279,8 @@ resource "aws_iam_role_policy" "lambda_reminder_handler" {
         Resource = [local.audit_log_arn]
       },
       {
-        Effect   = "Allow"
-        Action   = ["secretsmanager:GetSecretValue"]
+        Effect = "Allow"
+        Action = ["secretsmanager:GetSecretValue"]
         Resource = [
           "arn:aws:secretsmanager:${local.region}:${local.account}:secret:${var.admin_token_secret_id}*",
           "arn:aws:secretsmanager:${local.region}:${local.account}:secret:${var.quo_api_key_secret_id}*",
