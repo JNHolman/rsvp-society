@@ -44,6 +44,8 @@ os.environ.setdefault("EVENTS_TABLE_NAME",       "rsvp-events-test")
 os.environ.setdefault("CHECKINS_TABLE_NAME",     "rsvp-checkins-test")
 os.environ.setdefault("EVENT_HISTORY_TABLE_NAME", "rsvp-event-history-test")
 os.environ.setdefault("AUDIT_LOG_TABLE_NAME",    "rsvp-audit-log-test")
+os.environ.setdefault("PENDING_APPROVALS_TABLE_NAME", "rsvp-pending-approvals-test")
+os.environ.setdefault("RSVP_TEST_DISABLE_DDB_TRANSACTIONS", "true")
 os.environ.setdefault("ALLOWED_ORIGINS",         "https://admin.rsvpsociety.com")
 os.environ.setdefault("SMS_ENABLED",             "false")
 os.environ.setdefault("ADMIN_TOKEN_SECRET_ID",   "rsvp/admin-token-test")
@@ -151,6 +153,18 @@ def _create_tables():
         ],
         AttributeDefinitions=[
             {"AttributeName": "actionId", "AttributeType": "S"},
+        ],
+        BillingMode="PAY_PER_REQUEST",
+    )
+    ddb.create_table(
+        TableName="rsvp-pending-approvals-test",
+        KeySchema=[
+            {"AttributeName": "hostPhone", "KeyType": "HASH"},
+            {"AttributeName": "memberPhone", "KeyType": "RANGE"},
+        ],
+        AttributeDefinitions=[
+            {"AttributeName": "hostPhone", "AttributeType": "S"},
+            {"AttributeName": "memberPhone", "AttributeType": "S"},
         ],
         BillingMode="PAY_PER_REQUEST",
     )
@@ -386,12 +400,13 @@ class TestDuplicateAttendance(unittest.TestCase):
             r1 = handler(_event("POST", "/admin/members/attendance", body=body), None)
             b1 = json.loads(r1["body"])
             self.assertEqual(r1["statusCode"], 200)
-            self.assertFalse(b1.get("alreadyCheckedIn"), "first tap must not be flagged")
+            self.assertTrue(b1.get("ok"), f"first tap should succeed: {b1}")
 
             r2 = handler(_event("POST", "/admin/members/attendance", body=body), None)
             b2 = json.loads(r2["body"])
-            self.assertEqual(r2["statusCode"], 200)
-            self.assertTrue(b2.get("alreadyCheckedIn"), "second tap must be flagged as duplicate")
+            self.assertEqual(r2["statusCode"], 409)
+            self.assertFalse(b2.get("ok"), f"second tap should fail: {b2}")
+            self.assertEqual(b2.get("result"), "ALREADY_CHECKED_IN")
 
     def test_attendance_string_false_does_not_check_in(self):
         with mock_aws():
@@ -410,10 +425,10 @@ class TestDuplicateAttendance(unittest.TestCase):
             boto3.resource("dynamodb", region_name="us-east-1").Table(table_name).put_item(Item={"eventId": "current", "date": "2026-04-18"})
 
             resp = handler(_event("POST", "/admin/members/attendance", body={"phone": phone, "attended": "false"}), None)
-            self.assertEqual(resp["statusCode"], 200)
+            self.assertEqual(resp["statusCode"], 400)
             body = json.loads(resp["body"])
-            self.assertFalse(body.get("checkedIn"))
-            self.assertFalse(body.get("alreadyCheckedIn"))
+            self.assertFalse(body.get("ok"))
+            self.assertIn(body.get("result"), {"INVITE_NOT_FOUND", "NOT_CONFIRMED"})
 
 
 
@@ -445,7 +460,7 @@ class TestEventSaveValidation(unittest.TestCase):
     def test_valid_event_saves(self):
         resp = self._save({
             "date":       "2026-04-18",
-            "eventSlug":  "Derby Night",
+            "eventSlug":  "derby-night",
             "capacity":   120,
             "venue":      "The Venue",
             "revealVenue": False,
@@ -453,7 +468,7 @@ class TestEventSaveValidation(unittest.TestCase):
         self.assertEqual(resp["statusCode"], 200)
         body = json.loads(resp["body"])
         self.assertTrue(body["ok"])
-        self.assertEqual(body["event"]["eventSlug"], "Derby Night")
+        self.assertEqual(body["event"]["eventSlug"], "derby-night")
         self.assertEqual(body["event"]["capacity"],  120)
         self.assertIs(body["event"]["revealVenue"],  False)
 
@@ -623,6 +638,7 @@ class TestReminderSchedulePrecision(unittest.TestCase):
                 "event_timezone": "America/New_York",
                 "reminderTiming": "day_before",
                 "day_before_send_time": "17:30",
+                "event_status": "LIVE",
             })
 
             import reminder_handler
@@ -798,17 +814,16 @@ class TestDualHostFinalization(unittest.TestCase):
         import boto3 as b3
         events_t = b3.resource("dynamodb", region_name="us-east-1").Table("rsvp-events-test")
         now = datetime.now(timezone.utc).isoformat(timespec="seconds")
-        # Queue key format: pending_approval:{host_phone}:{member_phone}
-        # Each signup gets its own row — no last-signup-wins overwrite
+        pending_t = boto3.resource("dynamodb", region_name="us-east-1").Table("rsvp-pending-approvals-test")
+        # Dedicated pending approvals table: pk=hostPhone, sk=memberPhone
         for host in [host1, "+15559990002"]:
-            events_t.put_item(Item={
-                "eventId": f"pending_approval:{host}:{member_phone}",
+            pending_t.put_item(Item={
+                "hostPhone": host,
                 "memberPhone": member_phone,
                 "memberName": "Test User",
-                "hostPhone": host,
                 "storedAt": now,
                 "status": "PENDING",
-                "approvalCode": "1234",  # fixed code for test predictability
+                "approvalCode": "123456",  # fixed code for test predictability
             })
 
     def test_second_host_cannot_reverse_after_first_approves(self):
@@ -831,12 +846,12 @@ class TestDualHostFinalization(unittest.TestCase):
             with patch("sms_handler.send_sms", return_value=True):
                 # Host 1 approves
                 sms_handler.handler(_event("POST", "/sms/inbound", {
-                    "from": "+15559990001", "body": "Y 1234"
+                    "from": "+15559990001", "body": "Y 123456"
                 }, token=""), None)
 
                 # Host 2 tries to deny — should be ignored (record finalized)
                 sms_handler.handler(_event("POST", "/sms/inbound", {
-                    "from": "+15559990002", "body": "N 1234"
+                    "from": "+15559990002", "body": "N 123456"
                 }, token=""), None)
 
             import member_store
@@ -909,6 +924,7 @@ class TestInviteWriteWithoutSend(unittest.TestCase):
                 "date": "2026-04-05",
                 "startTime": "21:00",
                 "venue": "The Venue",
+                "event_status": "LIVE",
             })
 
             # Invite record is always written before SMS attempt (write-before-send contract).
@@ -920,10 +936,23 @@ class TestInviteWriteWithoutSend(unittest.TestCase):
                 UpdateExpression="SET smsOptIn = :f",
                 ExpressionAttributeValues={":f": False},
             )
+            old_sms_enabled = os.environ.get("SMS_ENABLED")
+            os.environ["SMS_ENABLED"] = "true"
             import invite_handler
             sent_to = []
             with patch.object(invite_handler, "send_sms", side_effect=lambda p, m: sent_to.append(p) or True):
-                invite_handler.handle_send(
+                invite_handler._write_job("test-job", {
+                    "confirmSend": True,
+                    "eventId": "current",
+                    "capacity": 10,
+                    "waveNumber": 1,
+                    "waveSize": 1,
+                    "femalePercent": 60,
+                    "tier2BufferPct": 30,
+                    "phones": ["+15025550020"],
+                    "removedPhones": [],
+                }, "https://admin.rsvpsociety.com")
+                invite_handler._execute_send(
                     body={
                         "confirmSend": True,
                         "eventId": "current",
@@ -937,7 +966,12 @@ class TestInviteWriteWithoutSend(unittest.TestCase):
                     },
                     origin="https://admin.rsvpsociety.com",
                     token="test-token",
+                    job_id="test-job",
                 )
+            if old_sms_enabled is None:
+                os.environ.pop("SMS_ENABLED", None)
+            else:
+                os.environ["SMS_ENABLED"] = old_sms_enabled
 
             invite = ddb.Table("rsvp-event-invites-test").get_item(
                 Key={"eventId": "current", "phone": "+15025550020"}
@@ -1038,7 +1072,7 @@ class TestJadeTicketParkingGate(unittest.TestCase):
         """INVITED member gets no ticket URL — must confirm first."""
         import sms_handler
         fake_ev = {
-            "eventId": "current", "event_label": "Test",
+            "eventId": "current", "eventSlug": "current", "event_label": "Test",
             "date": "2026-06-01", "ticketUrl": "https://posh.vip/test",
             "revealVenue": True, "event_status": "LIVE",
         }
@@ -1049,6 +1083,7 @@ class TestJadeTicketParkingGate(unittest.TestCase):
         })()
         orig_inv = sms_handler._invites_table
         sms_handler._invites_table = lambda: type("T", (), {
+            "query": lambda self, **kw: {"Items": [{"eventId": "current", "phone": "+15550001", "status": "INVITED"}]},
             "get_item": lambda self, **kw: {"Item": {"status": "INVITED"}}
         })()
         try:
@@ -1074,6 +1109,7 @@ class TestJadeTicketParkingGate(unittest.TestCase):
         })()
         orig_inv = sms_handler._invites_table
         sms_handler._invites_table = lambda: type("T", (), {
+            "query": lambda self, **kw: {"Items": [{"eventId": "current", "phone": "+15550001", "status": "INVITED"}]},
             "get_item": lambda self, **kw: {"Item": {"status": "INVITED"}}
         })()
         try:
@@ -1088,7 +1124,7 @@ class TestJadeTicketParkingGate(unittest.TestCase):
         """CONFIRMED member can see ticket URL."""
         import sms_handler
         fake_ev = {
-            "eventId": "current", "event_label": "Test",
+            "eventId": "current", "eventSlug": "current", "event_label": "Test",
             "date": "2026-06-01", "ticketUrl": "https://posh.vip/test",
             "revealVenue": True, "event_status": "LIVE",
         }
@@ -1099,6 +1135,7 @@ class TestJadeTicketParkingGate(unittest.TestCase):
         })()
         orig_inv = sms_handler._invites_table
         sms_handler._invites_table = lambda: type("T", (), {
+            "query": lambda self, **kw: {"Items": []},
             "get_item": lambda self, **kw: {"Item": {"status": "CONFIRMED"}}
         })()
         try:

@@ -91,9 +91,9 @@ resource "aws_cloudfront_distribution" "api" {
       event_type   = "viewer-response"
       function_arn = aws_cloudfront_function.cors_origin.arn
     }
-    min_ttl     = 0
-    default_ttl = 0
-    max_ttl     = 0
+    min_ttl                = 0
+    default_ttl            = 0
+    max_ttl                = 0
 
     forwarded_values {
       query_string = true

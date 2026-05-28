@@ -845,7 +845,7 @@ def _execute_send(body: dict, origin: str, token: str, job_id: str) -> None:
         "smsSent":        sent,
         "failed":         failed,
         "skippedConsent": skipped_consent,
-        "eventId":        event_id,
+        "targetEventId":  event_id,
         "waveNumber":     wave_number,
         # Summary breakdown for admin dashboard
         "breakdown": json.dumps({

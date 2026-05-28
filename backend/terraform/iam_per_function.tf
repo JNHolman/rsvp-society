@@ -73,8 +73,8 @@ resource "aws_iam_role_policy" "lambda_access_request" {
         Resource = [local.events_arn]
       },
       {
-        Effect = "Allow"
-        Action = ["secretsmanager:GetSecretValue"]
+        Effect   = "Allow"
+        Action   = ["secretsmanager:GetSecretValue"]
         Resource = [
           "arn:aws:secretsmanager:${local.region}:${local.account}:secret:${var.quo_api_key_secret_id}*",
         ]
@@ -118,8 +118,8 @@ resource "aws_iam_role_policy" "lambda_admin_handler" {
         ]
       },
       {
-        Effect = "Allow"
-        Action = ["secretsmanager:GetSecretValue"]
+        Effect   = "Allow"
+        Action   = ["secretsmanager:GetSecretValue"]
         Resource = [
           "arn:aws:secretsmanager:${local.region}:${local.account}:secret:${var.admin_token_secret_id}*",
           "arn:aws:secretsmanager:${local.region}:${local.account}:secret:${var.quo_api_key_secret_id}*",
@@ -169,8 +169,8 @@ resource "aws_iam_role_policy" "lambda_sms_handler" {
         Resource = [local.pending_approvals_arn]
       },
       {
-        Effect = "Allow"
-        Action = ["secretsmanager:GetSecretValue"]
+        Effect   = "Allow"
+        Action   = ["secretsmanager:GetSecretValue"]
         Resource = [
           "arn:aws:secretsmanager:${local.region}:${local.account}:secret:${var.quo_api_key_secret_id}*",
           "arn:aws:secretsmanager:${local.region}:${local.account}:secret:rsvp/claude-api-key*",
@@ -223,8 +223,8 @@ resource "aws_iam_role_policy" "lambda_invite_handler" {
         Resource = [local.audit_log_arn]
       },
       {
-        Effect = "Allow"
-        Action = ["secretsmanager:GetSecretValue"]
+        Effect   = "Allow"
+        Action   = ["secretsmanager:GetSecretValue"]
         Resource = [
           "arn:aws:secretsmanager:${local.region}:${local.account}:secret:${var.admin_token_secret_id}*",
           "arn:aws:secretsmanager:${local.region}:${local.account}:secret:${var.quo_api_key_secret_id}*",
@@ -279,8 +279,8 @@ resource "aws_iam_role_policy" "lambda_reminder_handler" {
         Resource = [local.audit_log_arn]
       },
       {
-        Effect = "Allow"
-        Action = ["secretsmanager:GetSecretValue"]
+        Effect   = "Allow"
+        Action   = ["secretsmanager:GetSecretValue"]
         Resource = [
           "arn:aws:secretsmanager:${local.region}:${local.account}:secret:${var.admin_token_secret_id}*",
           "arn:aws:secretsmanager:${local.region}:${local.account}:secret:${var.quo_api_key_secret_id}*",

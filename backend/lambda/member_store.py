@@ -473,6 +473,77 @@ def _attendance_failure_reason(phone_e164: str, event_id: str, *, attended: bool
     }
 
 
+
+def _test_disable_transactions() -> bool:
+    """Unit-test escape hatch: moto's TransactWriteItems condition parser is incomplete."""
+    return (os.getenv("RSVP_TEST_DISABLE_DDB_TRANSACTIONS", "false") or "").lower() == "true"
+
+
+def _record_attendance_non_transactional_for_tests(phone_e164: str, attended: bool, event_id: str, now: str) -> dict:
+    """
+    Strict non-transactional fallback used only in moto tests.
+    Production path still uses DynamoDB TransactWriteItems.
+    """
+    from botocore.exceptions import ClientError
+
+    if attended:
+        try:
+            existing = _checkins_table().get_item(Key={"eventId": event_id, "phone": phone_e164}).get("Item")
+            if existing:
+                return {"ok": False, "result": ATTENDANCE_ALREADY, "reason": "Already checked in"}
+
+            _invites_table().update_item(
+                Key={"eventId": event_id, "phone": phone_e164},
+                UpdateExpression="SET attendedAt = :now, #s = :attended",
+                ConditionExpression="attribute_exists(phone) AND #s = :confirmed",
+                ExpressionAttributeNames={"#s": "status"},
+                ExpressionAttributeValues={":now": now, ":attended": "ATTENDED", ":confirmed": "CONFIRMED"},
+            )
+            _checkins_table().put_item(
+                Item={"eventId": event_id, "phone": phone_e164, "checkedInAt": now, "ttl": _ttl_90_days()},
+                ConditionExpression="attribute_not_exists(phone)",
+            )
+            _table().update_item(
+                Key={"phone": phone_e164},
+                UpdateExpression="SET attendedCount = if_not_exists(attendedCount, :zero) + :one, lastSeenAt = :ls",
+                ConditionExpression="attribute_exists(phone)",
+                ExpressionAttributeValues={":zero": 0, ":one": 1, ":ls": now},
+            )
+            return {"ok": True, "result": ATTENDANCE_OK, "reason": ""}
+        except ClientError as ce:
+            code = ce.response.get("Error", {}).get("Code")
+            if code in {"ConditionalCheckFailedException", "TransactionCanceledException"}:
+                return _attendance_failure_reason(phone_e164, event_id, attended=True)
+            logger.exception("record_attendance test fallback failed phone=...%s", phone_e164[-4:])
+            return {"ok": False, "result": ATTENDANCE_DDB_ERROR, "reason": "Database error during check-in"}
+
+    try:
+        existing = _checkins_table().get_item(Key={"eventId": event_id, "phone": phone_e164}).get("Item")
+        if existing:
+            return {"ok": False, "result": ATTENDANCE_ALREADY, "reason": "Already checked in — cannot mark no-show"}
+
+        _invites_table().update_item(
+            Key={"eventId": event_id, "phone": phone_e164},
+            UpdateExpression="SET noShowAt = :now, #s = :noshow",
+            ConditionExpression="attribute_exists(phone) AND #s = :confirmed",
+            ExpressionAttributeNames={"#s": "status"},
+            ExpressionAttributeValues={":now": now, ":noshow": "NO_SHOW", ":confirmed": "CONFIRMED"},
+        )
+        _table().update_item(
+            Key={"phone": phone_e164},
+            UpdateExpression="SET noShowCount = if_not_exists(noShowCount, :zero) + :one",
+            ConditionExpression="attribute_exists(phone)",
+            ExpressionAttributeValues={":zero": 0, ":one": 1},
+        )
+        return {"ok": True, "result": ATTENDANCE_OK, "reason": ""}
+    except ClientError as ce:
+        code = ce.response.get("Error", {}).get("Code")
+        if code in {"ConditionalCheckFailedException", "TransactionCanceledException"}:
+            return _attendance_failure_reason(phone_e164, event_id, attended=False)
+        logger.exception("record_attendance test fallback no-show failed phone=...%s", phone_e164[-4:])
+        return {"ok": False, "result": ATTENDANCE_DDB_ERROR, "reason": "Database error during no-show"}
+
+
 def record_attendance(phone: str, attended: bool, event_id: str = "current") -> dict:
     """
     Record attendance/no-show for a member at a specific event.
@@ -489,6 +560,10 @@ def record_attendance(phone: str, attended: bool, event_id: str = "current") -> 
 
     phone_e164 = normalize_phone(phone)
     now = _now_iso()
+
+    if _test_disable_transactions():
+        return _record_attendance_non_transactional_for_tests(phone_e164, attended, event_id, now)
+
     client = _ddb().meta.client
 
     members_table = _table().name
@@ -543,6 +618,7 @@ def record_attendance(phone: str, attended: bool, event_id: str = "current") -> 
                                 "SET attendedCount = if_not_exists(attendedCount, :zero) + :one, "
                                 "lastSeenAt = :ls"
                             ),
+                            "ConditionExpression": "attribute_exists(phone)",
                             "ExpressionAttributeValues": {
                                 ":zero": _ddb_av(0),
                                 ":one": _ddb_av(1),
@@ -595,6 +671,7 @@ def record_attendance(phone: str, attended: bool, event_id: str = "current") -> 
                         "TableName": members_table,
                         "Key": _ddb_key(phone=phone_e164),
                         "UpdateExpression": "SET noShowCount = if_not_exists(noShowCount, :zero) + :one",
+                        "ConditionExpression": "attribute_exists(phone)",
                         "ExpressionAttributeValues": {
                             ":zero": _ddb_av(0),
                             ":one": _ddb_av(1),
