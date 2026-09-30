@@ -53,8 +53,23 @@ function parseCsvText(text) {
 }
 
 function getColumnIndex(headers, names) {
-  for (const name of names) {
-    const index = headers.findIndex((header) => header.includes(name));
+  const normalizedHeaders = headers.map((header) => String(header || '').toLowerCase().trim());
+  const normalizedNames = names.map((name) => String(name || '').toLowerCase().trim());
+
+  // Prefer an exact header before accepting broader vendor-specific labels such
+  // as "Primary Phone Number". This prevents the generic "name" alias from
+  // stealing a dedicated "Last Name" column.
+  for (const name of normalizedNames) {
+    const index = normalizedHeaders.findIndex((header) => header === name);
+    if (index !== -1) return index;
+  }
+
+  for (const name of normalizedNames) {
+    const index = normalizedHeaders.findIndex((header) => {
+      if (!header.includes(name)) return false;
+      if (name === 'name' && /(?:^|\s)(?:last\s*name|lastname|surname)(?:$|\s)/.test(header)) return false;
+      return true;
+    });
     if (index !== -1) return index;
   }
   return -1;
@@ -68,6 +83,10 @@ function labelImportSource() {
 
 function effectiveImportSource() {
   return CSV_IMPORT_SOURCE;
+}
+
+function importConsentConfirmed() {
+  return Boolean($('import-sms-consent')?.checked);
 }
 
 function setImportConfirmEnabled(isEnabled) {
@@ -86,11 +105,12 @@ function showImportPreview(builder) {
 
 function renderImportPreview() {
   const skipped = state.importSkipped || 0;
+  const noLocation = state.importLocationSkipped || 0;
   if (!state.importRows.length) {
     showImportPreview((previewText) => {
       previewText.appendChild(createNode('span', {
         className: 'panel-summary-error',
-        text: `No valid rows found. ${skipped} row${skipped !== 1 ? 's' : ''} skipped (missing phone).`,
+        text: `No importable rows. ${skipped} skipped (missing phone); ${noLocation} excluded (missing or invalid ZIP/location).`,
       }));
     });
     return;
@@ -106,6 +126,9 @@ function renderImportPreview() {
       createNode('br'),
       document.createTextNode('Import source: '),
       textStrong(source, 'text-gold-strong'),
+      createNode('br'),
+      document.createTextNode('SMS consent: '),
+      textStrong(importConsentConfirmed() ? 'Confirmed for this file' : 'Not confirmed — texts disabled', 'text-gold-strong'),
     );
 
     if (skipped) {
@@ -118,20 +141,39 @@ function renderImportPreview() {
         }),
       );
     }
+    if (noLocation) {
+      appendChildren(
+        previewText,
+        createNode('br'),
+        createNode('span', {
+          className: 'panel-summary-skipped',
+          text: `${noLocation} excluded: no location (a valid 5-digit ZIP is required)`,
+        }),
+      );
+    }
+
   });
 }
 
 export function openImport() {
+  if (state.importInProgress) return;
   setHidden('import-modal', false);
   state.importRows = [];
   state.importSkipped = 0;
+  state.importLocationSkipped = 0;
+  state.importUniqueZipCount = 0;
   $('import-preview')?.classList.remove('is-visible');
+  if ($('import-sms-consent')) $('import-sms-consent').checked = false;
   setImportConfirmEnabled(false);
   $('csv-file-input').value = '';
 }
 
 export function closeImport() {
   setHidden('import-modal', true);
+}
+
+export function refreshImportPreview() {
+  if (state.importRows.length) renderImportPreview();
 }
 
 export function handleDrop(event) {
@@ -147,12 +189,22 @@ export function handleFileSelect(event) {
 }
 
 export function parseCSV(file) {
+  if (state.importInProgress) return;
   const reader = new FileReader();
 
   reader.onload = (loadEvent) => {
+    // A rejected replacement file must never leave the previous file sendable.
+    state.importRows = [];
+    state.importSkipped = 0;
+    state.importLocationSkipped = 0;
+    state.importUniqueZipCount = 0;
+    setImportConfirmEnabled(false);
     const text = String(loadEvent.target.result || '');
     const rows = parseCsvText(text);
-    if (!rows.length) return;
+    if (!rows.length) {
+      renderImportPreview();
+      return;
+    }
 
     const headers = (rows[0] || []).map((header) => header.replace(/["']/g, '').toLowerCase().trim());
 
@@ -162,15 +214,16 @@ export function parseCSV(file) {
     const emailIndex = getColumnIndex(headers, ['email', 'e-mail', 'mail']);
     const instagramIndex = getColumnIndex(headers, ['instagram', 'ig', 'insta', '@']);
     const tagsIndex = getColumnIndex(headers, ['tags', 'tag', 'list']);
+    const zipIndex = getColumnIndex(headers, ['zip code', 'zip', 'postal code', 'postal']);
 
     if (phoneIndex === -1) {
+      renderImportPreview();
       showToast('No phone column found in CSV', 'error');
       return;
     }
 
-    state.importRows = [];
-    state.importSkipped = 0;
     let skipped = 0;
+    let noLocation = 0;
 
     rows.slice(1).forEach((cells) => {
       const phone = (cells[phoneIndex] || '').trim();
@@ -179,7 +232,14 @@ export function parseCSV(file) {
         return;
       }
 
-      const row = { phone, smsOptIn: true };
+      const rawZip = String(cells[zipIndex] || '').trim();
+      const zipMatch = rawZip.match(/^(\d{5})(?:-?\d{4})?$/);
+      if (!zipMatch) {
+        noLocation += 1;
+        return;
+      }
+
+      const row = { phone, zipCode: zipMatch[1] };
       if (nameIndex !== -1 && cells[nameIndex]) row.name = cells[nameIndex].trim();
       if (lastNameIndex !== -1 && cells[lastNameIndex]) row.lastName = cells[lastNameIndex].trim();
       if (emailIndex !== -1 && cells[emailIndex]) row.email = cells[emailIndex].trim();
@@ -191,14 +251,20 @@ export function parseCSV(file) {
 
     if (!state.importRows.length) {
       state.importSkipped = skipped;
+      state.importLocationSkipped = noLocation;
+      state.importUniqueZipCount = 0;
       renderImportPreview();
       setImportConfirmEnabled(false);
       return;
     }
 
     state.importSkipped = skipped;
+    state.importLocationSkipped = noLocation;
+    state.importUniqueZipCount = new Set(state.importRows.map((row) => row.zipCode)).size;
     renderImportPreview();
-    setImportConfirmEnabled(true);
+    setImportConfirmEnabled(
+      state.importRows.length > 0,
+    );
   };
 
   reader.readAsText(file);
@@ -206,26 +272,52 @@ export function parseCSV(file) {
 
 
 export async function confirmImport() {
-  if (!state.importRows.length) return;
-
+  if (!state.importRows.length || state.importInProgress) return;
+  state.importInProgress = true;
   const button = $('import-confirm-btn');
-  button.textContent = 'Importing...';
   button.disabled = true;
-
+  const source = effectiveImportSource();
+  const consentConfirmed = importConsentConfirmed();
+  const seen = new Set();
+  let skipped = 0;
+  const rows = state.importRows.filter((row) => {
+    const digits = String(row.phone || '').replace(/\D/g, '');
+    const phone = digits.length === 10 ? `1${digits}` : digits;
+    if (seen.has(phone)) { skipped += 1; return false; }
+    seen.add(phone);
+    return true;
+  });
+  let imported = 0;
+  let excluded = 0;
+  let processed = 0;
   try {
-    const data = await apiJson(ROUTES.ADMIN_MEMBER_IMPORT, {
-      method: 'POST',
-      body: { members: state.importRows, source: effectiveImportSource() },
-    });
-
-    const message = `Imported ${data.imported} member${data.imported !== 1 ? 's' : ''}${data.skipped ? `, ${data.skipped} skipped` : ''}`;
-    showToast(message, data.skipped ? 'warning' : 'success');
+    for (let offset = 0; offset < rows.length; offset += 25) {
+      button.textContent = `Importing ${processed} of ${rows.length}...`;
+      const batch = rows.slice(offset, offset + 25);
+      const data = await apiJson(ROUTES.ADMIN_MEMBER_IMPORT, {
+        method: 'POST', body: { members: batch, source, consentConfirmed },
+      });
+      imported += Number(data.imported || 0);
+      skipped += Number(data.skipped || 0);
+      excluded += Number(data.excludedNoLocation || 0);
+      processed += batch.length;
+    }
+    state.importRows = [];
+    showToast(`Imported ${imported} members${excluded ? `, ${excluded} excluded: no location` : ''}${skipped > excluded ? `, ${skipped - excluded} other rows skipped` : ''}`, skipped ? 'warning' : 'success');
     closeImport();
+  } catch (error) {
+    // A timeout can occur after writes. Do not automatically replay that batch.
+    state.importRows = [];
+    showToast(`Import stopped after ${processed} processed rows (${imported} imported). The last batch may have saved. Check members before uploading remaining rows. ${error.message}`, 'error');
+  } finally {
+    state.importInProgress = false;
+    button.textContent = 'Import';
+    button.disabled = true;
+  }
+  try {
     await loadMembers('APPROVED');
     await loadStats();
   } catch (error) {
-    showToast(`Import failed: ${error.message}`, 'error');
-    button.textContent = 'Import';
-    button.disabled = false;
+    showToast(`Refresh members to see the import results: ${error.message}`, 'warning');
   }
 }

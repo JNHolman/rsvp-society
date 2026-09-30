@@ -3,6 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: https:; connect-src 'self';">
 <title>Gallery — RSVP Society</title>
 <meta name="description" content="RSVP Society event gallery. Moments from the room.">
 <meta name="robots" content="noindex, nofollow">
@@ -28,11 +29,11 @@ body {
   font-family: 'Montserrat', sans-serif;
   font-weight: 300;
   min-height: 100vh;
-  cursor: none;
+  cursor: auto;
 }
 
-.cursor { position: fixed; width: 5px; height: 5px; background: var(--gold); border-radius: 50%; pointer-events: none; z-index: 9999; transform: translate(-50%,-50%); }
-.cursor-ring { position: fixed; width: 24px; height: 24px; border: 1px solid rgba(212,185,106,0.3); border-radius: 50%; pointer-events: none; z-index: 9998; transform: translate(-50%,-50%); transition: width .3s, height .3s; }
+.cursor { display:none !important; position: fixed; width: 5px; height: 5px; background: var(--gold); border-radius: 50%; pointer-events: none; z-index: 9999; transform: translate(-50%,-50%); }
+.cursor-ring { display:none !important; position: fixed; width: 24px; height: 24px; border: 1px solid rgba(212,185,106,0.3); border-radius: 50%; pointer-events: none; z-index: 9998; transform: translate(-50%,-50%); transition: width .3s, height .3s; }
 
 nav {
   position: fixed;
@@ -99,7 +100,7 @@ nav {
   background: none; border: none;
   font-family: 'Montserrat', sans-serif; font-size: 8px;
   letter-spacing: 0.35em; text-transform: uppercase;
-  color: rgba(248,244,236,0.4); cursor: none;
+  color: rgba(248,244,236,0.4); cursor: auto;
   padding: 14px 20px; border-bottom: 1px solid transparent;
   transition: color .2s, border-color .2s; white-space: nowrap;
 }
@@ -120,7 +121,7 @@ nav {
   position: relative; overflow: hidden;
   background: var(--black-2);
   aspect-ratio: 4/3;
-  cursor: none;
+  cursor: auto;
 }
 
 .photo-item img {
@@ -154,7 +155,7 @@ nav {
   background: none; border: none; color: var(--white-dim);
   font-family: 'Montserrat', sans-serif; font-size: 9px;
   letter-spacing: 0.4em; text-transform: uppercase;
-  cursor: none; transition: color .2s;
+  cursor: auto; transition: color .2s;
 }
 .lightbox-close:hover { color: var(--gold); }
 .lightbox-nav {
@@ -162,7 +163,7 @@ nav {
   background: none; border: 1px solid rgba(212,185,106,0.15);
   color: var(--white-dim); width: 44px; height: 44px;
   display: flex; align-items: center; justify-content: center;
-  cursor: none; transition: all .2s; font-size: 16px;
+  cursor: auto; transition: all .2s; font-size: 16px;
 }
 .lightbox-nav:hover { border-color: var(--gold); color: var(--gold); }
 .lightbox-prev { left: 32px; }
@@ -232,144 +233,12 @@ nav {
 
 <!-- Lightbox -->
 <div class="lightbox" id="lightbox">
-  <button class="lightbox-close" onclick="closeLightbox()">Close</button>
-  <button class="lightbox-nav lightbox-prev" onclick="lightboxNav(-1)">&#8592;</button>
+  <button class="lightbox-close" id="lightbox-close" type="button">Close</button>
+  <button class="lightbox-nav lightbox-prev" id="lightbox-prev" type="button" aria-label="Previous photo">&#8592;</button>
   <img class="lightbox-img" id="lightbox-img" src="" alt="">
-  <button class="lightbox-nav lightbox-next" onclick="lightboxNav(1)">&#8594;</button>
+  <button class="lightbox-nav lightbox-next" id="lightbox-next" type="button" aria-label="Next photo">&#8594;</button>
 </div>
 
-<script>
-// ── CONFIG ──
-// Update CLOUDFRONT_BASE after terraform apply creates the distribution.
-// Run: terraform output pics_cloudfront_url
-// Then replace the placeholder below.
-const CLOUDFRONT_BASE = 'https://d31o74npegx00h.cloudfront.net';
-
-// Event folders — add a new entry here each month after uploading photos.
-// Format: { id: 'folder-name-in-s3', label: 'Display Name' }
-const EVENT_FOLDERS = [
-  // { id: '2026-03-march', label: 'March 2026' },
-  // { id: '2026-04-april', label: 'April 2026' },
-];
-
-// Photo filenames per folder — update after uploading to S3.
-// Format: { folder: 'folder-id', files: ['photo1.jpg', 'photo2.jpg', ...] }
-const PHOTO_MANIFEST = [
-  // { folder: '2026-03-march', files: ['001.jpg', '002.jpg', '003.jpg'] },
-];
-
-// ── State ──
-let currentFolder = null;
-let lightboxPhotos = [];
-let lightboxIndex = 0;
-
-// ── Cursor ──
-const cursor = document.getElementById('cursor');
-const ring   = document.getElementById('ring');
-let mx = 0, my = 0, rx = 0, ry = 0;
-document.addEventListener('mousemove', e => {
-  mx = e.clientX; my = e.clientY;
-  cursor.style.left = mx + 'px'; cursor.style.top = my + 'px';
-});
-(function animRing() {
-  rx += (mx - rx) * 0.12; ry += (my - ry) * 0.12;
-  ring.style.left = rx + 'px'; ring.style.top = ry + 'px';
-  requestAnimationFrame(animRing);
-})();
-
-// ── Init ──
-function init() {
-  const nav = document.getElementById('folder-nav');
-
-  if (!EVENT_FOLDERS.length) return; // No folders yet — empty state stays
-
-  EVENT_FOLDERS.forEach((folder, i) => {
-    const btn = document.createElement('button');
-    btn.className = 'folder-btn' + (i === 0 ? ' active' : '');
-    btn.textContent = folder.label;
-    btn.onclick = () => loadFolder(folder.id, btn);
-    nav.appendChild(btn);
-  });
-
-  // Load first folder
-  loadFolder(EVENT_FOLDERS[0].id, nav.querySelector('.folder-btn'));
-}
-
-function loadFolder(folderId, btn) {
-  currentFolder = folderId;
-
-  document.querySelectorAll('.folder-btn').forEach(b => b.classList.remove('active'));
-  btn.classList.add('active');
-
-  const manifest = PHOTO_MANIFEST.find(m => m.folder === folderId);
-  const files = manifest ? manifest.files : [];
-  const container = document.getElementById('gallery-container');
-  container.textContent = '';
-
-  if (!files.length) {
-    const empty = document.createElement('div');
-    empty.className = 'empty-gallery';
-    empty.textContent = 'No photos yet.';
-    const sub = document.createElement('div');
-    sub.className = 'empty-sub';
-    sub.textContent = 'Photos from this event coming soon.';
-    empty.appendChild(sub);
-    container.appendChild(empty);
-    return;
-  }
-
-  lightboxPhotos = files.map(f => `${CLOUDFRONT_BASE}/${folderId}/${f}`);
-
-  const grid = document.createElement('div');
-  grid.className = 'gallery-grid';
-
-  files.forEach((f, i) => {
-    const item = document.createElement('div');
-    item.className = 'photo-item';
-    item.addEventListener('click', () => openLightbox(i));
-
-    const img = document.createElement('img');
-    img.src = `${CLOUDFRONT_BASE}/${folderId}/${f}`;
-    img.alt = 'RSVP Society event photo';
-    img.loading = 'lazy';
-    img.addEventListener('load', () => img.classList.add('loaded'));
-
-    item.appendChild(img);
-    grid.appendChild(item);
-  });
-
-  container.appendChild(grid);
-}
-
-// ── Lightbox ──
-function openLightbox(index) {
-  lightboxIndex = index;
-  document.getElementById('lightbox-img').src = lightboxPhotos[index];
-  document.getElementById('lightbox').classList.add('open');
-}
-
-function closeLightbox() {
-  document.getElementById('lightbox').classList.remove('open');
-  document.getElementById('lightbox-img').src = '';
-}
-
-function lightboxNav(dir) {
-  lightboxIndex = (lightboxIndex + dir + lightboxPhotos.length) % lightboxPhotos.length;
-  document.getElementById('lightbox-img').src = lightboxPhotos[lightboxIndex];
-}
-
-document.getElementById('lightbox').addEventListener('click', e => {
-  if (e.target === e.currentTarget) closeLightbox();
-});
-
-document.addEventListener('keydown', e => {
-  if (!document.getElementById('lightbox').classList.contains('open')) return;
-  if (e.key === 'Escape') closeLightbox();
-  if (e.key === 'ArrowRight') lightboxNav(1);
-  if (e.key === 'ArrowLeft') lightboxNav(-1);
-});
-
-init();
-</script>
+<script defer src="/pics.js"></script>
 </body>
 </html>

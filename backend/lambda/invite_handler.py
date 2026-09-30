@@ -1,26 +1,41 @@
 import base64
 import hmac
+import hashlib
 import json
-import math
 import os
-import random
 import time
 import uuid
-from datetime import datetime, timezone
-from typing import Any, Dict, List, Tuple
+from datetime import datetime, timezone, timedelta
+
+
+
+
+from decimal import Decimal
+from typing import Any, Dict, List
 
 import boto3
 from boto3.dynamodb.conditions import Key as DKey
 from botocore.exceptions import ClientError
 import logging
+from capacity_policy import expected_show_rate
 
 from audit_log import log_action, ACTION_INVITE_SENT
-from member_store import normalize_phone, _table as members_table, list_members_by_status
+from member_store import normalize_phone, _table as members_table, list_members_by_status, INVITABLE_EVENT_STATES
 from sms_adapter import get_secret_string, send_sms
 from admin_shared import coerce_bool
+from invite_logic import (
+    calc_tier, _calc_invite_suggestion,
+    _resolve_wave_capacity, _build_invite_list,
+    _validate_initial_invite_text, _apply_audience_filters, _event_promotion_geography,
+    _invite_message_metadata, _build_sms_message,
+)
 
 _DDB = boto3.resource("dynamodb")
 logger = logging.getLogger()
+
+FORMAL_WAVE_NUMBERS = (1, 2, 3)
+MANUAL_WAVE_NUMBER = 0
+
 
 
 def _invites_table():
@@ -37,25 +52,17 @@ def _events_table():
     return _DDB.Table(name)
 
 
+def _invite_jobs_table():
+    name = os.getenv("INVITE_JOBS_TABLE_NAME")
+    if not name:
+        raise RuntimeError("INVITE_JOBS_TABLE_NAME env var is not set")
+    return _DDB.Table(name)
+
+
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
-def calc_tier(member: Dict[str, Any]) -> int:
-    override = member.get("tierOverride")
-    if override in (1, 2, 3):
-        return int(override)
-    invited = int(member.get("invitedCount", 0))
-    attended = int(member.get("attendedCount", 0))
-    if invited < 3:
-        return 2
-    rate = attended / invited
-    if rate >= 0.80:
-        return 1
-    elif rate >= 0.40:
-        return 2
-    else:
-        return 3
 
 
 def _get_method(event: dict) -> str:
@@ -66,6 +73,16 @@ def _get_method(event: dict) -> str:
 
 def _get_headers(event: dict) -> dict:
     return event.get("headers") or {}
+
+
+def _json_default(obj):
+    if isinstance(obj, Decimal):
+        return int(obj) if obj % 1 == 0 else float(obj)
+    if isinstance(obj, set):
+        return list(obj)
+    if isinstance(obj, datetime):
+        return obj.isoformat()
+    raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
 
 
 def _resp(status: int, body: dict, origin: str = None) -> dict:
@@ -80,8 +97,9 @@ def _resp(status: int, body: dict, origin: str = None) -> dict:
             "access-control-allow-origin": allow_origin,
             "access-control-allow-headers": "content-type,x-admin-token",
             "access-control-allow-methods": "GET,POST,OPTIONS",
+            "Cache-Control": "no-store",
         },
-        "body": json.dumps(body),
+        "body": json.dumps(body, default=_json_default),
     }
 
 
@@ -99,9 +117,19 @@ def _admin_token() -> str:
 
 def _get_approved_members() -> List[Dict[str, Any]]:
     items = list_members_by_status("APPROVED")
+    clean_items: List[Dict[str, Any]] = []
     for m in items:
+        # Approved active members are considered opted-in for RSVP Society.
+        # STOP/opt-out/deleted records should not be in the active invite pool.
+        if coerce_bool(m.get("optOut", False)):
+            continue
+        if (m.get("status") or "").upper() == "DELETED":
+            continue
+        if m.get("smsOptIn") is not None and not coerce_bool(m.get("smsOptIn")):
+            continue
         m["_tier"] = calc_tier(m)
-    return items
+        clean_items.append(m)
+    return clean_items
 
 
 # Import wave-blocking statuses from member_store — single source of truth
@@ -109,6 +137,46 @@ from member_store import WAVE_BLOCK_STATUSES as _REAL_INVITE_STATUSES
 from member_store import ANALYTICS_EXCLUDE_STATUSES as _ANALYTICS_EXCLUDE_STATUSES
 from member_store import CONFIRMED_FAMILY_STATUSES as _CONFIRMED_FAMILY_STATUSES
 from member_store import RETRYABLE_INVITE_STATUSES as _RETRYABLE_STATUSES_IMPORTED
+def _get_next_wave_number(event_id: str) -> int:
+    """Return the next formal invite wave number.
+
+    RSVP Society uses exactly three formal waves. Anything outside Wave 1,
+    Wave 2, or Wave 3 is an explicit Manual/Resend path and must not appear as
+    a fake Wave 4 in analytics or operator copy.
+    """
+    max_wave = 0
+    if not event_id:
+        return 1
+    try:
+        kwargs = {
+            "KeyConditionExpression": DKey("eventId").eq(event_id),
+            "ProjectionExpression": "waveNumber, #s",
+            "ExpressionAttributeNames": {"#s": "status"},
+        }
+        while True:
+            page = _invites_table().query(**kwargs)
+            for item in page.get("Items", []):
+                status = (item.get("status") or "").upper()
+                if status in _REAL_INVITE_STATUSES or status in _CONFIRMED_FAMILY_STATUSES or status == "DECLINED":
+                    try:
+                        wave = int(item.get("waveNumber") or 0)
+                    except Exception:
+                        wave = 0
+                    if wave in FORMAL_WAVE_NUMBERS:
+                        max_wave = max(max_wave, wave)
+            last = page.get("LastEvaluatedKey")
+            if not last:
+                break
+            kwargs["ExclusiveStartKey"] = last
+    except Exception:
+        logger.exception("_get_next_wave_number failed event=%s", event_id)
+        raise
+    return max_wave + 1 if max_wave > 0 else 1
+
+
+def _assert_formal_wave_available(wave_number: int) -> None:
+    if wave_number not in FORMAL_WAVE_NUMBERS:
+        raise ValueError("AUTO_WAVES_COMPLETE: Wave 1, Wave 2, and Wave 3 already exist. Use Manual/Resend instead of creating Wave 4.")
 
 def _get_existing_invited_phones(event_id: str) -> set:
     invites_t = _invites_table()
@@ -133,268 +201,400 @@ def _get_existing_invited_phones(event_id: str) -> set:
     return phones
 
 
-def _calc_invite_suggestion(
-    capacity: int,
-    confirmed: int,
-    already_invited: int,
-    actual_confirm_rate: float | None = None,
-    show_rate: float = 0.60,
-) -> dict:
+def _get_existing_invite_map(event_id: str) -> Dict[str, Dict[str, Any]]:
+    """Return current invite row metadata by phone for preview/status display."""
+    if not event_id:
+        return {}
+    invites_t = _invites_table()
+    rows: Dict[str, Dict[str, Any]] = {}
+    kwargs: Dict[str, Any] = {"KeyConditionExpression": DKey("eventId").eq(event_id)}
+    while True:
+        page = invites_t.query(**kwargs)
+        for item in page.get("Items", []):
+            phone = item.get("phone")
+            if not phone:
+                continue
+            rows[phone] = item
+        last = page.get("LastEvaluatedKey")
+        if not last:
+            break
+        kwargs["ExclusiveStartKey"] = last
+    return rows
+
+
+
+def _confirmed_update_recipients(event_id: str, phones: List[str] | None = None) -> List[Dict[str, Any]]:
+    """Return confirmed event members who can receive a one-time event update.
+
+    This is intentionally separate from wave invitation logic. It sends only to
+    confirmed-family invite rows for this event and skips opted-out, denied, and
+    deleted members. Plus-ones do not receive SMS unless they are also members
+    with their own confirmed invite row.
     """
-    How many more invites does this wave need to fill the room?
+    if not event_id:
+        return []
+    invites_t = _invites_table()
+    members_t = members_table()
+    invite_rows: Dict[str, Dict[str, Any]] = {}
+    if phones is None:
+        kwargs: Dict[str, Any] = {
+            "KeyConditionExpression": DKey("eventId").eq(event_id),
+            "ConsistentRead": True,
+        }
+        while True:
+            page = invites_t.query(**kwargs)
+            for item in page.get("Items", []):
+                if (item.get("status") or "").upper() not in {"CONFIRMED", "ATTENDED"}:
+                    continue
+                try:
+                    phone = normalize_phone(item.get("phone") or "")
+                except ValueError:
+                    continue
+                invite_rows[phone] = item
+            last = page.get("LastEvaluatedKey")
+            if not last:
+                break
+            kwargs["ExclusiveStartKey"] = last
+    else:
+        unique_phones = list(dict.fromkeys(phones))
+        for start in range(0, len(unique_phones), 100):
+            batch = unique_phones[start:start + 100]
+            pending = {invites_t.name: {
+                "Keys": [{"eventId": event_id, "phone": phone} for phone in batch],
+                "ConsistentRead": True,
+            }}
+            for _attempt in range(4):
+                if not pending:
+                    break
+                try:
+                    response = invites_t.meta.client.batch_get_item(RequestItems=pending)
+                    for item in response.get("Responses", {}).get(invites_t.name, []):
+                        if (item.get("status") or "").upper() not in {"CONFIRMED", "ATTENDED"}:
+                            continue
+                        invite_rows[item["phone"]] = item
+                    pending = response.get("UnprocessedKeys") or {}
+                except Exception as exc:
+                    logger.exception("confirmed update: invite batch read failed")
+                    raise RuntimeError("confirmed update invite batch read failed") from exc
+            if pending:
+                raise RuntimeError("confirmed update invite batch read left unprocessed keys")
 
-    target_confirmed = capacity / show_rate
-        e.g. 200 cap at 60% show rate → need 334 confirmed
+    members_by_phone: Dict[str, Dict[str, Any]] = {}
+    phones_to_read = list(invite_rows)
+    for start in range(0, len(phones_to_read), 100):
+        batch = phones_to_read[start:start + 100]
+        pending = {members_t.name: {
+            "Keys": [{"phone": phone} for phone in batch],
+            "ConsistentRead": True,
+        }}
+        for _attempt in range(4):
+            if not pending:
+                break
+            try:
+                response = members_t.meta.client.batch_get_item(RequestItems=pending)
+                for member in response.get("Responses", {}).get(members_t.name, []):
+                    members_by_phone[member["phone"]] = member
+                pending = response.get("UnprocessedKeys") or {}
+            except Exception as exc:
+                logger.exception("confirmed update: member batch read failed")
+                raise RuntimeError("confirmed update member batch read failed") from exc
+        if pending:
+            raise RuntimeError("confirmed update member batch read left unprocessed keys")
 
-    confirmation_gap = target_confirmed - currently_confirmed
+    recipients: List[Dict[str, Any]] = []
+    for phone, item in invite_rows.items():
+        member = members_by_phone.get(phone)
+        # A missing/unreadable member row means current consent cannot be
+        # verified. Fail closed instead of texting from the invite snapshot.
+        if not member:
+            logger.warning("confirmed update: member state unavailable phone=...%s", phone[-4:])
+            continue
+        if (member.get("status") or "").upper() != "APPROVED":
+            continue
+        if coerce_bool(member.get("optOut", False)):
+            continue
+        if member.get("smsOptIn") is not None and not coerce_bool(member.get("smsOptIn")):
+            continue
+        recipients.append({
+            "phone": phone,
+            "name": member.get("name") or item.get("name") or "",
+            "lastName": member.get("lastName") or item.get("lastName") or "",
+        })
+    return recipients
 
-    confirm_rate = actual rate from analytics if available, else default 30%
 
-    suggested_invites = confirmation_gap / confirm_rate
-    """
-    confirm_rate = actual_confirm_rate if actual_confirm_rate and actual_confirm_rate > 0 else 0.30
-    target_confirmed = math.ceil(capacity / show_rate)
-    gap = max(0, target_confirmed - confirmed)
-    suggested = math.ceil(gap / confirm_rate) if gap > 0 else 0
-    return {
-        "targetConfirmed":    target_confirmed,
-        "currentConfirmed":   confirmed,
-        "confirmationGap":    gap,
-        "suggestedInvites":   suggested,
-        "alreadyInvited":     already_invited,
-        "assumedShowRate":    round(show_rate * 100),
-        "assumedConfirmRate": round(confirm_rate * 100),
+def _build_confirmed_update_message(member: Dict[str, Any], message: str) -> str:
+    name = (member.get("name") or "").split()[0] or ""
+    return (message or "").replace("{name}", name).strip()
+
+
+def _execute_confirmed_update(body: dict, current_ev: Dict[str, Any], token: str, job_id: str) -> None:
+    event_id = (body.get("eventId") or "").strip()
+    message = (body.get("messageOverride") or "").strip()
+    if not message:
+        raise ValueError("One-time update message required")
+    # Persist only the recipient phone keys in the job record. Batch-get current
+    # invite/member state per bounded chunk to keep job items small and consent fresh.
+    all_phones = body.get("confirmedUpdatePhones") or body.get("phones") or [
+        row.get("phone") for row in (body.get("confirmedRecipients") or []) if row.get("phone")
+    ]
+    if not all_phones:
+        all_phones = [row["phone"] for row in _confirmed_update_recipients(event_id)]
+    try:
+        # Confirmed updates make one 15-second-bounded provider call per person.
+        # Keep a margin inside the 300-second worker timeout.
+        max_per_invocation = min(15, max(1, int(os.getenv("CONFIRMED_UPDATE_MAX_PER_INVOCATION", "15"))))
+    except (TypeError, ValueError):
+        max_per_invocation = 15
+    current_phones = list(all_phones[:max_per_invocation])
+    remainder_phones = list(all_phones[max_per_invocation:])
+    recipients = _confirmed_update_recipients(event_id, current_phones)
+    progress = body.get("_continuationProgress") or {}
+    sms_enabled = (os.getenv("SMS_ENABLED", "false") or "").lower() == "true"
+    sent = 0
+    failed = 0
+    skipped_already_sent = 0
+    failures: List[str] = []
+    jobs_t = _invite_jobs_table()
+    marker_ttl = int((datetime.now(timezone.utc) + timedelta(days=30)).timestamp())
+    for member in recipients:
+        phone = member.get("phone") or ""
+        if not phone:
+            continue
+        marker_id = f"{job_id}:recipient:{hashlib.sha256(phone.encode('utf-8')).hexdigest()}"
+        marker_now = _now_iso()
+        try:
+            jobs_t.put_item(
+                Item={
+                    "jobId": marker_id,
+                    "kind": "CONFIRMED_UPDATE_RECIPIENT",
+                    "status": "CLAIMED",
+                    "claimedAt": marker_now,
+                    "ttl": marker_ttl,
+                },
+                ConditionExpression="attribute_not_exists(jobId)",
+            )
+        except ClientError as exc:
+            if (exc.response.get("Error") or {}).get("Code") != "ConditionalCheckFailedException":
+                raise
+            existing_marker = jobs_t.get_item(Key={"jobId": marker_id}, ConsistentRead=True).get("Item") or {}
+            marker_status = (existing_marker.get("status") or "").upper()
+            if marker_status == "SENT":
+                skipped_already_sent += 1
+            else:
+                # An existing CLAIMED/FAILED marker is an ambiguous provider
+                # outcome. Keep the retry from sending a possibly paid duplicate.
+                failed += 1
+                failures.append(phone[-4:])
+                logger.warning("confirmed update delivery unresolved job=%s", job_id)
+            continue
+
+        text = _build_confirmed_update_message(member, message)
+        try:
+            if sms_enabled:
+                send_sms(phone, text)
+                time.sleep(0.25)
+            jobs_t.update_item(
+                Key={"jobId": marker_id},
+                UpdateExpression="SET #s = :sent, sentAt = :now",
+                ExpressionAttributeNames={"#s": "status"},
+                ExpressionAttributeValues={":sent": "SENT", ":now": _now_iso()},
+            )
+            sent += 1
+        except Exception:
+            failed += 1
+            failures.append(phone[-4:])
+            logger.exception("confirmed update send failed event=%s phone=...%s", event_id, phone[-4:])
+            try:
+                jobs_t.update_item(
+                    Key={"jobId": marker_id},
+                    UpdateExpression="SET #s = :failed, failedAt = :now",
+                    ExpressionAttributeNames={"#s": "status"},
+                    ExpressionAttributeValues={":failed": "FAILED", ":now": _now_iso()},
+                )
+            except Exception:
+                logger.exception("confirmed update marker write failed job=%s", job_id)
+    cumulative = {
+        "sent": int(progress.get("sent") or 0) + sent,
+        "failed": int(progress.get("failed") or 0) + failed,
+        "skippedAlreadySent": int(progress.get("skippedAlreadySent") or 0) + skipped_already_sent,
+        "recipientCount": int(progress.get("recipientCount") or 0) + len(recipients),
+        "failures": list(progress.get("failures") or []) + failures,
     }
+    if remainder_phones:
+        continuation_body = dict(body)
+        continuation_body.pop("confirmedUpdatePhones", None)
+        continuation_body["phones"] = remainder_phones
+        continuation_body["_continuationProgress"] = cumulative
+        _update_job(job_id, {
+            "status": "PROCESSING",
+            "smsSent": cumulative["sent"],
+            "failed": cumulative["failed"],
+            "eventId": event_id,
+            "waveNumber": MANUAL_WAVE_NUMBER,
+            "breakdown": json.dumps({"mode": "confirmed_update", **cumulative}, default=_json_default),
+            "message": f"Continuing confirmed guest update: {len(remainder_phones)} recipients remaining",
+        })
+        try:
+            boto3.client("lambda").invoke(
+                FunctionName=os.getenv("AWS_LAMBDA_FUNCTION_NAME", "rsvp-invite-handler"),
+                InvocationType="Event",
+                Payload=json.dumps({
+                    "asyncBlast": True,
+                    "continuation": True,
+                    "jobId": job_id,
+                    "token": token,
+                    "blastBody": continuation_body,
+                }).encode(),
+            )
+        except Exception as exc:
+            logger.exception("confirmed update continuation invoke failed job_id=%s", job_id)
+            _update_job(job_id, {"status": "FAILED", "completedAt": _now_iso(), "error": f"continuation invoke failed: {str(exc)[:300]}"})
+            raise
+        return
+
+    log_action(
+        token=token,
+        action=ACTION_INVITE_SENT,
+        metadata={
+            "eventId": event_id,
+            "mode": "confirmed_update",
+            "recipientCount": cumulative["recipientCount"],
+            "smsSent": cumulative["sent"],
+            "failed": cumulative["failed"],
+        },
+    )
+    _update_job(job_id, {
+        "status": "COMPLETE",
+        "completedAt": _now_iso(),
+        "eventId": event_id,
+        "waveNumber": MANUAL_WAVE_NUMBER,
+        "recipientCount": cumulative["recipientCount"],
+        "invitesWritten": 0,
+        "smsSent": cumulative["sent"],
+        "failed": cumulative["failed"],
+        "breakdown": json.dumps({"mode": "confirmed_update", "queued": int(body.get("confirmedUpdateRecipientCount") or len(all_phones)), "sent": cumulative["sent"], "failed": cumulative["failed"], "skippedAlreadySent": cumulative.get("skippedAlreadySent", 0), "failures": cumulative["failures"][:20]}, default=_json_default),
+    })
 
 
-def _resolve_wave_capacity(
-    capacity: int,
-    wave_number: int,
-    wave_size: int | None,
-    confirmed: int = 0,
-    already_invited: int = 0,
-    actual_confirm_rate: float | None = None,
-) -> int:
-    """
-    Wave 1: cast wide at 2.5x capacity (no data yet, need to seed confirmations)
-    Wave 2+: gap math — how many invites to close the confirmation shortfall
-    Manual override (wave_size > 0) always wins.
-    """
-    if wave_size and wave_size > 0:
-        return wave_size
-    if wave_number == 1:
-        return max(1, round(capacity * 2.5))
-    suggestion = _calc_invite_suggestion(capacity, confirmed, already_invited, actual_confirm_rate)
-    suggested = suggestion["suggestedInvites"]
-    # Wave 1: seed with at least 1. Wave 2+: allow 0 — gap is closed.
-    if wave_number <= 1:
-        return max(1, suggested)
-    return max(0, suggested)
+
+
+
 
 
 def _get_current_event() -> Dict[str, Any]:
     try:
-        result = _events_table().get_item(Key={"eventId": "current"})
-        return result.get("Item") or {}
+        table = _events_table()
+        pointer = table.get_item(Key={"eventId": "current"}).get("Item") or {}
+        active_slug = (pointer.get("activeEventSlug") or pointer.get("eventSlug") or pointer.get("slug") or "").strip()
+        if active_slug and active_slug != "current":
+            canonical = table.get_item(Key={"eventId": active_slug}).get("Item") or {}
+            if canonical:
+                return {**canonical, "active": True, "activeEventSlug": active_slug}
+        return pointer
     except Exception:
         return {}
+
+def _resolve_active_invitable_event(expected_event_id: str) -> Dict[str, Any]:
+    """Return active event only when the submitted eventId matches it exactly.
+
+    This prevents stale admin tabs from sending current-event SMS content while
+    writing invite analytics under an older eventId.
+    """
+    event_id = (expected_event_id or "").strip()
+    if not event_id or event_id == "current":
+        raise ValueError("Stable eventId/eventSlug required; 'current' is not valid for invite sends")
+
+    current_ev = _get_current_event()
+    active_slug = (current_ev.get("activeEventSlug") or current_ev.get("eventSlug") or current_ev.get("slug") or current_ev.get("eventId") or "").strip()
+    if not active_slug:
+        raise ValueError("No active event is set")
+    if event_id != active_slug:
+        raise ValueError(f"EVENT_MISMATCH: submitted eventId '{event_id}' does not match active event '{active_slug}'")
+
+    ev_status = (current_ev.get("event_status") or "DRAFT").upper()
+    if ev_status not in INVITABLE_EVENT_STATES:
+        raise ValueError(
+            f"Cannot send invites — event is in state '{ev_status}'. "
+            f"Event must be Inviting or Live to send invites."
+        )
+    return {**current_ev, "eventSlug": active_slug, "eventId": active_slug}
 
 
 # ── Async blast job helpers ───────────────────────────────────────────────────
 
-def _job_key(job_id: str) -> str:
-    return f"blast_job:{job_id}"
+from invite_job_store import (
+    write_job as _job_write, update_job as _job_update,
+    preview_member_phones as _job_preview_member_phones,
+    write_preview_lock as _job_write_preview_lock,
+    read_preview_lock as _job_read_preview_lock,
+    claim_preview_lock as _job_claim_preview_lock,
+    resolve_locked_send_body as _job_resolve_locked_send_body,
+    handle_job_status as _job_handle_status,
+)
 
+def _job_deps():
+    return {
+        "invite_jobs_table": _invite_jobs_table,
+        "invites_table": _invites_table,
+        "now_iso": _now_iso,
+        "json_default": _json_default,
+        "normalize_phone": normalize_phone,
+        "logger": logger,
+        "resp": _resp,
+        "read_preview_lock": globals().get("_read_preview_lock"),
+        "claim_preview_lock": globals().get("_claim_preview_lock"),
+    }
 
 def _write_job(job_id: str, body: dict, origin: str) -> None:
-    """Write a QUEUED blast job record to the events table."""
-    _events_table().put_item(Item={
-        "eventId":     _job_key(job_id),
-        "jobId":       job_id,
-        "status":      "QUEUED",
-        "submittedAt": _now_iso(),
-        "origin":      origin or "",
-        "requestBody": json.dumps(body),
-    })
-
+    return _job_write(job_id, body, origin, deps=_job_deps())
 
 def _update_job(job_id: str, updates: dict) -> None:
-    """Update a job record with status/results."""
-    expr_parts = []
-    names = {}
-    vals = {}
-    for i, (k, v) in enumerate(updates.items()):
-        placeholder = f":v{i}"
-        name_ph = f"#k{i}"
-        expr_parts.append(f"{name_ph} = {placeholder}")
-        names[name_ph] = k
-        vals[placeholder] = v
-    try:
-        _events_table().update_item(
-            Key={"eventId": _job_key(job_id)},
-            UpdateExpression="SET " + ", ".join(expr_parts),
-            ExpressionAttributeNames=names,
-            ExpressionAttributeValues=vals,
-        )
-    except Exception:
-        logger.exception("_update_job failed job_id=%s", job_id)
+    return _job_update(job_id, updates, deps=_job_deps())
+
+def _preview_member_phones(preview_members: List[Dict[str, Any]]) -> List[str]:
+    return _job_preview_member_phones(preview_members, deps=_job_deps())
+
+def _write_preview_lock(*, event_id: str, wave_number: int, wave_size: int, locked_phones: List[str], summary: Dict[str, Any]) -> str:
+    return _job_write_preview_lock(event_id=event_id, wave_number=wave_number, wave_size=wave_size, locked_phones=locked_phones, summary=summary, deps=_job_deps())
+
+def _read_preview_lock(lock_id: str) -> Dict[str, Any]:
+    return _job_read_preview_lock(lock_id, deps=_job_deps())
+
+def _claim_preview_lock(lock_id: str, job_id: str) -> Dict[str, Any]:
+    return _job_claim_preview_lock(lock_id, job_id, deps=_job_deps())
+
+
+def _resolve_locked_send_body(body: dict, job_id: str) -> dict:
+    return _job_resolve_locked_send_body(body, job_id, deps=_job_deps())
+
 
 
 def handle_job_status(qs: dict, origin: str) -> dict:
-    """GET /admin/invite/status?jobId=xxx — poll async blast job."""
-    job_id = (qs.get("jobId") or "").strip()
-    if not job_id:
-        return _resp(400, {"ok": False, "error": "jobId required"}, origin)
+    return _job_handle_status(qs, origin, deps=_job_deps())
+
+
+def _event_for_guard(event_id: str) -> Dict[str, Any]:
+    """Fetch the canonical event for invite-text gating."""
     try:
-        item = _events_table().get_item(Key={"eventId": _job_key(job_id)}).get("Item")
-        if not item:
-            return _resp(404, {"ok": False, "error": "job not found"}, origin)
-        breakdown = {}
-        if item.get("breakdown"):
-            try:
-                breakdown = json.loads(item["breakdown"])
-            except Exception:
-                pass
-
-        return _resp(200, {
-            "ok":             True,
-            "jobId":          item.get("jobId"),
-            "status":         item.get("status"),
-            "submittedAt":    item.get("submittedAt"),
-            "startedAt":      item.get("startedAt"),
-            "completedAt":    item.get("completedAt"),
-            "invitesWritten": item.get("invitesWritten"),
-            "smsSent":        item.get("smsSent"),
-            "failed":         item.get("failed"),
-            "skippedConsent": item.get("skippedConsent"),
-            "error":          item.get("error"),
-            "breakdown":      breakdown,
-        }, origin)
+        if event_id:
+            item = _events_table().get_item(Key={"eventId": event_id}).get("Item") or {}
+            if item:
+                return item
     except Exception:
-        logger.exception("handle_job_status failed job_id=%s", job_id)
-        return _resp(500, {"ok": False, "error": "internal error"}, origin)
+        logger.exception("_event_for_guard failed event=%s", event_id)
+    return _get_current_event() or {}
 
 
-def _build_invite_list(
-    members: List[Dict[str, Any]],
-    capacity: int,
-    female_pct: int,
-    tier2_buffer_pct: int = 30,
-    removed_phones: List[str] = None,
-) -> Dict[str, Any]:
-    removed = set(removed_phones or [])
-    members = [m for m in members if m.get("phone") not in removed]
-
-    male_pct = 100 - female_pct
-    target_f = round(capacity * female_pct / 100)
-    target_m = capacity - target_f
-
-    buckets: Dict[str, List] = {
-        "F1": [], "F2": [], "F3": [],
-        "M1": [], "M2": [], "M3": [],
-        "O1": [], "O2": [], "O3": [],
-    }
-
-    for m in members:
-        gender = (m.get("gender") or "O").upper()
-        if gender not in ("M", "F"):
-            gender = "O"
-        tier = m["_tier"]
-        key = f"{gender}{tier}"
-        if key in buckets:
-            buckets[key].append(m)
-
-    for bucket in buckets.values():
-        random.shuffle(bucket)
-
-    def fill_gender(gender: str, target: int) -> Tuple[List, List, int]:
-        t1 = buckets.get(f"{gender}1", [])
-        t2 = buckets.get(f"{gender}2", [])
-        tier1_invited = t1[:target]
-        remaining = target - len(tier1_invited)
-        if remaining > 0:
-            buffer_multiplier = 1 + (tier2_buffer_pct / 100)
-            tier2_needed = math.ceil(remaining * buffer_multiplier)
-            tier2_invited = t2[:tier2_needed]
-        else:
-            tier2_invited = []
-        return tier1_invited, tier2_invited, len(tier2_invited)
-
-    f_t1, f_t2, _ = fill_gender("F", target_f)
-    m_t1, m_t2, _ = fill_gender("M", target_m)
-
-    core_invited = f_t1 + f_t2 + m_t1 + m_t2
-    remaining_slots = max(0, capacity - len(core_invited))
-    o1_pool = buckets.get("O1", [])
-    o2_pool = buckets.get("O2", [])
-    o_t1 = o1_pool[:remaining_slots]
-    remaining_slots -= len(o_t1)
-    o_t2 = o2_pool[:remaining_slots] if remaining_slots > 0 else []
-    all_invited = core_invited + o_t1 + o_t2
-
-    return {
-        "summary": {
-            "capacity":       capacity,
-            "targetFemale":   target_f,
-            "targetMale":     target_m,
-            "femalePercent":  female_pct,
-            "malePercent":    male_pct,
-            "tier2BufferPct": tier2_buffer_pct,
-            "totalInvites":   len(all_invited),
-            "breakdown": {
-                "femTier1":    len(f_t1),
-                "femTier2":    len(f_t2),
-                "maleTier1":   len(m_t1),
-                "maleTier2":   len(m_t2),
-                "otherTier1":  len(o_t1),
-                "otherTier2":  len(o_t2),
-                "tier3Skipped": (
-                    len(buckets["F3"]) + len(buckets["M3"]) + len(buckets["O3"])
-                ),
-            },
-        },
-        "members": all_invited,
-    }
 
 
-def _build_sms_message(member: Dict[str, Any], event: Dict[str, Any]) -> str:
-    """
-    Use locked invite_template if admin approved one.
-    Replace {name} with member first name.
-    Fall back to building from event fields if no template set.
-    """
-    name = (member.get("name") or "").split()[0] or ""
 
-    template = (event.get("invite_template") or "").strip()
-    if template:
-        return template.replace("{name}", name).strip()
 
-    if event and event.get("date"):
-        date = event["date"]
-        time = event.get("startTime", "")
-        reveal_venue = event.get("revealVenue", False)
-        venue = event.get("venue", "") if reveal_venue else ""
-        address = event.get("address", "") if reveal_venue else ""
-        event_label = (event.get("event_label") or "").strip()
-        vibe_tag = (event.get("vibe_tag") or "").strip()
 
-        # Deterministic closing — no random choices so preview matches what sends
-        parts = []
-        if name:        parts.append(f"{name}.")
-        if event_label: parts.append(f"{event_label}.")
-        parts.append(f"{date}.")
-        if vibe_tag:    parts.append(f"{vibe_tag}.")
-        if time:        parts.append(f"{time}.")
-        if venue:       parts.append(f"{venue}.")
-        if address:     parts.append(f"{address}.")
-        parts.append("Reply YES to confirm.")
 
-        return " ".join(parts)
-    else:
-        if name:
-            return f"{name}. You're on the list. Reply YES to confirm."
-        else:
-            return "You're on the list. Reply YES to confirm."
+
+
+
 
 
 def _get_analytics(event_id: str) -> dict:
@@ -420,28 +620,52 @@ def _get_analytics(event_id: str) -> dict:
         invited = len(items)
         # ATTENDED and NO_SHOW were confirmed — use centralized constant
         confirmed = sum(1 for i in items if (i.get("status") or "").upper() in _CONFIRMED_FAMILY_STATUSES)
-        declined  = sum(1 for i in items if i.get("status") == "DECLINED")
+        declined  = sum(1 for i in items if (i.get("status") or "").upper() == "DECLINED")
         attended  = sum(1 for i in items if i.get("attendedAt"))
-        confirm_rate = (confirmed / invited) if invited > 0 else None
-        show_rate    = (attended / confirmed) if confirmed > 0 else None
+        plus_one_risk = sum(1 for i in items if (i.get("status") or "").upper() in _CONFIRMED_FAMILY_STATUSES and (i.get("plusOneName") or "").strip())
+        plus_one_attended = sum(1 for i in items if i.get("plusOneAttendedAt"))
+        by_wave = {1: 0, 2: 0, 3: 0, "manual": 0}
+        for i in items:
+            try:
+                wave = int(i.get("waveNumber") or 0)
+            except Exception:
+                wave = 0
+            key = wave if wave in FORMAL_WAVE_NUMBERS else "manual"
+            by_wave[key] = by_wave.get(key, 0) + 1
+        confirmed_headcount = confirmed + plus_one_risk
+        # Wave planning is seat-based: a confirmed member may consume two seats.
+        # Measure confirmed people per invite so later waves account for +1s.
+        confirm_rate = (confirmed_headcount / invited) if invited > 0 else None
+        show_rate    = ((attended + plus_one_attended) / max(confirmed_headcount, 1)) if confirmed_headcount > 0 else None
         return {
             "invited": invited, "confirmed": confirmed,
+            "confirmedHeadcount": confirmed_headcount,
             "declined": declined, "attended": attended,
+            "plusOneRisk": plus_one_risk,
+            "plusOneAttended": plus_one_attended,
+            "byWave": by_wave,
             "confirmRate": confirm_rate, "showRate": show_rate,
         }
     except Exception:
         logger.exception("_get_analytics failed event=%s", event_id)
-        return {}
+        raise
 
 
 def handle_preview(body: dict, origin: str) -> dict:
     event_id  = (body.get("eventId") or "").strip()
     capacity  = int(body.get("capacity") or 0)
     female_pct = int(body.get("femalePercent") or 60)
-    tier2_buffer = int(body.get("tier2BufferPct") or 30)
-    wave_number  = int(body.get("waveNumber") or 1)
+    auto_wave    = coerce_bool(body.get("autoWave", True))
+    wave_number  = int(body.get("waveNumber") or 0)
+    if auto_wave or wave_number < 1:
+        wave_number = _get_next_wave_number(event_id)
+    try:
+        _assert_formal_wave_available(wave_number)
+    except ValueError as ve:
+        return _resp(409, {"ok": False, "error": str(ve), "waveLimitReached": True, "manualResendAvailable": True}, origin)
     wave_size    = int(body.get("waveSize") or 0)
     removed_phones = body.get("removedPhones") or []
+    include_existing = coerce_bool(body.get("includeExisting", False))
 
     if not event_id or capacity < 1:
         return _resp(400, {"ok": False, "error": "eventId and capacity required"}, origin)
@@ -449,54 +673,135 @@ def handle_preview(body: dict, origin: str) -> dict:
     if not (0 <= female_pct <= 100):
         return _resp(400, {"ok": False, "error": "femalePercent must be 0–100"}, origin)
 
-    if not (0 <= tier2_buffer <= 200):
-        return _resp(400, {"ok": False, "error": "tier2BufferPct must be 0–200"}, origin)
+    message_override = (body.get("messageOverride") or "").strip()
+    guard_event = _event_for_guard(event_id)
+    if not _event_promotion_geography(guard_event):
+        return _resp(409, {
+            "ok": False,
+            "error": "Event ZIP code and promotion radius are required before building an invite audience",
+        }, origin)
+    try:
+        _validate_initial_invite_text(message_override, guard_event)
+    except ValueError as ve:
+        return _resp(400, {"ok": False, "error": str(ve)}, origin)
 
     existing_invites = _get_existing_invited_phones(event_id)
+    all_existing_invite_map = _get_existing_invite_map(event_id)
+    existing_invite_map = all_existing_invite_map if include_existing else {}
 
-    analytics = {}
+    analytics = _get_analytics(event_id)
     gap_info = None
     if wave_number >= 2:
-        analytics = _get_analytics(event_id)
-        confirmed = analytics.get("confirmed", 0)
+        confirmed = analytics.get("confirmedHeadcount", analytics.get("confirmed", 0) + analytics.get("plusOneRisk", 0))
         actual_confirm_rate = analytics.get("confirmRate")
+        actual_show_rate = expected_show_rate(guard_event)
+        responses = analytics.get("confirmed", 0) + analytics.get("declined", 0)  # WAVE-B: sample size
         effective_capacity = _resolve_wave_capacity(
             capacity, wave_number, wave_size,
             confirmed=confirmed,
             already_invited=len(existing_invites),
             actual_confirm_rate=actual_confirm_rate,
+            actual_show_rate=actual_show_rate,
+            responses=responses,
         )
         gap_info = _calc_invite_suggestion(
-            capacity, confirmed, len(existing_invites), actual_confirm_rate
+            capacity, confirmed, len(existing_invites),
+            actual_confirm_rate=actual_confirm_rate,
+            show_rate=actual_show_rate,
+            responses=responses,
         )
     else:
         effective_capacity = _resolve_wave_capacity(capacity, wave_number, wave_size)
 
-    members = [m for m in _get_approved_members() if m.get("phone") not in existing_invites]
-    result = _build_invite_list(members, effective_capacity, female_pct, tier2_buffer, removed_phones)
+    pool_members = _get_approved_members()
+    filtered_pool_members = _apply_audience_filters(pool_members, body.get("audienceFilters") or {}, guard_event)
+    members = filtered_pool_members if include_existing else [m for m in filtered_pool_members if m.get("phone") not in existing_invites]
+    result = _build_invite_list(members, effective_capacity, female_pct, removed_phones, wave_number)
 
     preview_members = []
     for m in result["members"]:
+        phone = m.get("phone", "")
+        invite_row = existing_invite_map.get(phone, {})
+        current_status = (invite_row.get("status") or "NOT_INVITED").upper()
         preview_members.append({
-            "phone":        m.get("phone", ""),
+            "phone":        phone,
             "name":         m.get("name", ""),
+            "lastName":     m.get("lastName", ""),
+            "displayName":  " ".join([x for x in [m.get("name", ""), m.get("lastName", "")] if x]).strip(),
             "gender":       m.get("gender", "?"),
             "tier":         m["_tier"],
+            "market":       m.get("market") or m.get("city") or m.get("state") or "",
             "attendedCount": int(m.get("attendedCount", 0)),
             "invitedCount":  int(m.get("invitedCount", 0)),
             "noShowCount":   int(m.get("noShowCount", 0)),
+            "currentEventInviteStatus": current_status,
+            "smsSendStatus": invite_row.get("smsSendStatus") or ("LOCKED" if current_status != "NOT_INVITED" else "ELIGIBLE"),
+            "lastInviteStatus": current_status if current_status != "NOT_INVITED" else "",
+            "confirmedAt": invite_row.get("confirmedAt", ""),
+            "declinedAt": invite_row.get("declinedAt", ""),
+            "attendedAt": invite_row.get("attendedAt", ""),
+            "noShowAt": invite_row.get("noShowAt", ""),
+            "smsOptIn": coerce_bool(m.get("smsOptIn", True)),
         })
 
+    result["summary"]["coldStartTier2Fallback"] = bool((result["summary"].get("breakdown") or {}).get("coldStartTier2Fallback"))
     result["summary"]["waveNumber"]             = wave_number
+    result["summary"]["autoWave"]               = auto_wave
     result["summary"]["waveSize"]               = effective_capacity
-    result["summary"]["alreadyInvitedExcluded"] = len(existing_invites)
-    result["summary"]["poolRemaining"]          = len(members)
+    result["summary"]["alreadyInvitedExcluded"] = 0 if include_existing else len(existing_invites)
+    result["summary"]["alreadyInvitedVisible"]  = len(existing_invite_map) if include_existing else 0
+    pool_remaining = len([m for m in filtered_pool_members if m.get("phone") not in existing_invites])
+    by_wave = analytics.get("byWave") or {}
+    wave1_sent = int(by_wave.get(1, 0) or by_wave.get("1", 0) or 0)
+    plus_one_risk = int(analytics.get("plusOneRisk") or 0)
+    confirmed_count = int(analytics.get("confirmed") or 0)
+    safe_capacity_remaining = max(0, capacity - confirmed_count - plus_one_risk)
+    result["summary"]["poolRemaining"]          = pool_remaining
+    result["summary"]["includeExisting"]        = include_existing
+    result["summary"]["confirmedCount"]         = confirmed_count
+    result["summary"]["attendedCount"]          = int(analytics.get("attended") or 0) + int(analytics.get("plusOneAttended") or 0)
+    result["summary"]["plusOneRisk"]            = plus_one_risk
+    result["summary"]["safeCapacityRemaining"]  = safe_capacity_remaining
+    result["summary"]["commandCenter"] = {
+        "capacity": capacity,
+        "nextWaveNumber": wave_number,
+        "wave1Sent": wave1_sent,
+        "alreadyInvited": len(existing_invites),
+        "notYetInvited": pool_remaining,
+        "remainingEligible": pool_remaining,
+        "confirmed": confirmed_count,
+        "attended": int(analytics.get("attended") or 0) + int(analytics.get("plusOneAttended") or 0),
+        "plusOneRisk": plus_one_risk,
+        "safeCapacityRemaining": safe_capacity_remaining,
+        "recommendedNextWaveSize": effective_capacity,
+        "eligibleInPreview": len(preview_members),
+        "includeExisting": include_existing,
+    }
     if gap_info:
         result["summary"]["gapAnalysis"] = gap_info
+        result["summary"]["commandCenter"]["gapAnalysis"] = gap_info
+
+    locked_phones = _preview_member_phones(preview_members)
+    try:
+        preview_session_id = _write_preview_lock(
+            event_id=event_id,
+            wave_number=wave_number,
+            wave_size=effective_capacity,
+            locked_phones=locked_phones,
+            summary=result["summary"],
+        )
+    except Exception:
+        logger.exception("handle_preview: failed to write preview lock event=%s", event_id)
+        return _resp(500, {"ok": False, "error": "failed_to_lock_preview"}, origin)
+
+    result["summary"]["previewSessionId"] = preview_session_id
+    result["summary"]["lockedPhoneCount"] = len(locked_phones)
+    result["summary"]["commandCenter"]["lockedPhoneCount"] = len(locked_phones)
 
     return _resp(200, {
         "ok":      True,
         "eventId": event_id,
+        "previewSessionId": preview_session_id,
         "summary": result["summary"],
         "members": preview_members,
     }, origin)
@@ -513,7 +818,68 @@ def handle_send(body: dict, origin: str, token: str) -> dict:
     if not body.get("confirmSend"):
         return _resp(400, {"ok": False, "error": "confirmSend: true required"}, origin)
 
+    event_id = (body.get("eventId") or "").strip()
+    body = dict(body)
+    # These fields are set only by the Lambda continuation path, never trusted
+    # from an HTTP request body.
+    body.pop("_serverContinuation", None)
+    body.pop("_continuationProgress", None)
+    confirmed_update = coerce_bool(body.get("confirmedUpdate", False))
+    try:
+        current_for_guard = _resolve_active_invitable_event(event_id)
+        if confirmed_update:
+            message = (body.get("messageOverride") or "").strip()
+            if not message:
+                raise ValueError("One-time update message required")
+            recipients = _confirmed_update_recipients(event_id)
+            if not recipients:
+                raise ValueError("No confirmed members are available for this event update")
+            body["phones"] = [r["phone"] for r in recipients]
+            body["confirmedUpdatePhones"] = body["phones"]
+            body["confirmedUpdateRecipientCount"] = len(body["phones"])
+            body["manualSend"] = True
+            body["autoWave"] = False
+            body["lockedWave"] = True
+            body["waveNumber"] = MANUAL_WAVE_NUMBER
+        else:
+            _validate_initial_invite_text((body.get("messageOverride") or "").strip(), current_for_guard)
+    except ValueError as ve:
+        status = 409 if "EVENT_MISMATCH" in str(ve) else 400
+        return _resp(status, {"ok": False, "error": str(ve)}, origin)
+
+    # Preview sends must use a persisted preview lock. This prevents wave/audience
+    # drift between the admin preview and the async send job. Manual single-invite
+    # sends without previewSessionId are still locked at queue time as an explicit
+    # override path.
     job_id = str(uuid.uuid4())
+    try:
+        if coerce_bool(body.get("confirmedUpdate", False)):
+            pass
+        elif body.get("previewSessionId") or body.get("previewLockId"):
+            body = _resolve_locked_send_body(body, job_id)
+        else:
+            try:
+                submitted_wave = int(body.get("waveNumber") or 0)
+            except (TypeError, ValueError):
+                submitted_wave = 0
+            if coerce_bool(body.get("autoWave", True)):
+                next_wave = _get_next_wave_number(event_id)
+                _assert_formal_wave_available(next_wave)
+                body["waveNumber"] = next_wave
+                body["autoWave"] = False
+                body["lockedWave"] = True
+            elif submitted_wave < 1:
+                # Explicit manual/resend path. This is not Wave 4. Analytics groups
+                # waveNumber 0 under Manual / Resend.
+                body["waveNumber"] = MANUAL_WAVE_NUMBER
+                body["autoWave"] = False
+                body["lockedWave"] = True
+                body["manualSend"] = True
+            else:
+                _assert_formal_wave_available(submitted_wave)
+    except ValueError as ve:
+        return _resp(409, {"ok": False, "error": str(ve)}, origin)
+
     try:
         _write_job(job_id, body, origin)
     except Exception:
@@ -538,7 +904,7 @@ def handle_send(body: dict, origin: str, token: str) -> dict:
         _update_job(job_id, {"status": "FAILED", "error": "Lambda invoke failed"})
         return _resp(500, {"ok": False, "error": "failed to dispatch blast"}, origin)
 
-    return _resp(202, {"ok": True, "jobId": job_id, "status": "QUEUED"}, origin)
+    return _resp(202, {"ok": True, "jobId": job_id, "status": "QUEUED", "recipientCount": len(body.get("phones") or [])}, origin)
 
 
 def _run_blast(body: dict, origin: str, token: str, job_id: str) -> None:
@@ -554,308 +920,38 @@ def _run_blast(body: dict, origin: str, token: str, job_id: str) -> None:
         _update_job(job_id, {"status": "FAILED", "completedAt": _now_iso(), "error": str(e)[:500]})
 
 
-def _execute_send(body: dict, origin: str, token: str, job_id: str) -> None:
-    """Core blast execution — extracted from handle_send for async use."""
-    event_id   = (body.get("eventId") or "").strip()
-
-    # ── Guard: check event lifecycle state before sending ────────────────────
-    try:
-        current_ev = _events_table().get_item(Key={"eventId": "current"}).get("Item") or {}
-        ev_status  = (current_ev.get("event_status") or "DRAFT").upper()
-        INVITABLE_STATES = {"LIVE", "INVITING"}
-        if ev_status not in INVITABLE_STATES:
-            raise ValueError(
-                f"Cannot send invites — event is in state '{ev_status}'. "
-                f"Event must be LIVE or INVITING to send invite waves."
-            )
-    except ValueError:
-        raise
-    except Exception:
-        logger.exception("invite: failed to check event state before blast event=%s", event_id)
-        raise ValueError("Could not verify event state — blast aborted")
-    # ─────────────────────────────────────────────────────────────────────────
-
-    capacity   = int(body.get("capacity") or 0)
-    wave_number = int(body.get("waveNumber") or 1)
-    wave_size   = int(body.get("waveSize") or 0)
-    removed_phones = body.get("removedPhones") or []
-
-    # selected_phones: normalize each phone, skip malformed ones rather than crashing the send
-    raw_phones = body.get("phones") or []
-    selected_phones = []
-    for p in raw_phones:
-        if p:
-            try:
-                selected_phones.append(normalize_phone(p))
-            except ValueError:
-                logger.warning("handle_send: skipping malformed phone in selected list: %r", p)
-
-    # Fix #29: validate these server-side — don't trust client values
-    try:
-        female_pct   = int(body.get("femalePercent") or 60)
-        tier2_buffer = int(body.get("tier2BufferPct") or 30)
-    except (ValueError, TypeError):
-        raise ValueError("femalePercent and tier2BufferPct must be integers")
-
-    if not (0 <= female_pct <= 100):
-        raise ValueError("femalePercent must be 0–100")
-    if not (0 <= tier2_buffer <= 200):
-        raise ValueError("tier2BufferPct must be 0–200")
-
-    if not event_id or capacity < 1:
-        raise ValueError("eventId and capacity required")
-
-    # Fix C5: wave 2+ must use live analytics to compute effective_capacity,
-    # matching exactly what handle_preview showed the admin.
-    existing_invites = _get_existing_invited_phones(event_id)
-
-    if wave_number >= 2 and not wave_size:
-        analytics = _get_analytics(event_id)
-        confirmed_count = analytics.get("confirmed", 0)
-        actual_confirm_rate = analytics.get("confirmRate")
-        effective_capacity = _resolve_wave_capacity(
-            capacity, wave_number, wave_size,
-            confirmed=confirmed_count,
-            already_invited=len(existing_invites),
-            actual_confirm_rate=actual_confirm_rate,
-        )
-    else:
-        effective_capacity = _resolve_wave_capacity(capacity, wave_number, wave_size)
-
-    members_list = [m for m in _get_approved_members() if m.get("phone") not in existing_invites]
-
-    if selected_phones:
-        # selected_phones from the frontend is the authoritative list — the admin explicitly
-        # chose these people in preview. Build the member map from the full eligible pool
-        # so no selected phone can be dropped by a reshuffle of _build_invite_list.
-        full_member_map = {normalize_phone(m.get("phone", "")): m for m in members_list if m.get("phone")}
-        selected_members = [full_member_map[p] for p in selected_phones if p in full_member_map]
-        result = {"members": selected_members, "summary": {}}
-    else:
-        result = _build_invite_list(members_list, effective_capacity, female_pct, tier2_buffer, removed_phones)
-        selected_members = result["members"]
-
-    current_event = _get_current_event()
-    invites_t = _invites_table()
-    members_t = members_table()
-    now = _now_iso()
-
-    sms_enabled = (os.getenv("SMS_ENABLED", "false") or "").lower() == "true"
-    sent            = 0
-    failed          = 0
-    skipped_consent = 0
-    invites_written = 0
-    already_invited = 0   # initialized here, incremented when member already has real invite
-
-    for m in selected_members:
-        phone = normalize_phone(m.get("phone", ""))
-        if not phone:
-            continue
-
-        try:
-            # Statuses that should NOT block a new invite attempt
-            _RETRYABLE_STATUSES = _RETRYABLE_STATUSES_IMPORTED  # centralized in member_store
-
-            new_invite_item = {
-                "eventId":    event_id,
-                "phone":      phone,
-                "status":     "INVITED",
-                "gender":     m.get("gender", ""),
-                "tier":       m["_tier"],
-                "invitedAt":  now,
-                "waveNumber": wave_number,
-                "waveSentAt": now,
-                "name":       m.get("name", ""),
-                "lastName":   m.get("lastName", ""),
-            }
-
-            try:
-                invites_t.put_item(
-                    Item=new_invite_item,
-                    ConditionExpression="attribute_not_exists(phone)",
-                )
-                invites_written += 1
-            except ClientError as ce:
-                if ce.response["Error"]["Code"] != "ConditionalCheckFailedException":
-                    raise
-                # Row exists — check if it's a retryable status or a real invite
-                try:
-                    existing = invites_t.get_item(
-                        Key={"eventId": event_id, "phone": phone},
-                        ProjectionExpression="#s",
-                        ExpressionAttributeNames={"#s": "status"},
-                    ).get("Item", {})
-                    existing_status = (existing.get("status") or "").upper()
-                except Exception:
-                    existing_status = "INVITED"  # assume real invite if lookup fails
-
-                if existing_status in _RETRYABLE_STATUSES:
-                    # Previous attempt never reached them — overwrite with fresh invite
-                    invites_t.put_item(Item=new_invite_item)
-                    invites_written += 1
-                    logger.info(
-                        "invite: overwrote %s row with fresh INVITED phone=...%s",
-                        existing_status, phone[-4:],
-                    )
-                else:
-                    # Genuinely already invited — skip silently, track count
-                    already_invited += 1
-                    continue
-
-            sms_succeeded   = False
-            consent_skipped = False
-            if sms_enabled:
-                if coerce_bool(m.get("optOut", False)) or not coerce_bool(m.get("smsOptIn", False)):
-                    skipped_consent += 1
-                    # Fix: mark as SKIPPED_CONSENT not INVITED — they never received the message
-                    # so they should not be treated as invited or excluded from future waves
-                    try:
-                        invites_t.update_item(
-                            Key={"eventId": event_id, "phone": phone},
-                            UpdateExpression="SET #s = :status",
-                            ExpressionAttributeNames={"#s": "status"},
-                            ExpressionAttributeValues={":status": "SKIPPED_CONSENT"},
-                        )
-                    except Exception:
-                        logger.exception("invite: failed to update SKIPPED_CONSENT phone=...%s", phone[-4:])
-                    invites_written -= 1  # don't count as a real invite
-                    sms_succeeded = True   # not a send failure, just skipped
-                    consent_skipped = True # prevent invitedCount from incrementing
-                else:
-                    message = _build_sms_message(m, current_event)
-                    msg_id = None
-                    for attempt in range(3):
-                        try:
-                            msg_id = send_sms(phone, message)
-                            sent += 1
-                            sms_succeeded = True
-                            break
-                        except RuntimeError as sms_err:
-                            err_str = str(sms_err)
-                            if "429" in err_str or "rate" in err_str.lower():
-                                wait = (attempt + 1) * 1.5
-                                logger.warning(
-                                    "invite send rate limited, waiting %.1fs phone=...%s attempt=%d",
-                                    wait, phone[-4:], attempt + 1,
-                                )
-                                time.sleep(wait)
-                            else:
-                                raise
-                    else:
-                        failed += 1
-                        logger.error("invite send exhausted retries phone=...%s", phone[-4:])
-                        # Mark the invite row as FAILED so it:
-                        # (a) doesn't count as invited in analytics
-                        # (b) is eligible to retry in the next wave
-                        # (c) doesn't inflate confirm rate
-                        try:
-                            invites_t.update_item(
-                                Key={"eventId": event_id, "phone": phone},
-                                UpdateExpression="SET #s = :failed",
-                                ExpressionAttributeNames={"#s": "status"},
-                                ExpressionAttributeValues={":failed": "FAILED"},
-                            )
-                        except Exception:
-                            logger.exception("invite: failed to mark FAILED status phone=...%s", phone[-4:])
-                    # Store Quo message ID on invite record for delivery tracking
-                    if msg_id:
-                        try:
-                            invites_t.update_item(
-                                Key={"eventId": event_id, "phone": phone},
-                                UpdateExpression="SET quoMessageId = :mid",
-                                ExpressionAttributeValues={":mid": msg_id},
-                            )
-                        except Exception:
-                            logger.exception("invite send: failed to store msg_id phone=...%s", phone[-4:])
-                    time.sleep(0.25)
-            else:
-                sms_succeeded = True  # SMS disabled, invite row is still valid
-
-            # Only increment invitedCount after the invite row is written AND
-            # SMS either sent successfully or was intentionally skipped.
-            # This prevents count drift when sends fail and rows get cleaned up.
-            # Only increment invitedCount when SMS was actually delivered
-            # SKIPPED_CONSENT means they were never reached — don't credit the wave
-            if sms_succeeded and not consent_skipped:
-                members_t.update_item(
-                    Key={"phone": phone},
-                    UpdateExpression="SET invitedCount = if_not_exists(invitedCount, :zero) + :one, lastSeenAt = :now",
-                    ExpressionAttributeValues={":zero": 0, ":one": 1, ":now": now},
-                )
-
-        except Exception:
-            failed += 1
-            logger.exception("invite send failed event=%s phone=...%s", event_id, phone[-4:])
-            # Delete the invite row so a re-run of the blast can retry this member.
-            # invitedCount has NOT been incremented yet (it only increments after
-            # successful send), so cleanup is clean — no counter drift.
-            try:
-                invites_t.delete_item(Key={"eventId": event_id, "phone": phone})
-            except Exception:
-                logger.exception("invite send: failed to clean up invite row phone=...%s", phone[-4:])
-            continue
-
-    result["summary"]["waveNumber"] = wave_number
-    result["summary"]["waveSize"]   = effective_capacity
-
-    # Write delivery stats to the event record — visible in admin panel
-    try:
-        events_t = boto3.resource("dynamodb").Table(os.getenv("EVENTS_TABLE_NAME", "rsvp-events"))
-        events_t.update_item(
-            Key={"eventId": "current"},
-            UpdateExpression=(
-                "SET lastBlastAt = :now, "
-                "lastBlastSmsSent = :sent, "
-                "lastBlastFailed = :failed, "
-                "lastBlastSkippedConsent = :skip, "
-                "lastBlastWave = :wave, "
-                "deliveredCount = :zero"
-            ),
-            ExpressionAttributeValues={
-                ":now": _now_iso(),
-                ":sent": sent,
-                ":failed": failed,
-                ":skip": skipped_consent,
-                ":wave": wave_number,
-                ":zero": 0,
-            },
-        )
-    except Exception:
-        logger.exception("invite send: failed to write blast stats to event record")
-
-    log_action(
-        token=token,
-        action=ACTION_INVITE_SENT,
-        metadata={
-            "eventId":        event_id,
-            "waveNumber":     wave_number,
-            "waveSize":       effective_capacity,
-            "invitesWritten": invites_written,
-            "smsSent":        sent,
-            "failed":         failed,
-            "skippedConsent": skipped_consent,
-        },
-    )
-
-    # Update job record with final results + per-recipient breakdown
-    _update_job(job_id, {
-        "status":         "COMPLETE",
-        "completedAt":    _now_iso(),
-        "invitesWritten": invites_written,
-        "smsSent":        sent,
-        "failed":         failed,
-        "skippedConsent": skipped_consent,
-        "targetEventId":  event_id,
-        "waveNumber":     wave_number,
-        # Summary breakdown for admin dashboard
-        "breakdown": json.dumps({
-            "queued":         len(selected_members) if selected_members else len(selected_phones),
-            "sent":           sent,
-            "failed":         failed,
-            "skippedConsent": skipped_consent,
-            "alreadyInvited": already_invited,
-        }),
+def _execute_send(body: dict, origin: str, token: str, job_id: str):
+    from invite_sender import execute_send
+    return execute_send(body, origin, token, job_id, deps={
+        "ACTION_INVITE_SENT": ACTION_INVITE_SENT,
+        "MANUAL_WAVE_NUMBER": MANUAL_WAVE_NUMBER,
+        "_RETRYABLE_STATUSES_IMPORTED": _RETRYABLE_STATUSES_IMPORTED,
+        "_apply_audience_filters": _apply_audience_filters,
+        "_event_promotion_geography": _event_promotion_geography,
+        "_assert_formal_wave_available": _assert_formal_wave_available,
+        "_build_invite_list": _build_invite_list,
+        "_build_sms_message": _build_sms_message,
+        "_execute_confirmed_update": _execute_confirmed_update,
+        "_get_analytics": _get_analytics,
+        "_get_approved_members": _get_approved_members,
+        "_get_existing_invited_phones": _get_existing_invited_phones,
+        "_get_next_wave_number": _get_next_wave_number,
+        "_invite_message_metadata": _invite_message_metadata,
+        "_invites_table": _invites_table,
+        "_now_iso": _now_iso,
+        "_resolve_active_invitable_event": _resolve_active_invitable_event,
+        "_resolve_wave_capacity": _resolve_wave_capacity,
+        "_update_job": _update_job,
+        "_validate_initial_invite_text": _validate_initial_invite_text,
+        "coerce_bool": coerce_bool,
+        "calc_tier": calc_tier,
+        "log_action": log_action,
+        "members_table": members_table,
+        "normalize_phone": normalize_phone,
+        "send_sms": send_sms,
+        "logger": logger,
     })
+
 
 
 def handler(event, context):
@@ -872,15 +968,20 @@ def handler(event, context):
                 logger.error("async blast: invalid token for job_id=%s", job_id)
                 _update_job(job_id, {"status": "FAILED", "error": "unauthorized async token"})
                 return {"statusCode": 200, "body": json.dumps({"ok": False, "error": "unauthorized"})}
-            try:
-                job_item = _events_table().get_item(Key={"eventId": _job_key(job_id)}).get("Item") or {}
-                blast_body_raw = job_item.get("requestBody", "{}")
-            except Exception:
-                logger.exception("async blast: failed to load job body job_id=%s", job_id)
-                return {"statusCode": 200, "body": json.dumps({"ok": False})}
-            if blast_body_raw:
-                blast_body = json.loads(blast_body_raw)
+            blast_body = event.get("blastBody") if isinstance(event.get("blastBody"), dict) else None
+            if blast_body is None:
+                try:
+                    job_item = _invite_jobs_table().get_item(Key={"jobId": job_id}).get("Item") or {}
+                    blast_body_raw = job_item.get("requestBody", "{}")
+                    blast_body = json.loads(blast_body_raw) if blast_body_raw else {}
+                except Exception:
+                    logger.exception("async blast: failed to load job body job_id=%s", job_id)
+                    _update_job(job_id, {"status": "FAILED", "error": "Could not load send request"})
+                    return {"statusCode": 200, "body": json.dumps({"ok": False})}
+            if blast_body:
                 blast_body["confirmSend"] = True
+                if event.get("continuation"):
+                    blast_body["_serverContinuation"] = True
                 _run_blast(blast_body, None, async_token, job_id)
             return {"statusCode": 200, "body": json.dumps({"ok": True})}
 

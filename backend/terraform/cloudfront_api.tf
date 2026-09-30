@@ -22,6 +22,22 @@ resource "aws_cloudfront_function" "cors_origin" {
   EOT
 }
 
+# X-Forwarded-For is used by the regional API WAF rate limits. Strip any
+# viewer-supplied value so CloudFront creates it from the real viewer address.
+resource "aws_cloudfront_function" "sanitize_viewer_ip" {
+  name    = "rsvp-sanitize-viewer-ip"
+  runtime = "cloudfront-js-2.0"
+  comment = "Remove viewer-supplied X-Forwarded-For before forwarding to the API origin"
+  publish = true
+  code    = <<-EOT
+    function handler(event) {
+      var request = event.request;
+      delete request.headers['x-forwarded-for'];
+      return request;
+    }
+  EOT
+}
+
 # ─────────────────────────────────────────────────────────────────────────────
 # ACM Certificate for api.rsvpsociety.com
 # Must be in us-east-1 for CloudFront
@@ -72,6 +88,11 @@ resource "aws_cloudfront_distribution" "api" {
     origin_id   = local.api_gateway_origin_id
     origin_path = "/prod"
 
+    custom_header {
+      name  = "X-RSVP-Origin-Verify"
+      value = var.cloudfront_origin_verify_header
+    }
+
     custom_origin_config {
       http_port              = 80
       https_port             = 443
@@ -91,13 +112,17 @@ resource "aws_cloudfront_distribution" "api" {
       event_type   = "viewer-response"
       function_arn = aws_cloudfront_function.cors_origin.arn
     }
-    min_ttl                = 0
-    default_ttl            = 0
-    max_ttl                = 0
+    function_association {
+      event_type   = "viewer-request"
+      function_arn = aws_cloudfront_function.sanitize_viewer_ip.arn
+    }
+    min_ttl     = 0
+    default_ttl = 0
+    max_ttl     = 0
 
     forwarded_values {
       query_string = true
-      headers      = ["Authorization", "Content-Type", "x-admin-token", "Origin", "Access-Control-Request-Headers", "Access-Control-Request-Method", "openphone-signature"]
+      headers      = ["Authorization", "Content-Type", "x-admin-token", "Origin", "Access-Control-Request-Headers", "Access-Control-Request-Method", "openphone-signature", "webhook-id", "webhook-timestamp", "webhook-signature"]
 
       cookies {
         forward = "none"
@@ -128,4 +153,9 @@ resource "aws_cloudfront_distribution" "api" {
 output "cloudfront_api_domain" {
   value       = aws_cloudfront_distribution.api.domain_name
   description = "Add this as CNAME for api.rsvpsociety.com in Squarespace"
+}
+
+output "cloudfront_api_distribution_id" {
+  value       = aws_cloudfront_distribution.api.id
+  description = "Distribution ID used to wait for API origin header propagation before enabling the WAF origin rule."
 }

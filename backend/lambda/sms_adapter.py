@@ -55,6 +55,61 @@ def get_secret_string(secret_id: str) -> str:
     return resp.get("SecretString", "")
 
 
+def get_host_phones() -> List[str]:
+    """
+    Host approval phone numbers, returned normalized to E.164.
+
+    Preferred source is Secrets Manager via HOST_PHONE_SECRET_ID. The secret value
+    may be any of:
+      - a JSON object: {"host_phone_1": "+1...", "host_phone_2": "+1..."} or {"phones": [...]}
+      - a JSON array:  ["+1...", "+1..."]
+      - a plain string of one or more numbers separated by commas/space/newlines
+
+    Falls back to the HOST_PHONE_1 / HOST_PHONE_2 env vars when the secret is unset
+    or unreadable, so existing deployments keep working unchanged.
+    """
+    raw_numbers: List[str] = []
+    secret_id = (os.getenv("HOST_PHONE_SECRET_ID", "") or "").strip()
+    if secret_id:
+        try:
+            raw = (get_secret_string(secret_id) or "").strip()
+            if raw:
+                parsed = None
+                try:
+                    parsed = json.loads(raw)
+                except Exception:
+                    parsed = None
+                if isinstance(parsed, dict):
+                    if isinstance(parsed.get("phones"), list):
+                        raw_numbers = [str(p) for p in parsed["phones"]]
+                    else:
+                        raw_numbers = [str(parsed.get(k, "")) for k in ("host_phone_1", "host_phone_2")]
+                elif isinstance(parsed, list):
+                    raw_numbers = [str(p) for p in parsed]
+                else:
+                    raw_numbers = re.split(r"[,\s]+", raw)
+        except Exception:
+            logger.warning("get_host_phones: could not read secret %s; falling back to env vars", secret_id)
+            raw_numbers = []
+
+    if not any((p or "").strip() for p in raw_numbers):
+        raw_numbers = [os.getenv("HOST_PHONE_1", ""), os.getenv("HOST_PHONE_2", "")]
+
+    out: List[str] = []
+    for p in raw_numbers:
+        p = (p or "").strip()
+        if not p:
+            continue
+        try:
+            p = _normalize_e164(p)
+        except Exception:
+            # Keep the raw value if it can't be normalized — better than dropping it.
+            pass
+        if p not in out:
+            out.append(p)
+    return out
+
+
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
 def _normalize_e164(raw: str) -> str:
@@ -81,6 +136,14 @@ def _digits(s: str) -> str:
     return re.sub(r"\D", "", s or "")
 
 
+def _quo_api_url(path: str) -> str:
+    """Return a validated Quo API URL, configurable for controlled rollback/testing."""
+    base = (os.getenv("QUO_API_BASE_URL") or "https://api.quo.com").strip().rstrip("/")
+    if not base.startswith("https://"):
+        raise RuntimeError("QUO_API_BASE_URL must use https://")
+    return f"{base}/{path.lstrip('/')}"
+
+
 def _http_json(url: str, *, method: str = "GET", headers: Optional[dict] = None, data: Optional[bytes] = None, timeout: int = 15) -> Any:
     merged = {"User-Agent": "rsvp-society-lambda/1.0", **(headers or {})}
     req = urllib.request.Request(url, data=data, headers=merged, method=method)
@@ -97,21 +160,22 @@ def _list_phone_numbers(api_key: str) -> List[dict]:
     Docs: GET /v1/phone-numbers
     """
     payload = _http_json(
-        "https://api.openphone.com/v1/phone-numbers",
+        _quo_api_url("/v1/phone-numbers"),
         headers={"Authorization": api_key},
         method="GET",
         timeout=15,
     )
+
+    if isinstance(payload, list):
+        return payload
+    if not isinstance(payload, dict):
+        return []
 
     # The API has used a few different top-level shapes over time; accept them all.
     for key in ("data", "phoneNumbers", "results", "items"):
         items = payload.get(key)
         if isinstance(items, list):
             return items
-
-    # Some responses may be direct list payloads.
-    if isinstance(payload, list):
-        return payload
 
     return []
 
@@ -296,7 +360,7 @@ def _resolve_from_phone_number_id() -> str:
     )
 
 
-def send_sms(to_phone: str, message: str) -> None:
+def send_sms(to_phone: str, message: str) -> Optional[str]:
     """
     Send an SMS via Quo/OpenPhone.
 
@@ -346,7 +410,7 @@ def send_sms(to_phone: str, message: str) -> None:
 
     data = json.dumps(payload).encode("utf-8")
     req = urllib.request.Request(
-        "https://api.openphone.com/v1/messages",
+        _quo_api_url("/v1/messages"),
         data=data,
         headers={
             "Authorization": api_key,

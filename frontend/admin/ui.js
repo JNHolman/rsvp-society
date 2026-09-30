@@ -106,3 +106,41 @@ export function setActiveButton(selector, activeId) {
   const active = document.getElementById(activeId);
   if (active) active.classList.add('active');
 }
+
+
+export function openModal({ title = '', kicker = '', body = null, actions = [] } = {}) {
+  closeModal();
+  const overlay = createNode('div', { className: 'modal-overlay premium-modal-overlay', attrs: { id: 'runtime-modal' } });
+  const panel = createNode('div', { className: 'modal-panel premium-modal-panel' });
+  const header = createNode('div', { className: 'modal-header' });
+  const headingWrap = createNode('div');
+  if (kicker) headingWrap.appendChild(createNode('p', { className: 'modal-kicker', text: kicker }));
+  if (title) headingWrap.appendChild(createNode('h3', { className: 'modal-title', text: title }));
+  const close = createNode('button', { className: 'modal-close-btn', text: '×', attrs: { type: 'button', 'aria-label': 'Close modal' } });
+  close.addEventListener('click', closeModal);
+  appendChildren(header, headingWrap, close);
+  panel.appendChild(header);
+  if (body) panel.appendChild(body);
+  if (actions.length) {
+    const row = createNode('div', { className: 'modal-actions' });
+    actions.forEach((action) => row.appendChild(action));
+    panel.appendChild(row);
+  }
+  overlay.appendChild(panel);
+  overlay.addEventListener('click', (event) => {
+    if (event.target === overlay) closeModal();
+  });
+  const onKey = (event) => { if (event.key === 'Escape') closeModal(); };
+  document.addEventListener('keydown', onKey, { once: true });
+  overlay._rsvpModalKeyHandler = onKey;
+  document.body.appendChild(overlay);
+  return overlay;
+}
+
+export function closeModal() {
+  const existing = document.getElementById('runtime-modal');
+  if (existing) {
+    if (existing._rsvpModalKeyHandler) document.removeEventListener('keydown', existing._rsvpModalKeyHandler);
+    existing.remove();
+  }
+}

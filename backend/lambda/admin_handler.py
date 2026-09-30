@@ -5,13 +5,26 @@ import os
 import boto3
 
 from admin_shared import get_method, get_headers, get_admin_token, resp
-from admin_event_routes import get_public_event, get_admin_event, save_admin_event, get_analytics, get_events
+from admin_event_routes import (
+    get_public_event, get_admin_event, save_admin_event, delete_admin_event, get_analytics,
+    list_admin_events, create_or_update_admin_event, set_active_admin_event,
+    archive_admin_event, duplicate_admin_event, finalize_admin_event_attendance,
+    draft_admin_event_message,
+)
 from admin_member_routes import (
-    get_confirmed, list_members, delete_member, set_member_status, set_member_gender,
+    get_confirmed, list_members, get_member_history, delete_member, set_member_status, set_member_gender,
     set_member_tier, record_member_attendance, import_members, search_members_route,
 )
 
 logger = logging.getLogger()
+
+
+def _no_store(response: dict) -> dict:
+    response = dict(response or {})
+    headers = dict(response.get("headers") or {})
+    headers["Cache-Control"] = "no-store"
+    response["headers"] = headers
+    return response
 
 
 def _health_check(headers: dict) -> dict:
@@ -31,6 +44,7 @@ def _health_check(headers: dict) -> dict:
 ROUTES = {
     ("GET", "/admin/members/confirmed"): get_confirmed,
     ("GET", "/admin/members/search"): search_members_route,
+    ("GET", "/admin/members/history"): get_member_history,
     ("GET", "/admin/members"): list_members,
     ("DELETE", "/admin/members"): delete_member,
     ("POST", "/admin/members/status"): set_member_status,
@@ -39,9 +53,17 @@ ROUTES = {
     ("POST", "/admin/members/attendance"): record_member_attendance,
     ("POST", "/admin/members/import"): import_members,
     ("GET", "/admin/event/analytics"): get_analytics,
-    ("GET", "/admin/events"): get_events,
+    ("POST", "/admin/events/set-active"): set_active_admin_event,
+    ("POST", "/admin/events/archive"): archive_admin_event,
+    ("POST", "/admin/events/finalize-attendance"): finalize_admin_event_attendance,
+    ("POST", "/admin/event/draft-message"): draft_admin_event_message,
+    ("POST", "/admin/events/duplicate"): duplicate_admin_event,
+    ("GET", "/admin/events"): list_admin_events,
+    ("POST", "/admin/events"): create_or_update_admin_event,
+    ("DELETE", "/admin/events"): delete_admin_event,
     ("GET", "/admin/event"): get_admin_event,
     ("POST", "/admin/event"): save_admin_event,
+    ("DELETE", "/admin/event"): delete_admin_event,
 }
 PUBLIC_ROUTES = {
     ("GET", "/event"): get_public_event,
@@ -79,9 +101,9 @@ def handler(event, context):
 
         token = (headers.get("x-admin-token") or headers.get("X-Admin-Token") or "").strip()
         if not token or not hmac.compare_digest(token, get_admin_token()):
-            return resp(headers, 401, {"ok": False, "error": "unauthorized"})
+            return _no_store(resp(headers, 401, {"ok": False, "error": "unauthorized"}))
 
-        return route_fn(event, headers, token)
+        return _no_store(route_fn(event, headers, token))
     except Exception:
         logger.exception("admin_handler failed method=%s path=%s", method, path)
         return resp(headers, 500, {"ok": False, "error": "server_error"})

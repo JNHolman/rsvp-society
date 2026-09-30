@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # export_clean.sh — production-clean export
 # Produces:
-#   frontend-deploy.zip   — frontend/admin files only
+#   frontend-deploy.zip   — complete public + admin frontend
 #   lambda-bundle.zip     — Lambda Python files only (no test/audit/dev files)
-#   terraform-source.zip  — Terraform configs only
+#   terraform-source.zip  — Terraform configs + canonical Lambda bundle
 #
 # Works from repo root OR from backend/lambda after being applied to the repo.
 
@@ -35,7 +35,7 @@ fi
 
 LAMBDA_DIR="$REPO_ROOT/backend/lambda"
 TERRAFORM_DIR="$REPO_ROOT/backend/terraform"
-FRONTEND_DIR="$REPO_ROOT/frontend/admin"
+FRONTEND_DIR="$REPO_ROOT/frontend"
 OUT="$REPO_ROOT/dist"
 mkdir -p "$OUT"
 
@@ -44,38 +44,21 @@ echo "  Repo root: $REPO_ROOT"
 echo "  Output:    $OUT"
 echo ""
 
-# ── Lambda bundle (no test/audit/dev files) ──────────────────────────────────
+# ── Lambda bundle (canonical build path) ─────────────────────────────────────
+# build_lambda.sh is the single source of truth for runtime package contents.
+# export_clean.sh must never maintain a second exclusion/copy list.
 LAMBDA_OUT="$OUT/lambda-bundle.zip"
-STAGING_LAMBDA="$(mktemp -d)"
-trap 'rm -rf "$STAGING_LAMBDA"' EXIT
-
-EXCLUDE_LAMBDA=(
-  "integration_tests.py"
-  "route_contract_audit.py"
-  "runtime_integration_check.py"
-  "smoke_test.py"
-)
-
-find "$LAMBDA_DIR" -maxdepth 1 -type f -name "*.py" | while read -r f; do
-  fname="$(basename "$f")"
-  skip=0
-  for ex in "${EXCLUDE_LAMBDA[@]}"; do
-    [[ "$fname" == "$ex" ]] && skip=1 && break
-  done
-  [[ $skip -eq 0 ]] && cp "$f" "$STAGING_LAMBDA/"
-done
-
-rm -f "$LAMBDA_OUT"
-(cd "$STAGING_LAMBDA" && zip -q "$LAMBDA_OUT" *.py)
+bash "$LAMBDA_DIR/build_lambda.sh"
+cp "$TERRAFORM_DIR/lambda_bundle.zip" "$LAMBDA_OUT"
 echo "  ✓ lambda-bundle.zip ($(du -sh "$LAMBDA_OUT" | cut -f1))"
 
 # ── Terraform source ─────────────────────────────────────────────────────────
 TERRAFORM_OUT="$OUT/terraform-source.zip"
 rm -f "$TERRAFORM_OUT"
 if [[ -f "$TERRAFORM_DIR/.terraform.lock.hcl" ]]; then
-  (cd "$TERRAFORM_DIR" && zip -q "$TERRAFORM_OUT" *.tf .terraform.lock.hcl)
+  (cd "$TERRAFORM_DIR" && zip -q "$TERRAFORM_OUT" *.tf .terraform.lock.hcl lambda_bundle.zip)
 else
-  (cd "$TERRAFORM_DIR" && zip -q "$TERRAFORM_OUT" *.tf)
+  (cd "$TERRAFORM_DIR" && zip -q "$TERRAFORM_OUT" *.tf lambda_bundle.zip)
 fi
 echo "  ✓ terraform-source.zip ($(du -sh "$TERRAFORM_OUT" | cut -f1))"
 
@@ -85,7 +68,7 @@ if [[ -d "$FRONTEND_DIR" ]]; then
   rm -f "$FRONTEND_OUT"
   (cd "$FRONTEND_DIR" && zip -q -r "$FRONTEND_OUT" . \
     --exclude "*.DS_Store" --exclude "*__MACOSX*" \
-    --exclude "*.pyc" --exclude "attendance.js" --exclude "attendance.css")
+    --exclude "*.pyc")
   echo "  ✓ frontend-deploy.zip ($(du -sh "$FRONTEND_OUT" | cut -f1))"
 else
   echo "  ⚠ frontend dir not found at $FRONTEND_DIR — skipping"
@@ -93,7 +76,8 @@ fi
 
 echo ""
 echo "Deploy order:"
-echo "  1. cd backend/terraform && terraform apply"
-echo "  2. Deploy dist/lambda-bundle.zip to Lambda or via Terraform-controlled release"
+echo "  1. Build canonical Lambda bundle: backend/lambda/build_lambda.sh"
+echo "  2. Use the manual GitHub deploy workflow; it deploys CloudFront and waits before applying WAF"
+echo "     Follow VALIDATION.md for first rollout and origin-secret rotation; do not use a one-step apply"
 echo "  3. Deploy dist/frontend-deploy.zip to frontend host"
 echo "  4. python3 backend/lambda/smoke_test.py --api https://api.rsvpsociety.com"

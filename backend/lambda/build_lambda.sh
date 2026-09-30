@@ -22,8 +22,14 @@ fi
 
 find "$LAMBDA_DIR" -maxdepth 1 -name "*.py" \
   ! -name "integration_tests.py" \
+  ! -name "characterization_tests.py" \
+  ! -name "known_defect_contract_tests.py" \
   ! -name "route_contract_audit.py" \
   ! -name "runtime_integration_check.py" \
+  ! -name "jade_behavior_audit.py" \
+  ! -name "jade_scenario_tests.py" \
+  ! -name "jade_v2_contract_tests.py" \
+  ! -name "smoke_test.py" \
   -exec cp {} "$STAGING/" \;
 
 FILE_COUNT=$(find "$STAGING" -name "*.py" | wc -l | tr -d ' ')
@@ -34,4 +40,4 @@ rm -f "$OUTPUT"
 rm -rf "$STAGING"
 
 echo "  Done: $OUTPUT ($(du -sh "$OUTPUT" | cut -f1))"
-echo "  Next: cd backend/terraform && terraform apply"
+echo "  Next: review the Terraform plan and use the manual GitHub deploy workflow; see VALIDATION.md for staged CloudFront/WAF rollout"

@@ -3,6 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:;">
 <title>SMS Terms & Privacy — RSVP Society</title>
 <meta name="robots" content="noindex">
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='15' fill='%23060608' stroke='%23C9A84C' stroke-width='1.5'/%3E%3Ctext x='16' y='21' font-family='Georgia,serif' font-size='14' font-weight='bold' fill='%23E8D08A' text-anchor='middle'%3ER%3C/text%3E%3C/svg%3E">
@@ -23,9 +24,9 @@ body {
   color: var(--white);
   font-family: 'Montserrat', sans-serif;
   font-weight: 300;
-  cursor: none;
+  cursor: auto;
 }
-.cursor {
+.cursor { display:none !important;
   position: fixed;
   width: 6px;
   height: 6px;
@@ -36,7 +37,7 @@ body {
   transform: translate(-50%,-50%);
   mix-blend-mode: difference;
 }
-.cursor-trail {
+.cursor-trail { display:none !important;
   position: fixed;
   width: 28px;
   height: 28px;
@@ -147,12 +148,12 @@ strong { color: #F5EFE0; }
 <div class="content">
   <p class="eyebrow">Legal</p>
   <h1>SMS Terms &amp; Privacy Policy</h1>
-  <p class="date">Last Updated: February 2026</p>
+  <p class="date">Last Updated: September 2026</p>
   <p class="intro">By opting into SMS messages from RSVP Society, you agree to receive text messages for event invitations, access confirmations, and updates related to our experiences.</p>
 
   <hr>
   <h2>Terms of Service</h2>
-  <p>You can cancel SMS service at any time by texting <strong>STOP</strong>. After texting STOP, you will receive one confirmation message and no further messages. To rejoin, submit your number again through our form.</p>
+  <p>You can cancel SMS service at any time by texting <strong>STOP</strong>. After texting STOP, you will receive one confirmation message and no further messages. To request to rejoin, submit your number again through our form for host review. Texting STOP stops messages; it does not cancel an existing RSVP. To cancel attendance before opting out, text “cancel my RSVP,” or contact the host.</p>
   <p>If you need help, reply <strong>HELP</strong> at any time. Carriers are not liable for delayed or undelivered messages. Message and data rates may apply. Message frequency varies.</p>
   <p>You must be at least 18 years old to opt in. By submitting your number, you confirm you are the account holder or have permission from the account holder.</p>
 
@@ -162,6 +163,13 @@ strong { color: #F5EFE0; }
   <p>Mobile information may be shared only with subcontractors and service providers that support the delivery of SMS services, such as messaging platforms, telecommunications providers, or customer support vendors. This information is used solely to provide and operate the messaging service.</p>
   <p>All other use case categories exclude text messaging originator opt-in data and consent. This information will not be shared with any third parties.</p>
 
+  <h2>Information used to run RSVP Society</h2>
+  <p>We store the information you provide, such as your name, phone number, email and ZIP code, along with approval, consent, invitation, RSVP and attendance records. We resolve your ZIP to a city, state and approximate ZIP-area coordinates to select nearby event audiences. This is not live GPS tracking. Plus-one names help manage guest lists and check-in.</p>
+  <h2>Jade and service providers</h2>
+  <p>Jade is our AI concierge. Relevant text messages and event context may be processed by Anthropic to generate replies. AWS hosts the application and records, Quo delivers messages, and Zippopotam.us resolves ZIP codes. Please do not send sensitive personal information in a text conversation.</p>
+  <h2>Retention and deletion requests</h2>
+  <p>Membership and event history support future invitations and attendance records and are not all subject to a fixed automatic deletion period. Application logs normally expire after 30 days. Texting STOP changes your messaging preference; it does not delete your profile. To request access, correction or deletion, email info@rsvpsociety.com. Opt-out identifiers and records needed to honor messaging preferences may be retained, and backups and service-provider records have separate retention schedules.</p>
+
   <hr>
   <h2>Contact</h2>
   <p>For questions, email: info@rsvpsociety.com</p>
@@ -170,35 +178,5 @@ strong { color: #F5EFE0; }
   <a href="/" class="back-link">← Back to Site</a>
 </div>
 
-<script>
-  const cursor = document.getElementById('cursor');
-  const trail = document.getElementById('trail');
-  let mx = 0, my = 0, tx = 0, ty = 0;
-
-  document.addEventListener('mousemove', e => {
-    mx = e.clientX; my = e.clientY;
-    cursor.style.left = mx + 'px';
-    cursor.style.top = my + 'px';
-  });
-
-  (function animTrail() {
-    tx += (mx - tx) * 0.1;
-    ty += (my - ty) * 0.1;
-    trail.style.left = tx + 'px';
-    trail.style.top = ty + 'px';
-    requestAnimationFrame(animTrail);
-  })();
-
-  document.querySelectorAll('a, button').forEach(el => {
-    el.addEventListener('mouseenter', () => {
-      trail.style.width = '52px'; trail.style.height = '52px';
-      trail.style.borderColor = 'rgba(200,184,122,0.6)';
-    });
-    el.addEventListener('mouseleave', () => {
-      trail.style.width = '28px'; trail.style.height = '28px';
-      trail.style.borderColor = 'rgba(201,168,76,0.35)';
-    });
-  });
-</script>
 </body>
 </html>

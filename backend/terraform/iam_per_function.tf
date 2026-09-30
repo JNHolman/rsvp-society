@@ -22,6 +22,8 @@ locals {
   members_index     = "${aws_dynamodb_table.members.arn}/index/*"
   events_arn        = aws_dynamodb_table.events.arn
   invites_arn       = aws_dynamodb_table.event_invites.arn
+  invite_jobs_arn   = aws_dynamodb_table.invite_jobs.arn
+  invite_jobs_index = "${aws_dynamodb_table.invite_jobs.arn}/index/*"
   event_history_arn = aws_dynamodb_table.event_history.arn
   invites_index     = "${aws_dynamodb_table.event_invites.arn}/index/*"
   checkins_arn      = aws_dynamodb_table.checkins.arn
@@ -73,10 +75,11 @@ resource "aws_iam_role_policy" "lambda_access_request" {
         Resource = [local.events_arn]
       },
       {
-        Effect   = "Allow"
-        Action   = ["secretsmanager:GetSecretValue"]
+        Effect = "Allow"
+        Action = ["secretsmanager:GetSecretValue"]
         Resource = [
           "arn:aws:secretsmanager:${local.region}:${local.account}:secret:${var.quo_api_key_secret_id}*",
+          "arn:aws:secretsmanager:${local.region}:${local.account}:secret:${var.host_phone_secret_id}*",
         ]
       },
     ]
@@ -104,7 +107,7 @@ resource "aws_iam_role_policy" "lambda_admin_handler" {
           "dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:UpdateItem",
           "dynamodb:DeleteItem", "dynamodb:Query", "dynamodb:Scan",
           "dynamodb:BatchGetItem", "dynamodb:BatchWriteItem",
-          "dynamodb:TransactWriteItems",
+          "dynamodb:TransactWriteItems", "dynamodb:ConditionCheckItem",
         ]
         Resource = [
           local.members_arn,
@@ -115,15 +118,30 @@ resource "aws_iam_role_policy" "lambda_admin_handler" {
           local.invites_index,
           local.checkins_arn,
           local.audit_log_arn,
+          local.pending_approvals_arn,
         ]
       },
       {
-        Effect   = "Allow"
-        Action   = ["secretsmanager:GetSecretValue"]
+        Effect = "Allow"
+        Action = ["secretsmanager:GetSecretValue"]
         Resource = [
           "arn:aws:secretsmanager:${local.region}:${local.account}:secret:${var.admin_token_secret_id}*",
           "arn:aws:secretsmanager:${local.region}:${local.account}:secret:${var.quo_api_key_secret_id}*",
+          "arn:aws:secretsmanager:${local.region}:${local.account}:secret:rsvp/claude-api-key*",
         ]
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "scheduler:CreateSchedule", "scheduler:UpdateSchedule",
+          "scheduler:DeleteSchedule", "scheduler:GetSchedule",
+        ]
+        Resource = "arn:aws:scheduler:${local.region}:${local.account}:schedule/default/rsvp-reminder-*"
+      },
+      {
+        Effect   = "Allow"
+        Action   = ["iam:PassRole"]
+        Resource = aws_iam_role.reminder_scheduler_invoker.arn
       },
     ]
   })
@@ -170,12 +188,23 @@ resource "aws_iam_role_policy" "lambda_sms_handler" {
       },
       {
         Effect   = "Allow"
-        Action   = ["secretsmanager:GetSecretValue"]
+        Action   = ["dynamodb:TransactWriteItems"]
+        Resource = [local.events_arn, local.invites_arn, local.members_arn]
+      },
+      {
+        Effect   = "Allow"
+        Action   = ["dynamodb:ConditionCheckItem"]
+        Resource = [local.members_arn, local.invites_arn]
+      },
+      {
+        Effect = "Allow"
+        Action = ["secretsmanager:GetSecretValue"]
         Resource = [
           "arn:aws:secretsmanager:${local.region}:${local.account}:secret:${var.quo_api_key_secret_id}*",
           "arn:aws:secretsmanager:${local.region}:${local.account}:secret:rsvp/claude-api-key*",
           "arn:aws:secretsmanager:${local.region}:${local.account}:secret:${var.webhook_secret_id}*",
           "arn:aws:secretsmanager:${local.region}:${local.account}:secret:rsvp/webhook-secret-delivery*",
+          "arn:aws:secretsmanager:${local.region}:${local.account}:secret:${var.host_phone_secret_id}*",
         ]
       },
     ]
@@ -199,18 +228,28 @@ resource "aws_iam_role_policy" "lambda_invite_handler" {
       { Effect = "Allow", Action = local.log_actions, Resource = "*" },
       {
         Effect   = "Allow"
-        Action   = ["dynamodb:GetItem", "dynamodb:UpdateItem", "dynamodb:Scan", "dynamodb:Query"]
+        Action   = ["dynamodb:ConditionCheckItem"]
+        Resource = [local.members_arn, local.events_arn]
+      },
+      {
+        Effect   = "Allow"
+        Action   = ["dynamodb:GetItem", "dynamodb:UpdateItem", "dynamodb:Scan", "dynamodb:Query", "dynamodb:BatchGetItem"]
         Resource = [local.members_arn, local.members_index]
       },
       {
         Effect   = "Allow"
-        Action   = ["dynamodb:PutItem", "dynamodb:GetItem", "dynamodb:UpdateItem", "dynamodb:DeleteItem", "dynamodb:Query", "dynamodb:Scan"]
+        Action   = ["dynamodb:PutItem", "dynamodb:GetItem", "dynamodb:UpdateItem", "dynamodb:DeleteItem", "dynamodb:Query", "dynamodb:Scan", "dynamodb:BatchGetItem"]
         Resource = [local.invites_arn, local.invites_index]
       },
       {
         Effect   = "Allow"
         Action   = ["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:UpdateItem"]
         Resource = [local.events_arn]
+      },
+      {
+        Effect   = "Allow"
+        Action   = ["dynamodb:PutItem", "dynamodb:GetItem", "dynamodb:UpdateItem", "dynamodb:Query", "dynamodb:Scan"]
+        Resource = [local.invite_jobs_arn, local.invite_jobs_index]
       },
       {
         Effect   = "Allow"
@@ -223,8 +262,8 @@ resource "aws_iam_role_policy" "lambda_invite_handler" {
         Resource = [local.audit_log_arn]
       },
       {
-        Effect   = "Allow"
-        Action   = ["secretsmanager:GetSecretValue"]
+        Effect = "Allow"
+        Action = ["secretsmanager:GetSecretValue"]
         Resource = [
           "arn:aws:secretsmanager:${local.region}:${local.account}:secret:${var.admin_token_secret_id}*",
           "arn:aws:secretsmanager:${local.region}:${local.account}:secret:${var.quo_api_key_secret_id}*",
@@ -265,7 +304,7 @@ resource "aws_iam_role_policy" "lambda_reminder_handler" {
       {
         # Query to get confirmed invites; UpdateItem to claim/stamp reminder sentinels
         Effect   = "Allow"
-        Action   = ["dynamodb:Query", "dynamodb:UpdateItem"]
+        Action   = ["dynamodb:Query", "dynamodb:UpdateItem", "dynamodb:BatchGetItem"]
         Resource = [local.invites_arn, local.invites_index]
       },
       {
@@ -274,18 +313,45 @@ resource "aws_iam_role_policy" "lambda_reminder_handler" {
         Resource = [local.events_arn]
       },
       {
+        # The reminder worker queues a bounded continuation for larger events.
+        Effect   = "Allow"
+        Action   = ["lambda:InvokeFunction"]
+        Resource = ["arn:aws:lambda:${local.region}:${local.account}:function:rsvp-reminder-handler"]
+      },
+      {
+        # Manual reminder jobs and per-recipient idempotency markers expire via TTL.
+        Effect   = "Allow"
+        Action   = ["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:UpdateItem"]
+        Resource = [local.invite_jobs_arn]
+      },
+      {
         Effect   = "Allow"
         Action   = ["dynamodb:PutItem", "dynamodb:UpdateItem"]
         Resource = [local.audit_log_arn]
       },
       {
-        Effect   = "Allow"
-        Action   = ["secretsmanager:GetSecretValue"]
+        Effect = "Allow"
+        Action = ["secretsmanager:GetSecretValue"]
         Resource = [
           "arn:aws:secretsmanager:${local.region}:${local.account}:secret:${var.admin_token_secret_id}*",
           "arn:aws:secretsmanager:${local.region}:${local.account}:secret:${var.quo_api_key_secret_id}*",
         ]
       },
     ]
+  })
+}
+
+# Optional website-link replies share the existing expiring job store.
+resource "aws_iam_role_policy" "sms_access_reply_limit" {
+  name = "access-reply-limit"
+  role = aws_iam_role.lambda_sms_handler.id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect = "Allow"
+      Action = ["dynamodb:PutItem", "dynamodb:GetItem", "dynamodb:UpdateItem"]
+      Resource = local.invite_jobs_arn
+      Condition = { "ForAllValues:StringLike" = { "dynamodb:LeadingKeys" = ["ACCESS_REPLY#*", "INBOUND#*", "CANCEL_FAILURE_REPLY#*"] } }
+    }]
   })
 }

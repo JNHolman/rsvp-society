@@ -2,17 +2,19 @@ import { apiJson, fetchAllPages } from './api.js';
 import { ROUTES } from './constants.js';
 import { $, appendChildren, clearNode, createNode, emptyState, loadingState, sanitizePhoneId, showToast } from './ui.js';
 
-function attendanceActionButton(member, attended, eventId) {
-  // Disable both Attended and No Show for already checked-in guests
-  const isCheckedIn = Boolean(member.checkedIn);
-  const isDisabled = (attended && isCheckedIn) || (!attended && isCheckedIn);
+function attendanceActionButton(member, attended, eventId, guestType = 'member') {
+  const isPlusOne = guestType === 'plus_one';
+  const isCheckedIn = isPlusOne ? Boolean(member.plusOneCheckedIn) : Boolean(member.checkedIn);
+  const isDisabled = isPlusOne ? (isCheckedIn || !attended) : ((attended && isCheckedIn) || (!attended && isCheckedIn));
   return createNode('button', {
     className: `action-btn ${attended ? 'approve att-btn-yes' : 'deny att-btn-no'} attendance-action-btn${isDisabled ? ' is-disabled-soft' : ''}`,
-    text: attended ? (isCheckedIn ? '✓ In' : 'Attended') : 'No Show',
+    text: attended ? (isCheckedIn ? (isPlusOne ? '✓ +1 In' : '✓ In') : (isPlusOne ? 'Check +1' : 'Attended')) : 'No Show',
     dataset: {
       phone: member.phone || '',
+      sponsorPhone: member.phone || '',
       attended: attended ? 'true' : 'false',
       eventId: eventId || '',
+      guestType,
     },
     attrs: { type: 'button', disabled: isDisabled },
   });
@@ -25,14 +27,14 @@ function historyText(member) {
 }
 
 function buildAttendanceTable(members, eventId) {
-  const table = createNode('table', { className: 'member-table' });
+  const table = createNode('table', { className: 'member-table attendance-table' });
   const thead = createNode('thead');
   const headerRow = createNode('tr');
-  ['Name', 'Phone', 'History', 'Mark'].forEach((label) => headerRow.appendChild(createNode('th', { text: label })));
+  ['Guest', 'Phone / Sponsor', 'History', 'Mark'].forEach((label) => headerRow.appendChild(createNode('th', { text: label })));
   thead.appendChild(headerRow);
 
   const tbody = createNode('tbody');
-  members.forEach((member) => {
+  const appendMemberRow = (member) => {
     const row = createNode('tr', { attrs: { id: `att-row-${sanitizePhoneId(member.phone)}` } });
 
     const nameTd = createNode('td');
@@ -48,12 +50,34 @@ function buildAttendanceTable(members, eventId) {
     historyTd.appendChild(createNode('span', { className: 'member-date', text: historyText(member) }));
 
     const actionTd = createNode('td');
-    const actions = createNode('div', { className: 'action-btns' });
+    const actions = createNode('div', { className: 'action-btns attendance-action-btns' });
     appendChildren(actions, attendanceActionButton(member, true, eventId), attendanceActionButton(member, false, eventId));
     actionTd.appendChild(actions);
 
     appendChildren(row, nameTd, phoneTd, historyTd, actionTd);
     tbody.appendChild(row);
+  };
+
+  const appendPlusOneRow = (member) => {
+    if (!member.plusOneName) return;
+    const row = createNode('tr', { className: 'attendance-plus-one-row', attrs: { id: `att-plusone-row-${sanitizePhoneId(member.phone)}` } });
+    const nameTd = createNode('td');
+    nameTd.appendChild(createNode('span', { className: 'member-name', text: `+1: ${member.plusOneName}` }));
+    const sponsorTd = createNode('td');
+    sponsorTd.appendChild(createNode('span', { className: 'member-phone', text: `Sponsor ${member.phone || '—'}` }));
+    const historyTd = createNode('td');
+    historyTd.appendChild(createNode('span', { className: 'member-date', text: member.plusOneCheckedIn ? '✓ Checked in' : 'Confirmed +1' }));
+    const actionTd = createNode('td');
+    const actions = createNode('div', { className: 'action-btns attendance-action-btns' });
+    actions.appendChild(attendanceActionButton(member, true, eventId, 'plus_one'));
+    actionTd.appendChild(actions);
+    appendChildren(row, nameTd, sponsorTd, historyTd, actionTd);
+    tbody.appendChild(row);
+  };
+
+  members.forEach((member) => {
+    appendMemberRow(member);
+    appendPlusOneRow(member);
   });
 
   appendChildren(table, thead, tbody);
@@ -97,14 +121,14 @@ export async function loadAttendance() {
   }
 }
 
-export async function markAttendance(phone, attended, eventId) {
-  const row = document.getElementById(`att-row-${sanitizePhoneId(phone)}`);
+export async function markAttendance(phone, attended, eventId, guestType = 'member', sponsorPhone = '') {
+  const row = document.getElementById(`${guestType === 'plus_one' ? 'att-plusone-row' : 'att-row'}-${sanitizePhoneId(phone)}`);
   if (row) row.classList.add('is-busy');
 
   try {
     const data = await apiJson(ROUTES.ADMIN_MEMBER_ATTENDANCE, {
       method: 'POST',
-      body: { phone, attended, eventId },
+      body: { phone, sponsorPhone: sponsorPhone || phone, attended, eventId, guestType },
     });
 
     // Backend returns alreadyCheckedIn=true when no-show is blocked
@@ -115,10 +139,11 @@ export async function markAttendance(phone, attended, eventId) {
       return;
     }
 
-    showToast(`Marked ${attended ? 'attended' : 'no show'}`, attended ? 'success' : '');
+    showToast(`Marked ${guestType === 'plus_one' ? '+1 ' : ''}${attended ? 'attended' : 'no show'}`, attended ? 'success' : '');
+    window.dispatchEvent(new CustomEvent('rsvp:attendance-updated', { detail: { eventId } }));
     if (row) row.remove();
-  } catch {
+  } catch (error) {
     if (row) row.classList.remove('is-busy');
-    showToast('Failed to mark attendance', 'error');
+    showToast(`Failed to mark attendance: ${error.message || 'try again'}`, 'error');
   }
 }

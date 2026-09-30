@@ -10,7 +10,6 @@ Usage:
 import argparse
 import json
 import sys
-import time
 import urllib.request
 import urllib.error
 
@@ -78,7 +77,7 @@ def run_event_flow_tests(api_base, token):
         ev = data["event"]
         ev_status = ev.get("event_status", "UNKNOWN")
         check("Event has lifecycle state", ev_status in (
-            "DRAFT","LIVE","INVITING","LOCKED","CHECK_IN_OPEN","COMPLETED","ARCHIVED"
+            "DRAFT","LIVE","ARCHIVED"
         ), f"event_status={ev_status}")
 
         # Private fields must never appear in admin event response for public callers
@@ -90,7 +89,15 @@ def run_event_flow_tests(api_base, token):
             check("description not in public event",   "description" not in pub_ev, str(pub_ev.get("description",""))[:30])
 
     print("\n8. Analytics Endpoint")
-    status, data = get(f"{api_base}/admin/event/analytics?eventId=current", token=token)
+    analytics_event_id = None
+    event_status, event_data = get(f"{api_base}/admin/event", token=token)
+    if event_status == 200 and event_data.get("event"):
+        ev = event_data["event"]
+        analytics_event_id = ev.get("eventSlug") or ev.get("eventId")
+    if analytics_event_id:
+        status, data = get(f"{api_base}/admin/event/analytics?eventId={analytics_event_id}", token=token)
+    else:
+        status, data = 404, {"error": "no active event"}
     check("Analytics endpoint responds", status in [200, 400, 404], f"status={status}")
     if status == 200 and data.get("analytics"):
         totals = data["analytics"].get("totals", {})
@@ -112,7 +119,7 @@ def run_event_flow_tests(api_base, token):
     check("Job status 404 for unknown job", status in [404, 400], f"status={status}")
 
 def run_smoke_tests(api_base, token):
-    print(f"\nRSVP Society Smoke Tests")
+    print("\nRSVP Society Smoke Tests")
     print(f"API: {api_base}")
     print(f"{'='*50}\n")
 
@@ -154,7 +161,7 @@ def run_smoke_tests(api_base, token):
         print("\n5. Invite Preview")
         status, data = post(f"{api_base}/admin/invite/preview",
             {"eventId": "smoke-test", "capacity": 10, "femalePercent": 60,
-             "tier2BufferPct": 30, "waveNumber": 1},
+             "waveNumber": 1},
             token=token)
         check("Invite preview responds", status in [200, 400, 404], f"status={status}")
 

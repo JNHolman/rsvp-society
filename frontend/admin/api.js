@@ -1,4 +1,5 @@
 import { state } from './state.js';
+import { API_DEFAULT } from './constants.js';
 
 const DEFAULT_MAX_PAGE_REQUESTS = 250;
 
@@ -19,8 +20,11 @@ export async function apiFetch(path, options = {}, config = {}) {
     }
   }
 
-  return fetch(`${state.apiBase}${path}`, {
+  const url = new URL(path, API_DEFAULT);
+  if (url.origin !== new URL(API_DEFAULT).origin) throw new Error("Untrusted API address");
+  return fetch(url.href, {
     ...rest,
+    redirect: 'error',
     headers: finalHeaders,
     body: finalBody,
   });

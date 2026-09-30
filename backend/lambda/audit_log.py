@@ -10,7 +10,7 @@ Record shape:
     "actionId":    "<uuid>",           # hash key
     "timestamp":   "<iso8601>",        # sort key on the GSI
     "action":      "MEMBER_APPROVED",  # see ACTION_* constants below
-    "actorToken":  "...a1b2c3d4",      # last 8 chars of the admin token
+    "actorFingerprint": "12-char-sha256", # one-way admin-token fingerprint
     "targetPhone": "+13475551234",     # member phone (when relevant)
     "targetName":  "Marcus W.",        # display name (when relevant)
     "metadata":    { ... },            # action-specific extra fields
@@ -18,6 +18,7 @@ Record shape:
 }
 """
 
+import hashlib
 import logging
 import os
 import uuid
@@ -42,10 +43,6 @@ ACTION_REMINDER_SENT     = "REMINDER_BLAST_SENT"
 ACTION_EVENT_UPDATED     = "EVENT_UPDATED"
 ACTION_MEMBER_IMPORTED   = "MEMBER_IMPORT_COMPLETED"
 ACTION_EVENT_STATUS_CHANGED = "EVENT_STATUS_CHANGED"
-ACTION_CHECK_IN_OPENED   = "CHECKIN_SESSION_OPENED"
-ACTION_CAPACITY_CHANGED  = "EVENT_CAPACITY_CHANGED"
-ACTION_INVITE_FAILED     = "INVITE_SEND_FAILED"
-ACTION_NO_SHOW_RECORDED  = "NO_SHOW_RECORDED"
 
 
 def _audit_table():
@@ -56,11 +53,9 @@ def _audit_table():
 
 
 def _actor_tag(token: str) -> str:
-    """
-    Store only the last 8 characters of the token — enough to correlate
-    sessions without persisting the full secret in the log.
-    """
-    return (token or "")[-8:] or "unknown"
+    """Return a stable one-way fingerprint without persisting secret characters."""
+    raw = (token or "").encode("utf-8")
+    return hashlib.sha256(raw).hexdigest()[:12] if raw else "unknown"
 
 
 def _now_iso() -> str:
@@ -95,7 +90,7 @@ def log_action(
             "actionId":   str(uuid.uuid4()),
             "timestamp":  _now_iso(),
             "action":     action,
-            "actorToken": _actor_tag(token),
+            "actorFingerprint": _actor_tag(token),
             "ttl":        _ttl_one_year(),
         }
         if target_phone:
