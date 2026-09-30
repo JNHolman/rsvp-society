@@ -257,6 +257,19 @@ resource "aws_iam_role_policy" "lambda_invite_handler" {
         Resource = "arn:aws:lambda:${local.region}:${local.account}:function:rsvp-invite-handler"
       },
       {
+        Effect = "Allow"
+        Action = ["scheduler:CreateSchedule", "scheduler:GetSchedule"]
+        Resource = "arn:aws:scheduler:${local.region}:${local.account}:schedule/default/rsvp-auto-wave-*"
+      },
+      {
+        Effect = "Allow"
+        Action = ["iam:PassRole"]
+        Resource = aws_iam_role.reminder_scheduler_invoker.arn
+        Condition = {
+          StringEquals = { "iam:PassedToService" = "scheduler.amazonaws.com" }
+        }
+      },
+      {
         Effect   = "Allow"
         Action   = ["dynamodb:PutItem", "dynamodb:UpdateItem"]
         Resource = [local.audit_log_arn]

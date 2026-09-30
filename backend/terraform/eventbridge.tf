@@ -122,7 +122,7 @@ resource "aws_iam_role_policy" "reminder_scheduler_invoker" {
     Statement = [{
       Effect   = "Allow"
       Action   = ["lambda:InvokeFunction"]
-      Resource = aws_lambda_function.reminder_handler.arn
+      Resource = [aws_lambda_function.reminder_handler.arn, aws_lambda_function.invite_handler.arn]
     }]
   })
 }

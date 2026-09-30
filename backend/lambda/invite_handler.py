@@ -18,6 +18,7 @@ from boto3.dynamodb.conditions import Key as DKey
 from botocore.exceptions import ClientError
 import logging
 from capacity_policy import expected_show_rate
+from invite_wave_schedule import MIN_EVENT_LEAD_HOURS, _event_start_utc, schedule_next_wave
 
 from audit_log import log_action, ACTION_INVITE_SENT
 from member_store import normalize_phone, _table as members_table, list_members_by_status, INVITABLE_EVENT_STATES
@@ -493,7 +494,8 @@ def _get_current_event() -> Dict[str, Any]:
                 return {**canonical, "active": True, "activeEventSlug": active_slug}
         return pointer
     except Exception:
-        return {}
+        logger.exception("_get_current_event failed")
+        raise
 
 def _resolve_active_invitable_event(expected_event_id: str) -> Dict[str, Any]:
     """Return active event only when the submitted eventId matches it exactly.
@@ -807,7 +809,7 @@ def handle_preview(body: dict, origin: str) -> dict:
     }, origin)
 
 
-def handle_send(body: dict, origin: str, token: str) -> dict:
+def handle_send(body: dict, origin: str, token: str, job_id_override: str | None = None) -> dict:
     """
     Dispatch invite blast asynchronously.
     1. Write a QUEUED job record.
@@ -819,6 +821,15 @@ def handle_send(body: dict, origin: str, token: str) -> dict:
         return _resp(400, {"ok": False, "error": "confirmSend: true required"}, origin)
 
     event_id = (body.get("eventId") or "").strip()
+    if job_id_override:
+        existing_job = _invite_jobs_table().get_item(Key={"jobId": job_id_override}, ConsistentRead=True).get("Item") or {}
+        if existing_job:
+            status = (existing_job.get("status") or "").upper()
+            if status in {"QUEUED", "PROCESSING", "COMPLETE"}:
+                return _resp(202, {"ok": True, "jobId": job_id_override, "status": status,
+                                   "recipientCount": int(existing_job.get("recipientCount") or 0), "duplicate": True}, origin)
+            return _resp(409, {"ok": False, "jobId": job_id_override, "status": status,
+                               "error": "automatic wave job already exists and needs review"}, origin)
     body = dict(body)
     # These fields are set only by the Lambda continuation path, never trusted
     # from an HTTP request body.
@@ -851,7 +862,7 @@ def handle_send(body: dict, origin: str, token: str) -> dict:
     # drift between the admin preview and the async send job. Manual single-invite
     # sends without previewSessionId are still locked at queue time as an explicit
     # override path.
-    job_id = str(uuid.uuid4())
+    job_id = job_id_override or str(uuid.uuid4())
     try:
         if coerce_bool(body.get("confirmedUpdate", False)):
             pass
@@ -882,6 +893,14 @@ def handle_send(body: dict, origin: str, token: str) -> dict:
 
     try:
         _write_job(job_id, body, origin)
+    except ClientError as exc:
+        if job_id_override and exc.response.get("Error", {}).get("Code") == "ConditionalCheckFailedException":
+            existing_job = _invite_jobs_table().get_item(Key={"jobId": job_id}, ConsistentRead=True).get("Item") or {}
+            status = (existing_job.get("status") or "QUEUED").upper()
+            return _resp(202, {"ok": True, "jobId": job_id, "status": status,
+                               "recipientCount": int(existing_job.get("recipientCount") or 0), "duplicate": True}, origin)
+        logger.exception("handle_send: failed to write job record")
+        return _resp(500, {"ok": False, "error": "failed to queue blast"}, origin)
     except Exception:
         logger.exception("handle_send: failed to write job record")
         return _resp(500, {"ok": False, "error": "failed to queue blast"}, origin)
@@ -905,6 +924,93 @@ def handle_send(body: dict, origin: str, token: str) -> dict:
         return _resp(500, {"ok": False, "error": "failed to dispatch blast"}, origin)
 
     return _resp(202, {"ok": True, "jobId": job_id, "status": "QUEUED", "recipientCount": len(body.get("phones") or [])}, origin)
+
+
+def _auto_wave_job_id(event_id: str, wave_number: int) -> str:
+    digest = hashlib.sha256(event_id.encode("utf-8")).hexdigest()[:20]
+    return f"AUTO-WAVE-{digest}-W{wave_number}"
+
+
+def _get_current_event_strict() -> dict:
+    """Read the active pointer strictly so storage errors trigger scheduler retries."""
+    table = _events_table()
+    pointer = table.get_item(Key={"eventId": "current"}, ConsistentRead=True).get("Item") or {}
+    slug = (pointer.get("activeEventSlug") or pointer.get("eventSlug") or pointer.get("slug") or "").strip()
+    if not slug:
+        return {}
+    event = table.get_item(Key={"eventId": slug}, ConsistentRead=True).get("Item") or {}
+    return {**event, "activeEventSlug": slug} if event else {}
+
+
+def _handle_auto_wave_schedule(event: dict) -> dict:
+    event_id = str(event.get("eventId") or "").strip()
+    try:
+        previous_wave = int(event.get("previousWaveNumber") or 0)
+    except (TypeError, ValueError):
+        raise ValueError("invalid automatic wave schedule")
+    if not event_id or previous_wave not in (1, 2):
+        raise ValueError("invalid automatic wave schedule")
+
+    active_event = _get_current_event_strict()
+    active_slug = str(active_event.get("activeEventSlug") or "").strip()
+    if active_slug != event_id or (active_event.get("event_status") or "").upper() not in {"LIVE", "INVITING"}:
+        logger.info("auto_wave_stale_schedule event=%s", event_id)
+        return {"statusCode": 200, "body": json.dumps({"ok": True, "reason": "event is no longer active"})}
+    if _get_next_wave_number(event_id) != previous_wave + 1:
+        logger.info("auto_wave_stale_schedule event=%s previous_wave=%d", event_id, previous_wave)
+        return {"statusCode": 200, "body": json.dumps({"ok": True, "reason": "wave already advanced"})}
+
+    now = datetime.now(timezone.utc)
+    if _event_start_utc(active_event) - now < timedelta(hours=MIN_EVENT_LEAD_HOURS):
+        logger.info("auto_wave_skipped event=%s reason=event_too_close", event_id)
+        return {"statusCode": 200, "body": json.dumps({"ok": True, "reason": "event starts within 24 hours"})}
+
+    try:
+        female_percent = int(event.get("femalePercent", 60))
+    except (TypeError, ValueError):
+        raise ValueError("invalid scheduled gender percentage")
+    if not 0 <= female_percent <= 100:
+        raise ValueError("invalid scheduled gender percentage")
+
+    preview_body = {
+        "eventId": event_id,
+        "capacity": int(active_event.get("capacity") or 0),
+        "femalePercent": female_percent,
+        "audienceFilters": event.get("audienceFilters") if isinstance(event.get("audienceFilters"), dict) else {},
+        "waveNumber": previous_wave + 1,
+        "autoWave": False,
+    }
+    preview_response = handle_preview(preview_body, "")
+    preview_status = int(preview_response.get("statusCode") or 500)
+    preview_data = json.loads(preview_response.get("body") or "{}")
+    if preview_status != 200 or not preview_data.get("ok"):
+        raise RuntimeError("automatic wave preview failed: " + str(preview_data.get("error") or preview_status))
+
+    summary = preview_data.get("summary") or {}
+    members = preview_data.get("members") or []
+    if int(summary.get("waveSize") or 0) <= 0 or not members:
+        logger.info("auto_wave_not_needed event=%s wave=%d", event_id, previous_wave + 1)
+        return {"statusCode": 200, "body": json.dumps({"ok": True, "reason": "no additional invites needed"})}
+
+    send_body = {
+        **preview_body,
+        "phones": [str(member.get("phone") or "") for member in members if member.get("phone")],
+        "previewSessionId": preview_data.get("previewSessionId"),
+        "confirmSend": True,
+        "automaticWave": True,
+        "autoWave": False,
+    }
+    response = handle_send(send_body, "", _admin_token(), job_id_override=_auto_wave_job_id(event_id, previous_wave + 1))
+    status = int(response.get("statusCode") or 500)
+    if status == 202:
+        return {"statusCode": 200, "body": json.dumps({"ok": True, "waveNumber": previous_wave + 1,
+                                                         "jobId": json.loads(response["body"]).get("jobId")})}
+    response_data = json.loads(response.get("body") or "{}")
+    logger.error("auto_wave_failed event=%s wave=%d reason=%s", event_id, previous_wave + 1,
+                 response_data.get("error") or status)
+    # handle_send's failed job record is the audit/recovery point. Do not retry an
+    # ambiguous dispatch and risk texting a second audience.
+    return {"statusCode": 200, "body": json.dumps({"ok": False, "error": response_data.get("error") or status})}
 
 
 def _run_blast(body: dict, origin: str, token: str, job_id: str) -> None:
@@ -949,6 +1055,7 @@ def _execute_send(body: dict, origin: str, token: str, job_id: str):
         "members_table": members_table,
         "normalize_phone": normalize_phone,
         "send_sms": send_sms,
+        "_schedule_auto_wave": schedule_next_wave,
         "logger": logger,
     })
 
@@ -959,6 +1066,8 @@ def handler(event, context):
     request_id = (context.aws_request_id if context and hasattr(context, "aws_request_id") else "local")
     logger.info("handler_start request_id=%s", request_id)
     try:
+        if event.get("source") == "rsvp.auto-wave":
+            return _handle_auto_wave_schedule(event)
         # ── Async blast: self-invoked by Lambda — no HTTP headers, auth via payload token
         if event.get("asyncBlast"):
             job_id      = event.get("jobId", "")
@@ -1017,4 +1126,6 @@ def handler(event, context):
 
     except Exception:
         logger.exception("invite handler failed")
+        if event.get("source") == "rsvp.auto-wave":
+            raise
         return _resp(500, {"ok": False, "error": "internal error"}, None)

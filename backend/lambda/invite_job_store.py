@@ -19,7 +19,7 @@ def write_job(job_id: str, body: dict, origin: str, *, deps: dict) -> None:
     table = deps["invite_jobs_table"]
     now_iso = deps["now_iso"]
     json_default = deps["json_default"]
-    table().put_item(Item={
+    item = {
         "jobId": job_id,
         "eventId": (body.get("eventId") or "").strip(),
         "status": "QUEUED",
@@ -35,7 +35,10 @@ def write_job(job_id: str, body: dict, origin: str, *, deps: dict) -> None:
         "smsSent": 0,
         "failed": 0,
         "ttl": int((datetime.now(timezone.utc) + timedelta(days=30)).timestamp()),
-    })
+    }
+    if body.get("automaticWave"):
+        item["kind"] = "AUTO_WAVE"
+    table().put_item(Item=item, ConditionExpression="attribute_not_exists(jobId)")
 
 
 def update_job(job_id: str, updates: dict, *, deps: dict) -> None:

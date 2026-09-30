@@ -574,3 +574,28 @@ resource "aws_cloudwatch_metric_alarm" "invite_job_failed" {
   alarm_description   = "Invite job failed; review its error and delivered recipients before resending."
   alarm_actions       = [aws_sns_topic.rsvp_alerts.arn]
 }
+
+resource "aws_cloudwatch_log_metric_filter" "auto_wave_failed" {
+  name           = "rsvp-auto-wave-failed"
+  log_group_name = aws_cloudwatch_log_group.invite_handler.name
+  pattern        = "\"auto_wave_failed\""
+  metric_transformation {
+    name      = "AutoWaveFailed"
+    namespace = "RSVPSociety/Operations"
+    value     = "1"
+  }
+}
+
+resource "aws_cloudwatch_metric_alarm" "auto_wave_failed" {
+  alarm_name          = "rsvp-auto-wave-failed"
+  comparison_operator = "GreaterThanOrEqualToThreshold"
+  evaluation_periods  = 1
+  metric_name         = "AutoWaveFailed"
+  namespace           = "RSVPSociety/Operations"
+  period              = 60
+  statistic           = "Sum"
+  threshold           = 1
+  treat_missing_data  = "notBreaching"
+  alarm_description   = "Automatic invite-wave scheduling failed; inspect the completed send job and active-event details."
+  alarm_actions       = [aws_sns_topic.rsvp_alerts.arn]
+}

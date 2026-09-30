@@ -17,7 +17,7 @@ import json
 import math
 import os
 import unittest
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -43,6 +43,7 @@ import admin_event_routes
 import admin_handler
 import admin_member_routes
 import invite_handler
+import invite_wave_schedule
 import invite_sender
 import jade_service
 import member_store
@@ -834,6 +835,126 @@ class TestInviteExecutionFlowContract(unittest.TestCase):
             with self.subTest(capacity=capacity):
                 self.assertEqual(invite_handler._resolve_wave_capacity(capacity, 1, 0), math.ceil(capacity / 0.8))
 
+
+class TestAutomaticWaveScheduling(unittest.TestCase):
+    def setUp(self):
+        self.now = datetime(2026, 10, 1, 12, 0, tzinfo=timezone.utc)
+        self.event = {
+            "eventId": "party-one", "eventSlug": "party-one", "event_status": "LIVE",
+            "date": "2026-10-10", "startTime": "19:00", "event_timezone": "UTC", "capacity": 200,
+        }
+
+    def test_response_window_is_48_hours_when_event_is_far_enough(self):
+        spec = invite_wave_schedule.next_wave_schedule_spec(self.event, 1, now=self.now)
+        self.assertEqual(spec["responseWindowHours"], 48)
+        self.assertEqual(spec["waveNumber"], 2)
+        self.assertEqual(spec["fireAt"], self.now + timedelta(hours=48))
+
+    def test_response_window_shortens_only_to_keep_24_hours_before_event(self):
+        event = {**self.event, "date": "2026-10-03", "startTime": "12:00"}
+        spec = invite_wave_schedule.next_wave_schedule_spec(event, 1, now=self.now)
+        self.assertEqual(spec["responseWindowHours"], 24)
+        too_close = {**event, "date": "2026-10-02", "startTime": "23:00"}
+        self.assertIsNone(invite_wave_schedule.next_wave_schedule_spec(too_close, 1, now=self.now))
+
+    def test_wave_three_and_archived_events_do_not_schedule_followups(self):
+        self.assertIsNone(invite_wave_schedule.next_wave_schedule_spec(self.event, 3, now=self.now))
+        archived = {**self.event, "event_status": "ARCHIVED"}
+        self.assertIsNone(invite_wave_schedule.next_wave_schedule_spec(archived, 1, now=self.now))
+
+    def test_schedule_is_one_time_and_preserves_filters_without_member_data(self):
+        client = MagicMock()
+        with patch.dict(os.environ, {
+            "AUTO_WAVE_SCHEDULER_ROLE_ARN": "arn:aws:iam::123:role/scheduler",
+            "INVITE_HANDLER_ARN": "arn:aws:lambda:us-east-1:123:function:invite",
+        }), patch.object(invite_wave_schedule.boto3, "client", return_value=client):
+            result = invite_wave_schedule.schedule_next_wave(
+                self.event, 1, female_percent=65,
+                audience_filters={"market": "Louisville"}, now=self.now,
+            )
+        self.assertTrue(result["scheduled"])
+        call = client.create_schedule.call_args.kwargs
+        self.assertEqual(call["ScheduleExpression"], "at(2026-10-03T12:00:00)")
+        self.assertEqual(call["ActionAfterCompletion"], "DELETE")
+        payload = json.loads(call["Target"]["Input"])
+        self.assertEqual(payload["femalePercent"], 65)
+        self.assertEqual(payload["audienceFilters"], {"market": "Louisville"})
+        self.assertNotIn("phones", payload)
+
+    def test_scheduled_follow_up_rechecks_event_and_uses_locked_preview(self):
+        preview = {"statusCode": 200, "body": json.dumps({
+            "ok": True, "previewSessionId": "locked-1",
+            "summary": {"waveSize": 200}, "members": [{"phone": "+15025550123"}],
+        })}
+        sent = {"statusCode": 202, "body": json.dumps({"jobId": "auto-job", "status": "QUEUED"})}
+        schedule_event = {
+            "source": "rsvp.auto-wave", "eventId": "party-one", "previousWaveNumber": 1,
+            "femalePercent": 65, "audienceFilters": {"market": "Louisville"},
+        }
+        with patch.object(invite_handler, "_get_current_event_strict", return_value={**self.event, "activeEventSlug": "party-one"}), \
+             patch.object(invite_handler, "_get_next_wave_number", return_value=2), \
+             patch.object(invite_handler, "_event_start_utc", return_value=self.now + timedelta(days=5)), \
+             patch.object(invite_handler, "handle_preview", return_value=preview) as preview_mock, \
+             patch.object(invite_handler, "handle_send", return_value=sent) as send_mock, \
+             patch.object(invite_handler, "_admin_token", return_value="host-token"):
+            result = invite_handler._handle_auto_wave_schedule(schedule_event)
+        self.assertEqual(result["statusCode"], 200)
+        preview_mock.assert_called_once()
+        body = send_mock.call_args.args[0]
+        self.assertEqual(body["phones"], ["+15025550123"])
+        self.assertEqual(body["previewSessionId"], "locked-1")
+        self.assertEqual(body["femalePercent"], 65)
+        self.assertEqual(body["audienceFilters"], {"market": "Louisville"})
+        self.assertTrue(body["automaticWave"])
+        self.assertEqual(send_mock.call_args.kwargs["job_id_override"], invite_handler._auto_wave_job_id("party-one", 2))
+
+    def test_scheduled_follow_up_does_not_send_if_event_is_no_longer_active(self):
+        schedule_event = {"source": "rsvp.auto-wave", "eventId": "party-one", "previousWaveNumber": 1}
+        with patch.object(invite_handler, "_get_current_event_strict", return_value={"activeEventSlug": "party-two"}), \
+             patch.object(invite_handler, "handle_preview") as preview:
+            result = invite_handler._handle_auto_wave_schedule(schedule_event)
+        self.assertIn("no longer active", result["body"])
+        preview.assert_not_called()
+
+    def test_automatic_wave_redelivery_reuses_queued_job_without_dispatch(self):
+        jobs = MagicMock()
+        jobs.get_item.return_value = {"Item": {"status": "PROCESSING", "recipientCount": 8}}
+        with patch.object(invite_handler, "_invite_jobs_table", return_value=jobs), \
+             patch.object(invite_handler, "_write_job") as write_job, \
+             patch.object(invite_handler.boto3, "client") as aws_client:
+            response = invite_handler.handle_send(
+                {"confirmSend": True, "eventId": "party-one"}, "", "token",
+                job_id_override="AUTO-WAVE-party-w2",
+            )
+        self.assertEqual(response["statusCode"], 202)
+        self.assertTrue(json.loads(response["body"])["duplicate"])
+        write_job.assert_not_called()
+        aws_client.assert_not_called()
+
+    def test_automatic_wave_job_creation_race_reads_existing_job_without_redispatch(self):
+        jobs = MagicMock()
+        jobs.get_item.side_effect = [
+            {}, {"Item": {"status": "QUEUED", "recipientCount": 5}},
+        ]
+        conditional_conflict = ClientError(
+            {"Error": {"Code": "ConditionalCheckFailedException", "Message": "exists"}},
+            "PutItem",
+        )
+        body = {
+            "confirmSend": True, "eventId": "party-one", "waveNumber": 2,
+            "autoWave": False, "lockedWave": True, "phones": ["+15025550123"],
+        }
+        with patch.object(invite_handler, "_invite_jobs_table", return_value=jobs), \
+             patch.object(invite_handler, "_resolve_active_invitable_event", return_value=self.event), \
+             patch.object(invite_handler, "_validate_initial_invite_text"), \
+             patch.object(invite_handler, "_assert_formal_wave_available"), \
+             patch.object(invite_handler, "_write_job", side_effect=conditional_conflict), \
+             patch.object(invite_handler.boto3, "client") as aws_client:
+            response = invite_handler.handle_send(body, "", "token", job_id_override="AUTO-WAVE-party-w2")
+        self.assertEqual(response["statusCode"], 202)
+        self.assertTrue(json.loads(response["body"])["duplicate"])
+        aws_client.assert_not_called()
+
     def test_wave_one_uses_tier_two_only_when_no_tier_one_candidates_exist(self):
         cold = [{"phone": "+15025550001", "gender": "F", "_tier": 2}]
         result = invite_handler._build_invite_list(cold, 10, 50, wave_number=1)
@@ -891,7 +1012,7 @@ class TestInviteExecutionFlowContract(unittest.TestCase):
             "audienceFilters": {"market": "Louisville"},
         }
         event = {"eventSlug": "rooftop-sept2026", "event_status": "LIVE", "invite_template": "{name}. RSVP Society."}
-        with patch.dict(os.environ, {"SMS_ENABLED": "false"}), \
+        with patch.dict(os.environ, {"SMS_ENABLED": "true"}), \
              patch.object(invite_handler, "_resolve_active_invitable_event", return_value=event), \
              patch.object(invite_handler, "_assert_formal_wave_available"), \
              patch.object(invite_handler, "_get_existing_invited_phones", return_value=set()), \
@@ -900,6 +1021,10 @@ class TestInviteExecutionFlowContract(unittest.TestCase):
              patch.object(invite_handler, "members_table", return_value=members), \
              patch.object(invite_handler.boto3, "resource", return_value=ddb), \
              patch.object(invite_handler, "_update_job") as update_job, \
+             patch.object(invite_handler, "send_sms", return_value="quo-message-1"), \
+             patch.object(invite_handler, "schedule_next_wave", return_value={
+                 "scheduled": True, "waveNumber": 2, "responseWindowHours": 48,
+             }) as schedule_wave, \
              patch.object(invite_handler, "log_action"):
             invite_handler._execute_send(body, "", "token", "job-1")
         written = invites.put_item.call_args.kwargs["Item"]
@@ -908,7 +1033,13 @@ class TestInviteExecutionFlowContract(unittest.TestCase):
         self.assertEqual(written["eventId"], "rooftop-sept2026")
         members.update_item.assert_called_once()
         self.assertEqual(members.update_item.call_args.kwargs["Key"], {"phone": phone})
-        self.assertEqual(update_job.call_args.kwargs["updates"]["status"] if "updates" in update_job.call_args.kwargs else update_job.call_args.args[1]["status"], "COMPLETE")
+        job_updates = [
+            call.kwargs.get("updates") or (call.args[1] if len(call.args) > 1 else {})
+            for call in update_job.call_args_list
+        ]
+        self.assertTrue(any(update.get("status") == "COMPLETE" for update in job_updates))
+        schedule_wave.assert_called_once_with(event, 1, female_percent=60, audience_filters={"market": "Louisville"})
+        self.assertTrue(any(update.get("autoWaveStatus") == "SCHEDULED" for update in job_updates))
 
     @patch("invite_sender.reserve_invite", new=lambda invites, members, item, expected_status=None: invites.put_item(Item=item))
     def test_execute_send_chunks_large_locked_audience_and_continues_same_job(self):

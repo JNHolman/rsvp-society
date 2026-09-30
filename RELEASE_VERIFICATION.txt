@@ -1,11 +1,11 @@
 RSVP Society — reviewed source release — September 30, 2026
 
 CURRENT EXECUTED CHECKS
-- 175 characterization/known-defect tests PASS.
+- 183 characterization/known-defect tests PASS.
 - 122 Moto integration tests PASS, using real handlers.
 - 15 production-reconciliation tests PASS.
 - 22 frontend execution tests PASS.
-- Total: 312 Python + 22 frontend = 334 tests.
+- Total: 320 Python + 22 frontend = 342 tests.
 - Jade scenario/behavior/v2, runtime integration and route audits PASS.
 - Python compilation and frontend JavaScript syntax PASS.
 - All 13 Terraform files parse as HCL; this is not provider validation.
@@ -16,13 +16,13 @@ LIMITS
 - Ruff F checks PASS for runtime modules, tools and tests; full shell runner PASS. Optional coverage skipped.
 - Python tests use 3.12; deployment targets 3.13.
 - No live AWS/Quo/Anthropic/Netlify tests, Lambda drift comparison, Terraform validate/plan/apply or production load benchmark.
-- No push, deployment, real SMS or account change.
+- Source update was published to GitHub; no AWS deployment, real SMS or live account change was performed.
 - Auto wave cap is a conservative pacing choice, not a production-calibrated attendance forecast.
 - Optional failure notice claims suppress duplicates but cannot guarantee external SMS delivery.
 - Delivery summary undercount limitation remains documented in CURRENT_AUDIT_UPDATE.md.
 - Live time-zone support, response headers, staged WAF rollout and IAM/transaction checks remain in VALIDATION.md.
 
-PRE-AUTOMATION BASELINE
-- Failed wave-history/analytics reads stop planning instead of supplying partial/empty results.
-- Duplicate/unused test code removed; CI enforces all Ruff F rules.
-- Next waves remain manual; timed wave progression is not part of this release.
+AUTOMATIC WAVE FOLLOW-UP
+- Successful Wave 1/2 sends schedule the next formal wave after a 24–48-hour response window; the interval shortens only as needed to keep at least 24 hours before event start.
+- The scheduled handler rechecks the active event, latest invite history, current RSVP/+1 headcount and eligible audience before creating a locked preview and idempotent send job. Wave 3 ends automation.
+- Scheduler permissions, Lambda configuration and failure alarms are source changes only until Terraform is planned and applied.
