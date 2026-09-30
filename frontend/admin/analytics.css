@@ -36,7 +36,7 @@
 }
 .analytics-grid-2 {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 24px;
   margin-bottom: 32px;
 }
@@ -412,3 +412,53 @@
   letter-spacing: 0.18em;
   text-transform: uppercase;
 }
+
+/* Frontend cleanup: analytics now matches the current RSVP admin card language. */
+#analytics-section .section-title { font-size: 32px; }
+#analytics-section .section-header { margin-bottom: 24px; }
+.alltime-grid,
+.analytics-grid,
+.analytics-grid-wide,
+.analytics-rate-grid { background: transparent; gap: 16px; }
+.alltime-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.analytics-grid { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+.a-stat,
+.analytics-panel,
+.analytics-rate-card,
+.analytics-split-card,
+.analytics-event-selector {
+  background: linear-gradient(135deg, rgba(12,12,16,.98), rgba(6,6,8,.98));
+  border: 1px solid rgba(212,185,106,.10);
+  border-radius: 16px;
+  box-shadow: 0 24px 70px rgba(0,0,0,.18);
+}
+.a-stat { padding: 24px; text-align: left; }
+.a-stat-num { font-size: 42px; }
+.a-stat-label { font-size: 9px; letter-spacing: .28em; }
+.analytics-event-selector { padding: 16px; align-items: center; }
+.analytics-event-selector select { background: rgba(12,12,16,.88); border: 1px solid rgba(212,185,106,.14); border-radius: 10px; padding: 10px 12px; min-width: 280px; }
+.analytics-panel { padding: 24px; }
+.analytics-panel-title, .analytics-block-label { font-size: 9px; letter-spacing: .32em; }
+.analytics-tier-table td { font-size: 12px; }
+.analytics-tier-table th { font-size: 8px; }
+@media (max-width: 900px) {
+  .alltime-grid, .analytics-grid, .analytics-grid-wide, .analytics-grid-2, .analytics-rate-grid { grid-template-columns: 1fr; }
+}
+
+.analytics-refresh-stamp { color:rgba(248,244,236,.42); font-size:10px; letter-spacing:.08em; }
+.analytics-refresh-btn:disabled { opacity:.55; cursor:not-allowed; }
+.analytics-grid { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
+
+/* The 4-column Tier table styling is reused for the 8-column By Wave table.
+   Its zero horizontal padding + wide letter-spacing made the dense wave headers
+   collide (Confirm Rate / Checked In / Show Rate / No-Show / Ghost Rate ran
+   together). Add per-cell separation and tighten the header letter-spacing so
+   the headers read; the Tier table has ample room and is unaffected. */
+.analytics-tier-table { table-layout: fixed; }
+.analytics-tier-table th,
+.analytics-tier-table td { padding-left: 6px; padding-right: 6px; }
+.analytics-tier-table th { letter-spacing: .1em; white-space: normal; word-break: normal; line-height: 1.3; }
+.analytics-tier-table th:first-child,
+.analytics-tier-table td:first-child { padding-left: 0; }
+.analytics-tier-table th:last-child,
+.analytics-tier-table td:last-child { padding-right: 0; }

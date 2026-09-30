@@ -1,0 +1,7 @@
+# Dev/test-only dependencies. NEVER bundled into the Lambda deployment package
+# (excluded by the canonical build_lambda.sh deployment package).
+-r requirements.txt
+
+moto[dynamodb,secretsmanager]~=5.0
+pytest~=8.3
+ruff==0.16.9

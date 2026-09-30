@@ -6,7 +6,7 @@
 <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
 <title>RSVP Society — Admin</title>
 <meta content="noindex, nofollow" name="robots"/>
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; connect-src https://api.rsvpsociety.com; img-src 'self' data:; frame-ancestors 'none';">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; connect-src https://api.rsvpsociety.com; img-src 'self' data:; object-src 'none'; base-uri 'none'; form-action 'self'; upgrade-insecure-requests;">
 <link href="https://fonts.googleapis.com" rel="preconnect"/>
 <link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
 <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;1,300;1,400&amp;family=Montserrat:wght@200;300;400;500&amp;display=swap" rel="stylesheet"/>
@@ -58,7 +58,7 @@
 <div class="stat-label">Approved</div>
 </div>
 <div class="stat-card">
-<div class="stat-number red" id="stat-denied">—</div>
+<div class="stat-number" id="stat-denied">—</div>
 <div class="stat-label">Denied</div>
 </div>
 </div>
@@ -73,7 +73,7 @@
 <button class="filter-btn" id="filter-DENIED">Denied</button>
 <button class="filter-btn import-btn" id="import-open-btn">↑ Import CSV</button>
 <div class="member-search-wrap">
-<input class="member-search-input" id="member-search" placeholder="Search name or phone..." type="text"/>
+<input class="member-search-input" id="member-search" placeholder="Search name, phone, IG, email..." type="text"/>
 <span class="member-search-icon">⌕</span>
 </div>
 </div>
@@ -85,11 +85,15 @@
 <button class="modal-close-btn" id="import-close-btn">✕</button>
 </div>
 <h3 class="modal-title">CSV Import</h3>
-<p class="modal-copy">Upload any member CSV. All imported members are set to <strong class="text-strong">Approved</strong>. Rows without a phone number are skipped. Imports do not send the Jade welcome text.</p>
+<p class="modal-copy">Upload a member CSV with a phone and ZIP column. Rows without a valid ZIP are excluded because they cannot be targeted by event location. Imported members are set to <strong class="text-strong">Approved</strong>. Without the consent confirmation below, imported contacts are not opted in for SMS. Imports do not send the Jade welcome text.</p>
 <div class="import-dropzone" id="import-drop">
 <p class="import-drop-copy">Drop CSV here or click to browse</p>
 <input accept=".csv" class="hidden-file-input" id="csv-file-input" type="file"/>
 </div>
+<label class="checkbox-option import-consent-option">
+<input class="checkbox-input" id="import-sms-consent" type="checkbox"/>
+<span class="checkbox-label">I confirm these members have already agreed to receive RSVP Society text messages.</span>
+</label>
 <div class="panel-summary" id="import-preview">
 <p class="panel-summary-text" id="import-preview-text"></p>
 </div>
@@ -105,92 +109,171 @@
 <div class="pagination-row" id="pagination"></div>
 </div>
 <div class="section-panel" hidden="" id="invite-section">
-<div class="section-header">
-<div class="section-title">Invite Blast</div>
+<div class="section-header invite-command-header">
+<div>
+<div class="section-title">Invite Command</div>
+<div class="section-count">Send formal waves, then text confirmed guests when event details change.</div>
 </div>
-<!-- Event summary pulled from Event tab -->
+<div class="invite-header-actions">
+<button class="invite-btn-preview" id="preview-run-btn" type="button">Preview Next Wave</button>
+<button class="invite-btn-send" disabled="" id="send-btn" type="button">Send Next Wave</button>
+</div>
+</div>
 <div class="panel-summary" id="invite-event-summary"></div>
-<div class="invite-form">
-<div class="invite-grid">
-<div class="invite-field">
-<label for="inv-event-id">Event ID</label>
-<input id="inv-event-id" placeholder="2026-03-march" type="text">
-</input></div>
-<div class="invite-field">
-<label for="inv-capacity">Capacity</label>
-<input id="inv-capacity" min="1" placeholder="200" type="number"/>
+<div class="invite-form invite-flow-card">
+<input id="inv-event-id" type="hidden"/>
+<input id="inv-capacity" type="hidden"/>
+<section class="invite-mode-card invite-wave-card">
+<div class="invite-flow-section">
+<div class="invite-flow-kicker">Invite Waves</div>
+<div class="invite-flow-title">Build the next wave</div>
+<div class="invite-flow-copy">Filter approved members, preview the next eligible wave, then send only the locked audience.</div>
 </div>
+<div class="invite-filter-card invite-filter-card-primary" id="invite-filter-toolbar">
+<input class="member-search-input preview-search-input" id="invite-search" placeholder="Search name or phone before preview..." type="search"/>
+<select class="filter-select invite-filter-select" id="invite-market-filter" aria-label="Market filter"><option value="All">All Markets</option></select>
+<select class="filter-select invite-filter-select" id="invite-tier-filter" aria-label="Tier filter"><option value="">All Tiers</option><option value="1">Tier 1</option><option value="2">Tier 2</option><option value="3">Tier 3</option></select>
+<select class="filter-select invite-filter-select" id="invite-gender-filter" aria-label="Gender filter"><option value="">All Genders</option><option value="F">F</option><option value="M">M</option><option value="O">O</option></select>
+<select class="filter-select invite-filter-select" id="invite-status-filter" aria-label="Invite status filter"><option value="">All Invite Statuses</option><option value="NOT_INVITED">Not invited</option><option value="INVITED">Invited</option><option value="CONFIRMED">Confirmed</option><option value="DECLINED">Declined</option></select>
+<label class="checkbox-option invite-inline-check"><input class="checkbox-input" id="invite-include-existing" type="checkbox"/><span class="checkbox-label">Show existing invite statuses in preview</span></label>
+</div>
+<div class="wave-command-center" id="wave-command-center" aria-live="polite"></div>
+<details class="advanced-wave-settings">
+<summary>Advanced balance controls — rarely used</summary>
+<div class="invite-grid invite-grid-advanced">
 <div class="invite-field">
-<label for="inv-female-pct">Female % (0–100)</label>
+<label for="inv-female-pct">Gender Balance Target</label>
 <input id="inv-female-pct" max="100" min="0" placeholder="60" type="number" value="60"/>
 </div>
+<input id="inv-wave-number" type="hidden" value="1"/>
 <div class="invite-field">
-<label for="inv-buffer">Tier 2 Ghost Buffer %</label>
-<input id="inv-buffer" max="100" min="0" placeholder="30" type="number" value="30"/>
-</div>
-<div class="invite-field">
-<label for="inv-wave-number">Wave</label>
-<select class="form-select" id="inv-wave-number">
-<option value="1">Wave 1</option>
-<option value="2">Wave 2</option>
-<option value="3">Wave 3</option>
-</select>
-</div>
-<div class="invite-field">
-<label for="inv-wave-size">Wave Size <span class="form-hint">optional override</span></label>
+<label for="inv-wave-size">Wave Size <span class="form-hint">optional</span></label>
 <input id="inv-wave-size" min="1" placeholder="Auto" type="number"/>
 </div>
 </div>
-<!-- Gap analysis panel — shown for wave 2+ -->
-<div class="gap-panel" id="wave-gap-panel">
-<div class="gap-panel-title">Gap Analysis</div>
-<div class="gap-stats-grid" id="wave-gap-content"></div>
-<div class="gap-copy" id="wave-gap-suggestion"></div>
+</details>
+</section>
+<section class="invite-mode-card confirmed-update-card manual-invite-card">
+<div class="invite-flow-section">
+<div class="invite-flow-kicker">Manual / Resend</div>
+<div class="invite-flow-title">Send one invite with custom copy</div>
+<div class="invite-flow-copy">Use this after the formal waves for a one-off approved member. The copy is send-only and still obeys event-information gating.</div>
 </div>
-<div class="invite-actions">
-<button class="invite-btn-preview" id="preview-run-btn">Preview Invite List</button>
-<button class="invite-btn-send" disabled="" id="send-btn">Send Invites</button>
+<div class="invite-grid">
+<div class="invite-field">
+<label for="manual-invite-phone">Member Phone</label>
+<input id="manual-invite-phone" inputmode="tel" placeholder="5025551212" type="tel"/>
 </div>
-<div class="manual-blast-row">
-<label class="manual-blast-label" for="manual-blast-message">Manual Blast</label>
-<textarea
-  id="manual-blast-message"
-  class="manual-blast-textarea"
-  placeholder="Type a message and hit Send. Use {name} to personalize. Sends to all CONFIRMED members."
-  rows="3"
-  maxlength="320"
-></textarea>
-<button class="invite-btn-preview" id="reminder-blast-btn">Send Reminder Blast</button>
 </div>
+<label class="confirmed-update-label" for="manual-invite-message">Invite Copy Override</label>
+<textarea id="manual-invite-message" rows="3" placeholder="Write the one-off invite copy. Venue/address/ticket details are still blocked before confirmation."></textarea>
+<div class="confirmed-update-actions">
+<button class="invite-btn-send" id="manual-invite-send-btn" type="button">Send Manual Invite</button>
+</div>
+</section>
+<section class="invite-mode-card confirmed-update-card">
+<div class="invite-flow-section">
+<div class="invite-flow-kicker">Confirmed Guest Updates</div>
+<div class="invite-flow-title">Text confirmed guests only</div>
+<div class="invite-flow-copy">Use this for corrections or event updates after someone is confirmed. It does not invite pending, denied, declined, or no-response members.</div>
+</div>
+<div class="confirmed-update-summary">
+<span id="confirmed-update-count">Confirmed guests: —</span>
+<span class="field-help">Examples: parking update, time correction, entrance note, weather update.</span>
+</div>
+<label class="confirmed-update-label" for="confirmed-update-message">One-Time Text</label>
+<textarea id="confirmed-update-message" rows="3" placeholder="Write the update Jade should send to confirmed guests for this event."></textarea>
+<div class="confirmed-update-actions">
+<button class="invite-btn-preview" id="reveal-venue-btn" type="button">Reveal Venue</button>
+<button class="invite-btn-send" id="confirmed-update-send-btn" type="button">Send One-Time Text</button>
+</div>
+</section>
+<section class="invite-mode-card confirmed-update-card manual-reminder-card">
+<div class="invite-flow-section">
+<div class="invite-flow-kicker">Manual Reminder</div>
+<div class="invite-flow-title">Send a saved reminder now</div>
+<div class="invite-flow-copy">Uses the selected event's saved reminder copy. Only confirmed guests who have not already received that reminder are eligible.</div>
+</div>
+<div class="confirmed-update-actions">
+<label class="manual-reminder-timing-label" for="manual-reminder-timing">Reminder copy</label>
+<select class="filter-select" id="manual-reminder-timing">
+<option value="day_before">Day-before reminder</option>
+<option value="day_of">Day-of reminder</option>
+</select>
+<button class="invite-btn-send" id="manual-reminder-send-btn" type="button">Send Saved Reminder</button>
+</div>
+</section>
 <div class="invite-back-row">
-<button class="back-link-btn" id="invite-back-btn">← Back to Event</button>
+<button class="back-link-btn" id="invite-back-btn" type="button">← Back to Event</button>
 </div>
 </div>
-<!-- Preview results -->
 <div class="preview-box" id="preview-box">
 <div class="preview-stats" id="preview-stats"></div>
 <div id="preview-table-container"></div>
 </div>
 </div>
 <div class="section-panel" hidden="" id="event-section">
-<div class="section-header">
-<div class="section-title">Current Event</div>
+<div class="section-header event-command-header">
+<div>
+<div class="section-title">Event Command</div>
+<div class="section-count">Create, stage, archive, and launch RSVP events.</div>
+</div>
+<div class="event-command-actions">
+<button class="event-save-btn event-new-btn" id="event-new-btn" type="button">+ New Event</button>
+<button class="event-save-btn event-duplicate-btn" id="event-duplicate-btn" type="button">Duplicate</button>
+</div>
+</div>
+<div class="event-list-shell">
+  <div class="event-current-label">Saved Events</div>
+  <div class="event-list-container" id="event-list-container">
+    <div class="analytics-empty">Loading saved events...</div>
+  </div>
 </div>
 <!-- Current event display -->
-<div class="event-current" id="event-current-display">
-<div class="event-current-label">Live Event Details</div>
+<!-- Current event details removed from default view to avoid duplicate event walls. Saved Events is the current-event summary. -->
+<div class="event-current" id="event-current-display" hidden>
 <div class="event-current-grid" id="event-current-grid"></div>
 </div>
 <!-- Event editor -->
-<div class="event-form">
+<div class="event-form is-closed" id="event-editor-shell">
 <div class="event-grid">
+<div class="event-form-section-title event-grid-full">1. Basics</div>
 <div class="event-field">
-<label>Event ID</label>
+<label>Event Status</label>
+<select class="form-select" id="ev-status">
+<option value="DRAFT">Draft</option>
+<option value="LIVE">Live</option>
+<option value="ARCHIVED">Archived</option>
+</select>
+<div class="form-hint" id="ev-status-help"></div>
+</div>
+<input id="ev-city" type="hidden" value=""/>
+<div class="event-field">
+<label>Event ID / Slug</label>
 <input id="ev-id" placeholder="rooftop-may2026" type="text"/>
 </div>
 <div class="event-field">
 <label>Event Label <span class="form-hint">Short name Jade uses in SMS</span></label>
 <input id="ev-label" maxlength="40" placeholder="Rooftop Night" type="text"/>
+</div>
+<div class="event-field">
+<label>Event Type</label>
+<select class="form-select" id="ev-type">
+<option value="">Select type...</option>
+<option value="swim">Swim Party</option>
+<option value="day">Day Party</option>
+<option value="rooftop">Rooftop Night</option>
+<option value="elevated">Elevated / Artist Night</option>
+<option value="bowling">Bowling Night</option>
+<option value="karaoke">Karaoke Night</option>
+<option value="regular">Regular Party</option>
+</select>
+</div>
+<div class="event-field">
+<label>Vibe Tag</label>
+<select class="form-select" id="ev-vibe-tag">
+<option value="">Select event type first...</option>
+</select>
 </div>
 <div class="event-field">
 <label>Date</label>
@@ -201,12 +284,8 @@
 <input id="ev-time" step="300" type="time"/>
 </div>
 <div class="event-field">
-<label>City</label>
-<input id="ev-city" placeholder="Louisville, KY" type="text"/>
-</div>
-<div class="event-field">
-<label>Capacity</label>
-<input id="ev-capacity" placeholder="150" type="number"/>
+<label>End Time <span class="form-hint">Optional</span></label>
+<input id="ev-end-time" step="300" type="time"/>
 </div>
 <div class="event-field">
 <label>Event Time Zone</label>
@@ -220,19 +299,7 @@
 <option value="Pacific/Honolulu">Hawaii Time (HT)</option>
 </select>
 </div>
-<div class="event-field">
-<label>Venue Name</label>
-<input id="ev-venue" placeholder="Venue name" type="text"/>
-</div>
-<div class="event-field">
-<label>Address</label>
-<input id="ev-address" placeholder="123 Main St, Louisville KY" type="text"/>
-</div>
-<div class="event-field">
-<label>Dress Code</label>
-<input id="ev-dresscode" placeholder="All Black Preferred" type="text"/>
-</div>
-<div class="event-field event-grid-full">
+<div class="event-field event-grid-full reminder-compact-card">
 <label>Auto Reminders <span class="microcopy">EventBridge fires these automatically on schedule</span></label>
 <div class="checkbox-row">
 <label class="checkbox-option">
@@ -254,62 +321,94 @@
 <span class="checkbox-time">local event time</span>
 </div>
 </div>
-<div class="field-help">Check both to send both. Uncheck all for manual only via the Invite tab. Set exact send times in 5-minute increments. Louisville stays Eastern by default; switch to Central when needed.</div>
 </div>
-<!-- Event Type + Vibe Tag -->
+
+<div class="event-form-section-title event-grid-full">2. Location</div>
 <div class="event-field">
-<label>Event Type</label>
-<select class="form-select" id="ev-type">
-<option value="">Select type...</option>
-<option value="swim">Swim Party</option>
-<option value="day">Day Party</option>
-<option value="rooftop">Rooftop Night</option>
-<option value="elevated">Elevated / Artist Night</option>
-<option value="bowling">Bowling Night</option>
-<option value="karaoke">Karaoke Night</option>
-<option value="regular">Regular Party</option>
-</select>
+<label>Event ZIP <span class="form-hint">Required before Live</span></label>
+<input id="ev-zip" inputmode="numeric" maxlength="5" pattern="[0-9]{5}" placeholder="40205" type="text"/>
 </div>
 <div class="event-field">
-<label>Vibe Tag <span class="form-hint">2–5 words — goes in Jade's invite</span></label>
-<select class="form-select" id="ev-vibe-tag">
-<option value="">Select event type first...</option>
-</select>
+<label>Promotion Radius <span class="form-hint">Miles · required before Live</span></label>
+<input id="ev-promotion-radius" min="1" placeholder="60" step="1" type="number"/>
 </div>
-<div class="event-field event-grid-full toggle-row">
+<div class="event-field">
+<label>Venue Name</label>
+<input id="ev-venue" placeholder="Venue name" type="text"/>
+</div>
+<div class="event-field event-address-reveal-field event-grid-full">
+<label>Address</label>
+<div class="event-input-with-toggle event-address-toggle-row">
+<input id="ev-address" placeholder="123 Main St, Louisville KY" type="text"/>
+<label class="toggle-row toggle-row-inline" for="ev-reveal-venue">
 <input class="toggle-input" id="ev-reveal-venue" type="checkbox"/>
-<label class="toggle-label" for="ev-reveal-venue">Reveal venue name in invite SMS</label>
+<span class="toggle-label">Reveal venue after confirmation</span>
+</label>
+</div>
+</div>
+<div class="event-field">
+<label>Capacity</label>
+<input id="ev-capacity" placeholder="150" type="number"/>
+</div>
+<div class="event-field">
+<label>Expected Show Rate (%)</label>
+<input id="ev-show-rate" min="10" max="100" step="5" type="number" value="60"/>
+<div class="form-hint">Used consistently for RSVP and +1 limits. A duplicated event keeps the configured estimate. Review it before sending.</div>
+</div>
+
+<div class="event-form-section-title event-grid-full">3. Guest Rules</div>
+<div class="event-field">
+<label>Dress Code</label>
+<input id="ev-dresscode" placeholder="All Black Preferred" type="text"/>
+</div>
+<div class="event-field plus-one-field">
+<label>Plus One</label>
+<label class="toggle-row toggle-row-inline" for="ev-allow-plus-ones">
+<input class="toggle-input" id="ev-allow-plus-ones" type="checkbox"/>
+<span class="toggle-label">Allow +1</span>
+</label>
 </div>
 <div class="event-field event-grid-full">
-<label>Event Description <span class="form-hint">Brief for Jade — context she uses when building messages</span></label>
-<textarea class="event-description" id="ev-description" placeholder="e.g. Rooftop at The Tribe. Open bar first hour. Dress sharp. Capacity is tight." rows="3"></textarea>
-</div>
-<div class="event-field">
-<label>End Time <span class="form-hint">e.g. 2:00 AM — Jade uses if set</span></label>
-<input id="ev-end-time" step="300" type="time"/>
-</div>
-<div class="event-field">
-<label>Ticket URL <span class="form-hint">Posh / Eventbrite — Jade appends to RSVP confirmation</span></label>
+<label>Ticket URL <span class="form-hint">Posh / Eventbrite</span></label>
 <input id="ev-ticket-url" placeholder="https://posh.vip/e/…" type="url"/>
 </div>
-<div class="event-field">
+<div class="event-field event-grid-full">
 <label>Section Info <span class="form-hint">Jade answers table/section questions with this</span></label>
-<input id="ev-section-info" placeholder="e.g. Sections available — DM for details" type="text"/>
+<input id="ev-section-info" placeholder="e.g. Sections: $100 for 4 people and 1 bottle; $250 for 6 people and 2 bottles." type="text"/>
 </div>
-<div class="event-field event-grid-full toggle-row">
-<input class="toggle-input" id="ev-allow-plus-ones" type="checkbox"/>
-<label class="toggle-label" for="ev-allow-plus-ones">Allow plus ones — Jade tells RSVP'd members they can bring one guest</label>
+<div class="event-field event-grid-full">
+<label>Parking Info <span class="form-hint">Jade answers parking questions with this after confirmation</span></label>
+<input id="ev-parking-info" placeholder="e.g. Street parking on Market; rideshare recommended; do not park behind venue." type="text"/>
+<div class="field-help">Keep venue-revealing parking details here, not in public invite copy.</div>
 </div>
+<div class="event-form-section-title event-grid-full">4. Event Intelligence</div>
+<div class="event-field event-grid-full event-intelligence-field">
+<label>Event Intelligence <span class="form-hint">The night's facts and feel — Jade answers from this</span></label>
+<textarea class="event-description" id="ev-jade-notes" placeholder="Poolside aquatic session built around R&B, water, and the right people. No hookah. Food by Las Mamas. Cash bar. Signature drink is the RSVP. 21+. Venue drops once you're confirmed." rows="4"></textarea>
+<div class="field-help">Write it like the invite you'd send — the real details and the feel. If a fact isn't here or in a dedicated field, Jade won't guess.</div>
 </div>
+
+</div>
+<div class="event-danger-zone event-grid-full" id="event-danger-zone">
+  <div>
+    <div class="event-danger-title">Danger Zone</div>
+    <div class="event-danger-copy">Hard delete only for test events, mistakes, or events that will not happen. Archive events you may need for history.</div>
+  </div>
+  <button class="event-save-btn event-delete-btn" id="event-hard-delete-btn" type="button">Hard Delete Event</button>
+</div>
+
 <div class="event-actions">
-<button class="event-save-btn" id="event-save-btn">Save Event</button>
-<button class="event-save-btn event-preview-btn" id="event-preview-btn">Preview Jade's Messages</button>
-<button class="event-save-btn event-next-btn" id="event-next-btn">Next: Invite →</button>
+<button class="event-save-btn" id="event-save-btn" type="button">Save</button>
+<button class="event-save-btn event-save-active-btn" id="event-save-active-btn" type="button">Publish Event</button>
+<button class="event-save-btn event-preview-btn" id="event-preview-btn" type="button">Preview Jade</button>
+<button class="event-save-btn event-draft-jade-btn" id="event-draft-jade-btn" type="button">Draft with Jade</button>
+<button class="event-save-btn event-next-btn" id="event-next-btn" type="button">Invite</button>
 </div>
 <!-- Jade message preview + lock panel -->
 <div class="jade-preview-panel" hidden="" id="jade-preview-panel">
 <div class="panel-kicker">Jade Message Preview</div>
-<div class="panel-copy">Edit directly. Use <strong class="template-token">{name}</strong> where the member's first name should appear. Save Event to lock these in for invite, day-before, and day-of sends.</div>
+<div class="panel-copy">Edit directly. Use <strong class="template-token">{name}</strong> where the member's first name should appear. Save Draft to store these, or Publish Event when it is ready for invites.</div>
+<div class="panel-footnote is-muted" id="template-lock-status"></div>
 <div class="message-preview-grid">
 <div>
 <div class="field-kicker">Invite Text</div>
@@ -324,11 +423,7 @@
 <textarea class="message-preview-textarea-secondary" id="jade-day-of-preview" rows="5"></textarea>
 </div>
 </div>
-<div class="panel-actions-row">
-<button class="event-save-btn event-lock-btn" id="event-lock-btn">Save Event + Lock Templates</button>
-<span class="lock-status" id="template-lock-status"></span>
-</div>
-<div class="panel-footnote">Invite text is locked exactly. Each reminder can be tuned separately. {name} is replaced with each member's first name.</div>
+<div class="panel-footnote">Use Save Draft or Publish Event to store these message edits. {name} is replaced with each member's first name.</div>
 </div>
 </div>
 </div>
@@ -355,7 +450,8 @@
 <select id="analytics-event-select">
 <option value="">— select event —</option>
 </select>
-<button class="analytics-refresh-btn" id="analytics-refresh-btn">Refresh</button>
+<button class="analytics-refresh-btn" id="analytics-refresh-btn" type="button">Refresh</button>
+<span class="analytics-refresh-stamp" id="analytics-refresh-stamp">Not refreshed yet</span>
 </div>
 <div id="event-analytics-body">
 <div class="analytics-empty">Select an event above</div>

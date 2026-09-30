@@ -1,6 +1,9 @@
 name: Deploy RSVP Society Backend
 
 on:
+  pull_request:
+    branches:
+      - main
   push:
     branches:
       - main
@@ -9,150 +12,106 @@ on:
 env:
   AWS_REGION: us-east-1
 
+permissions:
+  contents: read
+
 jobs:
   test:
-    name: Run Integration Tests
+    name: Run Regression & Integration Tests
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
-      - name: Set up Python 3.11
-        uses: actions/setup-python@v5
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v7
         with:
-          python-version: "3.11"
+          python-version: "3.13"
+
+      - name: Set up Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: "24"
 
       - name: Install test dependencies
-        run: pip install moto boto3
-
-      - name: Run integration tests
         working-directory: ./backend/lambda
-        run: python -m unittest integration_tests -v
+        run: pip install -r requirements-dev.txt
+
+      - name: Run complete regression baseline
+        working-directory: ./backend/lambda
+        run: bash run_step1_tests.sh
         env:
           AWS_DEFAULT_REGION: us-east-1
           AWS_ACCESS_KEY_ID: testing
           AWS_SECRET_ACCESS_KEY: testing
-
-  deploy-lambdas:
-    if: github.event_name == 'workflow_dispatch'
-    name: Package & Deploy Lambda Functions
-    runs-on: ubuntu-latest
-    needs: test
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ env.AWS_REGION }}
-
-      - name: Set up Python 3.11
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-
-      - name: Build Lambda package
-        run: |
-          mkdir -p build
-          cd backend/lambda
-          for f in *.py; do
-            case "$f" in
-              integration_tests.py|route_contract_audit.py|runtime_integration_check.py)
-                echo "Excluding test file: $f"
-                ;;
-              *)
-                cp "$f" ../../build/
-                ;;
-            esac
-          done
-          cd ../../build && zip -r ../lambda_bundle.zip . && cd ..
-          echo "Package size: $(du -sh lambda_bundle.zip | cut -f1)"
-          echo "Files in package:"
-          unzip -l lambda_bundle.zip | grep ".py"
-
-      - name: Deploy rsvp-access-request
-        run: |
-          aws lambda update-function-code \
-            --function-name rsvp-access-request \
-            --zip-file fileb://lambda_bundle.zip \
-            --no-cli-pager
-
-      - name: Deploy rsvp-admin-handler
-        run: |
-          aws lambda update-function-code \
-            --function-name rsvp-admin-handler \
-            --zip-file fileb://lambda_bundle.zip \
-            --no-cli-pager
-
-      - name: Deploy rsvp-sms-handler
-        run: |
-          aws lambda update-function-code \
-            --function-name rsvp-sms-handler \
-            --zip-file fileb://lambda_bundle.zip \
-            --no-cli-pager
-
-      - name: Deploy rsvp-reminder-handler
-        run: |
-          aws lambda update-function-code \
-            --function-name rsvp-reminder-handler \
-            --zip-file fileb://lambda_bundle.zip \
-            --no-cli-pager
-
-      - name: Deploy rsvp-invite-handler
-        run: |
-          aws lambda update-function-code \
-            --function-name rsvp-invite-handler \
-            --zip-file fileb://lambda_bundle.zip \
-            --no-cli-pager
-
-      - name: Wait for all functions to finish updating
-        run: |
-          for fn in rsvp-access-request rsvp-admin-handler rsvp-sms-handler rsvp-reminder-handler rsvp-invite-handler; do
-            echo "Waiting on $fn..."
-            aws lambda wait function-updated --function-name $fn
-          done
-          echo "All Lambda functions live."
+          AWS_EC2_METADATA_DISABLED: "true"
 
   terraform-apply:
+    name: Terraform Plan & Apply
     if: github.event_name == 'workflow_dispatch'
-    name: Terraform Apply
     runs-on: ubuntu-latest
-    needs: deploy-lambdas
+    needs: test
+    concurrency:
+      group: rsvp-production-deploy
+      cancel-in-progress: false
+    env:
+      TF_VAR_cloudfront_origin_verify_header: ${{ secrets.CLOUDFRONT_ORIGIN_VERIFY_HEADER }}
+      TF_VAR_cloudfront_origin_verify_previous_header: ${{ secrets.CLOUDFRONT_ORIGIN_VERIFY_PREVIOUS_HEADER }}
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@v6.3.0
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v3
+        uses: hashicorp/setup-terraform@v4
         with:
-          terraform_version: "1.6.6"
+          terraform_version: "1.16.4"
+
+      - name: Build canonical Lambda bundle
+        run: bash backend/lambda/build_lambda.sh
 
       - name: Terraform Init
         working-directory: ./backend/terraform
         run: terraform init -input=false
 
+      - name: Verify CloudFront origin secret is configured
+        run: |
+          if [ -z "$TF_VAR_cloudfront_origin_verify_header" ] || [ "${#TF_VAR_cloudfront_origin_verify_header}" -lt 32 ]; then
+            echo "::error::Configure GitHub Actions secret CLOUDFRONT_ORIGIN_VERIFY_HEADER with at least 32 random characters."
+            exit 1
+          fi
+
       - name: Terraform Validate
         working-directory: ./backend/terraform
         run: terraform validate
+
+      - name: Apply CloudFront origin header and viewer-IP function first
+        working-directory: ./backend/terraform
+        run: >-
+          terraform apply -input=false -auto-approve
+          -target=aws_cloudfront_function.cors_origin
+          -target=aws_cloudfront_function.sanitize_viewer_ip
+          -target=aws_cloudfront_distribution.api
+
+      - name: Wait for CloudFront deployment
+        working-directory: ./backend/terraform
+        run: |
+          DISTRIBUTION_ID="$(terraform output -raw cloudfront_api_distribution_id)"
+          aws cloudfront wait distribution-deployed --id "$DISTRIBUTION_ID"
 
       - name: Terraform Plan
         working-directory: ./backend/terraform
         run: terraform plan -input=false -out=tfplan
 
-      - name: Terraform Apply
+      - name: Apply remaining infrastructure, including WAF origin rule
         working-directory: ./backend/terraform
         run: terraform apply -input=false -auto-approve tfplan
 

@@ -1,86 +1,332 @@
-/* Event editor */
-.event-form {
-  background: var(--black-2);
-  border: 1px solid rgba(212,185,106,0.08);
-  padding: 36px;
-  margin-bottom: 32px;
+/* Event admin — RSVP black/gold polish layer */
+.event-form,
+.event-current,
+.event-list-shell {
+  background: linear-gradient(135deg, rgba(12,12,16,.98), rgba(6,6,8,.98));
+  border: 1px solid rgba(212,185,106,.12);
+  border-radius: 16px;
+  box-shadow: 0 28px 80px rgba(0,0,0,.30);
 }
-.event-grid {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 24px;
-  margin-bottom: 28px;
-}
+
+.event-form { padding: 24px; margin-bottom: 32px; }
+.event-form.is-closed { display: none; }
+.event-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; margin-bottom: 28px; }
 .event-grid-full { grid-column: 1 / -1; }
 .event-field { display: flex; flex-direction: column; gap: 10px; }
 .event-field label {
-  font-size: 8px;
-  letter-spacing: 0.4em;
-  text-transform: uppercase;
-  color: var(--gold-dim);
   display: block;
-  margin-bottom: 10px;
+  margin-bottom: 8px;
+  color: rgba(212,185,106,.62);
+  font-family: 'Montserrat', sans-serif;
+  font-size: 8px;
+  font-weight: 400;
+  letter-spacing: .24em;
+  text-transform: uppercase;
 }
 .event-field input,
-.event-field textarea {
+.event-field textarea,
+#event-section .form-select,
+#event-section .modal-input {
   width: 100%;
-  background: transparent;
-  border: none;
-  border-bottom: 1px solid rgba(212,185,106,0.2);
+  background: rgba(12,12,16,.86);
+  border: 1px solid rgba(212,185,106,.14);
+  border-radius: 10px;
   color: var(--white);
   font-family: 'Montserrat', sans-serif;
-  font-weight: 300;
   font-size: 13px;
-  padding: 8px 0;
+  font-weight: 300;
+  padding: 10px 12px;
   outline: none;
-  transition: border-color .2s;
   resize: none;
+  transition: border-color .2s, background .2s;
 }
 .event-field input:focus,
-.event-field textarea:focus { border-color: var(--gold); }
+.event-field textarea:focus,
+#event-section .form-select:focus,
+#event-section .modal-input:focus { border-color: rgba(212,185,106,.70); }
+
+.event-actions,
+.event-command-actions,
+.event-list-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.event-command-actions { justify-content: flex-end; }
 .event-save-btn {
-  background: transparent;
-  border: 1px solid rgba(212,185,106,0.3);
+  background: var(--gold-faint);
+  border: 1px solid rgba(212,185,106,.42);
+  border-radius: 10px;
   color: var(--gold);
-  font-family: 'Montserrat', sans-serif;
-  font-size: 9px;
-  letter-spacing: 0.4em;
-  text-transform: uppercase;
-  padding: 14px 36px;
   cursor: pointer;
-  transition: background .2s;
+  font-family: 'Montserrat', sans-serif;
+  font-size: 8px;
+  font-weight: 400;
+  letter-spacing: .16em;
+  padding: 13px 20px;
+  text-transform: uppercase;
+  transition: background .2s, border-color .2s, transform .2s;
 }
-.event-save-btn:hover { background: var(--gold-faint); }
-.event-current {
-  background: var(--black-2);
-  border: 1px solid rgba(212,185,106,0.08);
-  padding: 28px 32px;
-  margin-bottom: 32px;
-  display: none;
-}
+.event-save-btn:hover { background: rgba(212,185,106,.13); border-color: var(--gold); transform: translateY(-1px); }
+.event-new-btn { border-color: rgba(76,175,125,.45); color: var(--green); }
+.event-duplicate-btn { border-color: rgba(248,244,236,.16); color: rgba(248,244,236,.72); }
+.event-delete-btn { background: rgba(192,71,74,.06); border-color: rgba(192,71,74,.24); color: var(--red); }
+.event-preview-btn,.event-lock-btn { border-color: rgba(76,175,125,.45); color: var(--green); }
+.event-next-btn { border-color: rgba(248,244,236,.15); color: rgba(248,244,236,.62); }
+
+.event-current { display: none; margin-bottom: 32px; overflow: hidden; }
 .event-current.visible { display: block; }
-.event-current-label {
-  font-size: 7px;
-  letter-spacing: 0.4em;
+.event-current-label { display: none; }
+.event-current-grid { display: block; }
+.event-command-header { align-items: flex-start; gap: 18px; }
+.event-command-hero { position: relative; padding: 30px; border-bottom: 1px solid rgba(212,185,106,.08); }
+.event-command-hero::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px; background: linear-gradient(90deg, transparent, rgba(212,185,106,.72), transparent); }
+.event-command-kicker {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--gold-faint);
+  border: 1px solid rgba(212,185,106,.22);
+  border-radius: 999px;
+  color: rgba(212,185,106,.90);
+  font-family: 'Montserrat', sans-serif;
+  font-size: 10px;
+  font-weight: 400;
+  letter-spacing: .18em;
+  margin-bottom: 14px;
+  padding: 5px 12px;
   text-transform: uppercase;
-  color: var(--gold-dim);
-  margin-bottom: 16px;
 }
-.event-current-grid {
+.event-command-title { font-family: 'Cormorant Garamond', serif; font-size: 42px; font-weight: 300; letter-spacing: .005em; line-height: 1; color: var(--white); margin-bottom: 8px; }
+.event-command-subtitle { color: rgba(248,244,236,.52); font-size: 14px; letter-spacing: .04em; }
+.event-command-stats,
+.event-current-detail-grid { display: grid; gap: 1px; background: rgba(212,185,106,.07); }
+.event-command-stats { grid-template-columns: repeat(4, minmax(0, 1fr)); border-bottom: 1px solid rgba(212,185,106,.07); }
+.event-current-detail-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.event-command-stat,
+.event-current-detail-grid .event-current-item { background: rgba(17,17,22,.92); min-width: 0; padding: 16px 18px; }
+.event-command-stat span,
+.event-current-item label { display: block; color: rgba(212,185,106,.62); font-size: 8px; letter-spacing: .24em; margin-bottom: 8px; text-transform: uppercase; }
+.event-command-stat strong,
+.event-current-detail-grid .event-current-item span { display: block; color: rgba(248,244,236,.90); font-family: 'Montserrat', sans-serif; font-size: 13px; line-height: 1.35; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.event-list-shell { padding: 24px; margin: 18px 0 16px; }
+.event-list-container { display: grid; gap: 10px; margin-top: 12px; }
+.event-list-card { display: flex; align-items: center; justify-content: space-between; gap: 16px; background: rgba(17,17,22,.92); border: 1px solid rgba(212,185,106,.08); border-radius: 16px; padding: 16px; min-width: 0; }
+.event-list-card.is-active { background: var(--gold-faint); border-color: rgba(212,185,106,.45); }
+.event-list-meta { min-width: 0; display: flex; flex-direction: column; gap: 5px; }
+.event-list-title { color: rgba(248,244,236,.90); font-family: 'Montserrat', sans-serif; font-size: 15px; font-weight: 500; letter-spacing: -.01em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.event-list-sub { color: rgba(248,244,236,.48); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.event-list-tags { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-top: 2px; }
+.event-pill { display: inline-flex; align-items: center; background: rgba(12,12,16,.88); border: 1px solid rgba(212,185,106,.14); border-radius: 999px; color: rgba(248,244,236,.52); font-family: 'Montserrat', sans-serif; font-size: 10px; font-weight: 500; letter-spacing: .07em; padding: 2px 8px; text-transform: uppercase; }
+.event-pill.is-active { background: var(--gold-faint); border-color: rgba(212,185,106,.50); color: var(--gold); }
+.event-pill.is-archived { color: rgba(248,244,236,.34); }
+
+.jade-preview-panel { margin-top: 32px; border: 1px solid rgba(212,185,106,.2); border-radius: 16px; padding: 28px; }
+.panel-kicker,.field-kicker,.field-kicker-compact { color: rgba(212,185,106,.62); font-size: 8px; letter-spacing: .28em; text-transform: uppercase; }
+.panel-copy { color: rgba(248,244,236,.42); font-size: 10px; letter-spacing: .05em; line-height: 1.7; margin-bottom: 24px; }
+.template-token { color: rgba(212,185,106,.8); }
+.message-preview-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; }
+.message-preview-textarea-primary,
+.message-preview-textarea-secondary { width: 100%; background: rgba(212,185,106,.04); border: 0; border-left: 2px solid rgba(212,185,106,.28); color: var(--white); font-family: 'Cormorant Garamond', serif; font-size: 16px; line-height: 1.7; outline: none; padding: 16px; resize: none; }
+.message-preview-textarea-primary { border-left-color: rgba(212,185,106,.48); }
+.panel-actions-row { display: flex; align-items: center; gap: 16px; margin-top: 20px; }
+.lock-status { color: rgba(248,244,236,.35); font-size: 9px; letter-spacing: .2em; }
+.lock-status.is-success { color: rgba(76,175,125,.8); }
+.panel-footnote { color: rgba(248,244,236,.24); font-size: 9px; letter-spacing: .05em; margin-top: 12px; }
+
+@media (max-width: 900px) {
+  .event-command-stats { grid-template-columns: repeat(2, 1fr); }
+  .event-current-detail-grid { grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 700px) {
+  .event-grid,
+  .event-command-stats,
+  .event-current-detail-grid,
+  .message-preview-grid { grid-template-columns: 1fr; }
+  .event-command-title { font-size: 32px; }
+  .event-command-actions,
+  .event-list-card { align-items: flex-start; flex-direction: column; }
+  .event-list-title,.event-list-sub { white-space: normal; }
+}
+
+/* Hard override Chrome autofill/default control paint so event fields do not turn white. */
+#event-section input,
+#event-section textarea,
+#event-section select {
+  color-scheme: dark;
+}
+#event-section input:-webkit-autofill,
+#event-section input:-webkit-autofill:hover,
+#event-section input:-webkit-autofill:focus,
+#event-section textarea:-webkit-autofill,
+#event-section textarea:-webkit-autofill:hover,
+#event-section textarea:-webkit-autofill:focus,
+#event-section select:-webkit-autofill,
+#event-section select:-webkit-autofill:hover,
+#event-section select:-webkit-autofill:focus {
+  -webkit-text-fill-color: var(--white);
+  -webkit-box-shadow: 0 0 0 1000px rgba(12,12,16,.96) inset;
+  box-shadow: 0 0 0 1000px rgba(12,12,16,.96) inset;
+  border-color: rgba(212,185,106,.18);
+  transition: background-color 9999s ease-in-out 0s;
+}
+#event-section input::-webkit-calendar-picker-indicator {
+  filter: invert(1) sepia(.35) saturate(.8);
+  opacity: .55;
+}
+.toggle-input,
+.checkbox-input {
+  accent-color: var(--gold);
+}
+/* `.event-field input` sets width:100% + text-input padding/border, which also
+   hit checkbox <input>s inside the toggles — stretching the box to ~176px and
+   shoving the label out of the pill and off-screen. Reset them explicitly with
+   id-scoped selectors so they outrank `.event-field input`. */
+#event-section input.toggle-input,
+#event-section input.checkbox-input {
+  width: 16px;
+  min-width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+  margin: 0;
+  padding: 0;
+  border-radius: 4px;
+}
+#event-section .toggle-row-inline { display: inline-flex; }
+#event-section .toggle-row-inline .toggle-label { overflow: hidden; text-overflow: ellipsis; }
+
+
+/* Live UI cleanup: compact event command view. The saved event card and editor are the controls; this card is only a quick active-event confirmation. */
+#event-section { scroll-margin-top: 96px; }
+.event-list-shell { padding: 16px; margin: 10px 0 18px; }
+.event-list-card { padding: 14px 16px; }
+.event-current { margin-bottom: 18px; }
+.event-active-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  background: linear-gradient(135deg, rgba(12,12,16,.98), rgba(6,6,8,.98));
+  border: 1px solid rgba(212,185,106,.14);
+  border-radius: 16px;
+  padding: 20px 24px;
+}
+.event-active-copy { min-width: 0; }
+.event-active-card .event-command-kicker { margin-bottom: 10px; }
+.event-active-card .event-command-title { font-size: 34px; margin-bottom: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.event-active-card .event-command-subtitle { max-width: 620px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.event-active-stats { display: grid; grid-template-columns: repeat(3, minmax(110px, 1fr)); gap: 1px; background: rgba(212,185,106,.06); border: 1px solid rgba(212,185,106,.08); border-radius: 12px; overflow: hidden; min-width: 360px; }
+.event-active-stats .event-command-stat { background: rgba(17,17,22,.94); padding: 14px 16px; }
+.event-current-detail-grid { display: none !important; }
+.event-form { padding: 24px; }
+.event-grid { gap: 16px; margin-bottom: 24px; }
+.event-actions { position: sticky; bottom: 0; z-index: 20; background: linear-gradient(180deg, rgba(6,6,8,0), rgba(6,6,8,.96) 24%, rgba(6,6,8,.98)); border-top: 1px solid rgba(212,185,106,.08); margin: 0 -24px -24px; padding: 18px 24px 20px; }
+@media (max-width: 900px) {
+  .event-active-card { align-items: stretch; flex-direction: column; }
+  .event-active-stats { min-width: 0; width: 100%; }
+  .event-active-card .event-command-title,
+  .event-active-card .event-command-subtitle { white-space: normal; }
+}
+
+/* Frontend cleanup: single event language and ordered operator flow. */
+.event-current { display: none !important; }
+.event-form-section-title {
+  color: rgba(212,185,106,.72);
+  font-size: 9px;
+  letter-spacing: .34em;
+  text-transform: uppercase;
+  padding: 18px 0 4px;
+  border-top: 1px solid rgba(212,185,106,.10);
+  margin-top: 8px;
+}
+.event-form-section-title:first-child { border-top: 0; padding-top: 0; }
+.event-pill.is-live { border-color: rgba(76,175,125,.28); color: var(--green); background: rgba(76,175,125,.08); }
+.event-list-card .mini-btn[disabled] { opacity: .45; }
+#event-save-active-btn::after { content: ''; }
+
+
+/* Operator-flow fixes: keep hidden controls attached to the field they govern. */
+.event-input-with-toggle {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 20px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
 }
-.event-current-item label {
-  font-size: 7px;
-  letter-spacing: 0.3em;
+.toggle-row-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 42px;
+  margin: 0;
+  padding: 0 12px;
+  border: 1px solid rgba(212,185,106,.14);
+  border-radius: 10px;
+  background: rgba(212,185,106,.035);
+  white-space: nowrap;
+}
+.toggle-row-inline .toggle-label {
+  margin: 0;
+  font-size: 8px;
+  letter-spacing: .18em;
+  color: rgba(248,244,236,.62);
+}
+.reminder-compact-card {
+  padding: 14px 16px;
+  border: 1px solid rgba(212,185,106,.10);
+  border-radius: 14px;
+  background: rgba(212,185,106,.03);
+}
+@media (max-width: 760px) {
+  .event-input-with-toggle { grid-template-columns: 1fr; }
+  .toggle-row-inline { justify-content: flex-start; width: 100%; }
+}
+
+/* Final event form cleanup */
+#event-section textarea,
+#event-section .event-field textarea,
+.message-preview-textarea-primary,
+.message-preview-textarea-secondary {
+  resize: none !important;
+}
+.event-row.event-location-row,
+.event-row.event-guest-rules-row {
+  align-items: end;
+}
+.reveal-venue-field,
+.plus-one-field {
+  align-self: stretch;
+}
+.plus-one-field .toggle-row-inline { align-self: flex-start; }
+.event-intelligence-section .section-subtitle {
+  max-width: 720px;
+}
+
+
+.event-danger-zone {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  margin-top: 18px;
+  padding: 18px;
+  border: 1px solid rgba(192,71,74,.24);
+  border-radius: 18px;
+  background: rgba(192,71,74,.045);
+}
+.event-danger-title {
+  color: var(--red);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: .12em;
   text-transform: uppercase;
-  color: rgba(248,244,236,0.3);
-  display: block;
-  margin-bottom: 6px;
 }
-.event-current-item span {
-  font-family: 'Cormorant Garamond', serif;
-  font-size: 16px;
-  color: var(--white);
+.event-danger-copy {
+  margin-top: 6px;
+  max-width: 640px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.55;
+}
+@media (max-width: 760px) {
+  .event-danger-zone {
+    align-items: stretch;
+    flex-direction: column;
+  }
 }

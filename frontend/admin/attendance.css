@@ -96,3 +96,37 @@
   .page-btn.active { border-color: var(--gold); color: var(--gold); background: rgba(212,185,106,0.08); }
   .page-btn:disabled { opacity: 0.25; cursor: not-allowed; }
   .page-ellipsis { color: rgba(248,244,236,0.3); font-size: 12px; padding: 0 4px; }
+
+/* Final attendance polish: keep Mark column inside the desktop table row. */
+#attendance-container .member-table {
+  table-layout: fixed;
+  width: 100%;
+}
+#attendance-container .member-table th:nth-child(1),
+#attendance-container .member-table td:nth-child(1) { width: 30%; }
+#attendance-container .member-table th:nth-child(2),
+#attendance-container .member-table td:nth-child(2) { width: 28%; }
+#attendance-container .member-table th:nth-child(3),
+#attendance-container .member-table td:nth-child(3) { width: 22%; }
+#attendance-container .member-table th:nth-child(4),
+#attendance-container .member-table td:nth-child(4) {
+  width: 20%;
+  text-align: right;
+}
+#attendance-container .action-btns {
+  justify-content: flex-end;
+  flex-wrap: nowrap;
+  gap: 8px;
+}
+@media (max-width: 760px) {
+  #attendance-container .member-table { table-layout: auto; min-width: 720px; }
+}
+
+.plus-one-row { margin-top: 8px; display:flex; align-items:center; gap:10px; flex-wrap:wrap; color:rgba(248,244,236,.62); font-size:12px; }
+.plus-one-row.checked-in-plus-one .plus-one-name { color:#4CAF50; }
+.plusone-checkin-btn { border:1px solid rgba(212,185,106,.24); background:rgba(212,185,106,.06); color:var(--gold); border-radius:999px; padding:6px 10px; font-size:9px; letter-spacing:.18em; text-transform:uppercase; cursor:pointer; }
+.plusone-checkin-btn.done { color:#4CAF50; border-color:rgba(76,175,80,.30); background:rgba(76,175,80,.08); cursor:not-allowed; }
+.attendance-table th:last-child, .attendance-table td:last-child { text-align:right; min-width:170px; }
+.attendance-action-btns { justify-content:flex-end; flex-wrap:wrap; }
+.attendance-action-btn { white-space: nowrap; min-width: 72px; text-align: center; }
+.attendance-plus-one-row td:first-child { padding-left:28px; color:rgba(248,244,236,.70); }

@@ -3,9 +3,10 @@ import json
 import logging
 import os
 import boto3
-from member_store import upsert_member, normalize_phone, mark_welcome_sent
-from sms_adapter import maybe_send_welcome, send_sms
+from member_store import upsert_member, normalize_phone, mark_welcome_sent, get_member
+from sms_adapter import maybe_send_welcome, send_sms, get_host_phones
 from admin_shared import coerce_bool as _coerce_bool
+from location_resolver import InvalidZipError, ZipLookupUnavailable, resolve_us_zip
 
 logger = logging.getLogger()
 
@@ -74,49 +75,42 @@ def handler(event, context):
         email = (data.get("email") or "").strip() or None
         source = (data.get("source") or "web").strip()
         sms_opt_in = _coerce_bool(data.get("smsOptIn", False))
+        zip_code = (data.get("zipCode") or "").strip()
 
         if not name or not phone:
             return _resp(400, {"ok": False, "error": "name and phone required"}, origin)
 
-        # Validate phone format → 400, not 500
+        # Public access form requires SMS opt-in. Legacy/imported members enter
+        # through the admin import path, not this public endpoint. STOP opt-out is
+        # still honored by the SMS handler.
+        if not sms_opt_in:
+            return _resp(400, {"ok": False, "error": "SMS opt-in is required to request access"}, origin)
+
+        # Validate phone format before any external ZIP lookup.
         try:
             phone_e164 = normalize_phone(phone)
         except ValueError as e:
             return _resp(400, {"ok": False, "error": str(e)}, origin)
 
-        # Duplicate name guard — same first+last submitted within 72 hours from a
-        # different phone number. Silent drop with generic 200 so the submitter gets
-        # no signal that anything was flagged. Paginated scan with a safety cap.
+        if not zip_code:
+            return _resp(400, {"ok": False, "error": "ZIP code is required"}, origin)
         try:
-            from datetime import datetime, timezone, timedelta
-            members_table = boto3.resource("dynamodb").Table(os.getenv("MEMBERS_TABLE_NAME", "rsvp-members"))
-            cutoff = (datetime.now(timezone.utc) - timedelta(hours=72)).isoformat(timespec="seconds")
-            filter_expr = (
-                boto3.dynamodb.conditions.Attr("name").eq(first_name) &
-                boto3.dynamodb.conditions.Attr("lastName").eq(last_name or "") &
-                boto3.dynamodb.conditions.Attr("submittedAt").gte(cutoff) &
-                boto3.dynamodb.conditions.Attr("phone").ne(phone_e164)
-            )
-            found_dup = False
-            scan_kwargs = {"FilterExpression": filter_expr, "ProjectionExpression": "phone", "Limit": 500}
-            while not found_dup:
-                scan_resp = members_table.scan(**scan_kwargs)
-                if scan_resp.get("Items"):
-                    found_dup = True
-                    break
-                last_key = scan_resp.get("LastEvaluatedKey")
-                if not last_key:
-                    break
-                scan_kwargs["ExclusiveStartKey"] = last_key
+            location = resolve_us_zip(zip_code)
+        except InvalidZipError as exc:
+            return _resp(400, {"ok": False, "error": str(exc)}, origin)
+        except ZipLookupUnavailable:
+            logger.exception("access_request: ZIP lookup unavailable zip=%s", zip_code)
+            return _resp(503, {"ok": False, "error": "ZIP lookup is temporarily unavailable"}, origin)
 
-            if found_dup:
-                logger.warning(
-                    "access_request: duplicate name within 72h name=%s %s new_phone=...%s",
-                    first_name, last_name, phone_e164[-4:],
-                )
-                return _resp(200, {"ok": True}, origin)
-        except Exception:
-            logger.exception("access_request: duplicate name check failed — proceeding")
+        # Remember whether this exact member was already awaiting review before
+        # the upsert. Re-submitting an active pending request must not create new
+        # approval codes or paid host SMS messages.
+        existing_before = get_member(phone_e164) or {}
+        was_pending_before = (existing_before.get("status") or "").upper() == "PENDING"
+
+        # Phone is the member identity key. Do not full-table scan by name on
+        # every public signup: same-name people are legitimate, and the old check
+        # only logged a warning without changing the result.
 
         # Write member — if DDB is unavailable this correctly 500s
         member = upsert_member(
@@ -126,6 +120,11 @@ def handler(event, context):
             email=email,
             source=source,
             sms_opt_in=sms_opt_in,
+            zip_code=location["zipCode"],
+            city=location["city"],
+            state=location["state"],
+            latitude=location["latitude"],
+            longitude=location["longitude"],
         )
 
         logger.info(
@@ -141,22 +140,27 @@ def handler(event, context):
         # sms_handler reads from the same table via Query on hostPhone pk.
         try:
             sms_enabled = (os.getenv("SMS_ENABLED", "false") or "").lower() == "true"
-            host_phones = [p for p in [os.getenv("HOST_PHONE_1", ""), os.getenv("HOST_PHONE_2", "")] if p]
-            if sms_enabled and host_phones and (member.get("status") or "PENDING") == "PENDING":
+            host_phones = get_host_phones()
+            # IMPORTANT: the pending-approval record is the source of truth for the
+            # host approve/deny-by-code flow. It must be written whenever a member is
+            # newly PENDING and host phones are configured — even if SMS sending is
+            # turned off for testing. Only the outbound text is gated by SMS_ENABLED,
+            # so toggling SMS off no longer leaves rsvp-pending-approvals empty.
+            if host_phones and (member.get("status") or "PENDING") == "PENDING" and not was_pending_before:
                 display_name = f"{name} {last_name}".strip()
                 # Use dedicated pending-approvals table — NOT rsvp-events
                 approvals_table = boto3.resource("dynamodb").Table(
                     os.getenv("PENDING_APPROVALS_TABLE_NAME", "rsvp-pending-approvals")
                 )
                 from datetime import datetime, timezone
-                import random as _rnd
+                import secrets as _secrets
                 now_iso = datetime.now(timezone.utc).isoformat(timespec="seconds")
                 # TTL: expire approval records after 7 days
                 import time as _time
                 expires_at = int(_time.time()) + (7 * 24 * 60 * 60)
                 for hp in host_phones:
                     try:
-                        approval_code = "".join([str(_rnd.randint(0, 9)) for _ in range(6)])
+                        approval_code = "".join([str(_secrets.randbelow(10)) for _ in range(6)])
                         approvals_table.put_item(Item={
                             "hostPhone":    hp,
                             "memberPhone":  phone_e164,
@@ -166,7 +170,8 @@ def handler(event, context):
                             "storedAt":     now_iso,
                             "expiresAt":    expires_at,
                         })
-                        send_sms(hp, f"New request: {display_name} [{approval_code}]\nReply Y {approval_code} to approve, N {approval_code} to deny")
+                        if sms_enabled:
+                            send_sms(hp, f"New request: {display_name} [{approval_code}]\nReply Y {approval_code} to approve, N {approval_code} to deny")
                     except Exception:
                         logger.exception("access_request: host notification failed to %s", hp[-4:])
         except Exception:

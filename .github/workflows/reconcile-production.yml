@@ -1,0 +1,79 @@
+name: Reconcile RSVP Society Production Data
+
+on:
+  workflow_dispatch:
+    inputs:
+      fail_on_error:
+        description: Fail the workflow if reconciliation errors are found
+        required: false
+        type: boolean
+        default: false
+
+env:
+  AWS_REGION: us-east-1
+
+jobs:
+  reconcile:
+    name: Read-only DynamoDB reconciliation
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+
+      - name: Install audit dependency
+        run: pip install -r backend/lambda/requirements.txt
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v6.3.0
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Run read-only production reconciliation
+        run: |
+          python backend/tools/production_reconcile.py \
+            --region "$AWS_REGION" \
+            --json production-reconciliation.json
+
+      - name: Write reconciliation summary
+        run: |
+          python - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import json
+          from pathlib import Path
+          report = json.loads(Path("production-reconciliation.json").read_text())
+          s = report["summary"]
+          c = report["tableCounts"]
+          print("## RSVP Society Production Reconciliation")
+          print("")
+          print("**Mode:** read-only")
+          print(f"**Errors:** {s['errors']}  ")
+          print(f"**Warnings:** {s['warnings']}  ")
+          print(f"**Total findings:** {s['findings']}  ")
+          print("")
+          print("Scanned: " + ", ".join(f"{k}={v}" for k, v in c.items()))
+          PY
+
+      - name: Upload redacted reconciliation report
+        uses: actions/upload-artifact@v7
+        with:
+          path: production-reconciliation.json
+          archive: false
+          retention-days: 14
+
+      - name: Enforce clean reconciliation when requested
+        if: ${{ inputs.fail_on_error }}
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          errors = json.loads(Path("production-reconciliation.json").read_text())["summary"]["errors"]
+          if errors:
+              raise SystemExit(f"Production reconciliation found {errors} error(s).")
+          PY

@@ -427,3 +427,26 @@ main {
 }
 
 /* Settings panel removed — dead scaffolding deleted */
+
+/* Operational density restoration */
+main{max-width:1320px;}
+.member-table{width:100%;border-collapse:collapse;table-layout:auto;}
+.member-table th,.member-table td{padding:13px 12px;vertical-align:middle;}
+.member-table th{white-space:nowrap;}
+.member-table .member-phone{white-space:nowrap;font-variant-numeric:tabular-nums;}
+.action-btns{display:flex;gap:6px;flex-wrap:wrap;align-items:center;}
+.action-btn.view{border-color:rgba(255,255,255,.14);color:rgba(248,244,236,.72);}
+.action-btn.view:hover{color:#F8F4EC;border-color:rgba(255,255,255,.32);}
+@media(max-width:980px){main{padding:28px 18px}.member-table{min-width:920px}.members-container,.preview-box{overflow-x:auto}}
+
+
+/* Production login polish */
+#login-screen { background: radial-gradient(circle at 50% 0%, rgba(212,185,106,.08), transparent 36%), var(--black); padding: 28px; }
+.login-box { background: linear-gradient(135deg, rgba(12,12,16,.98), rgba(6,6,8,.98)); border: 1px solid rgba(212,185,106,.16); border-radius: 18px; box-shadow: 0 28px 90px rgba(0,0,0,.48); }
+.login-wordmark { margin-bottom: 28px; }
+.login-box::before { content: 'ADMIN ACCESS'; display: block; color: rgba(212,185,106,.62); font-size: 8px; letter-spacing: .34em; margin-bottom: 24px; text-transform: uppercase; }
+@media (max-width: 520px) { .login-box { width: min(100%, 360px); padding: 32px 24px; } }
+
+/* Final action colors */
+.action-btn.deny { border-color: rgba(212,185,106,.32); color: var(--gold); }
+.action-btn.deny:hover { background: rgba(212,185,106,.1); border-color: var(--gold); color: var(--gold); }

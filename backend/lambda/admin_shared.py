@@ -10,7 +10,6 @@ from datetime import datetime
 from decimal import Decimal
 
 import boto3
-from boto3.dynamodb.conditions import Key as DKey
 from sms_adapter import get_secret_string
 
 logger = logging.getLogger()
@@ -158,15 +157,6 @@ def validate_schedule_time_step(value: str, *, field_name: str = "time", minute_
         raise ValueError(f"{field_name} must align to {minute_step}-minute intervals, got: {hhmm!r}")
     return hhmm
 
-def format_event_time(value: str) -> str:
-    raw = str(value or "").strip()
-    if not raw:
-        return ""
-    try:
-        return datetime.strptime(raw, "%H:%M").strftime("%-I:%M %p")
-    except ValueError:
-        return raw
-
 def normalize_import_source(value: str) -> str:
     src = (value or "").strip().lower()
     if src in ("csv", "web", "import", "eventbrite", "posh", "superphone"):
@@ -249,59 +239,3 @@ def archive_event_snapshot(event: dict) -> None:
         "lastSeenAt": source_updated_at or archived_at,
     })
     event_history_table().put_item(Item=item)
-
-
-def list_event_history() -> dict:
-    current = events_table().get_item(Key={"eventId": "current"}).get("Item") or {}
-    archived = []
-    query_kwargs = {"KeyConditionExpression": DKey("historyPk").eq("EVENT")}
-    while True:
-        page = event_history_table().query(**query_kwargs)
-        archived.extend(page.get("Items", []))
-        last = page.get("LastEvaluatedKey")
-        if not last:
-            break
-        query_kwargs["ExclusiveStartKey"] = last
-
-    latest_snapshot_by_slug = {}
-    snapshot_versions = 0
-    for item in archived:
-        normalized = normalize_event_record(item, source="snapshot")
-        slug = normalized.get("slug") or normalized.get("eventId")
-        if not slug or slug == "current":
-            continue
-        normalized["archivedAt"] = str(item.get("archivedAt") or item.get("updatedAt") or "")
-        snapshot_versions += 1
-        previous = latest_snapshot_by_slug.get(slug)
-        prev_key = str(previous.get("archivedAt") or previous.get("updatedAt") or "") if previous else ""
-        curr_key = str(normalized.get("archivedAt") or normalized.get("updatedAt") or "")
-        if previous is None or curr_key > prev_key:
-            latest_snapshot_by_slug[slug] = normalized
-
-    events = []
-    if current:
-        current_norm = normalize_event_record({**current, "eventId": event_identity(current) or "current"}, source="current")
-        if current_norm.get("slug") or current_norm.get("eventId"):
-            events.append(current_norm)
-            latest_snapshot_by_slug.pop(current_norm.get("slug"), None)
-
-    events.extend(latest_snapshot_by_slug.values())
-
-    def sort_key(event: dict):
-        return (
-            1 if event.get("source") == "current" else 0,
-            str(event.get("date") or ""),
-            str(event.get("archivedAt") or event.get("updatedAt") or ""),
-            str(event.get("slug") or event.get("eventId") or ""),
-        )
-
-    events.sort(key=sort_key, reverse=True)
-    return {
-        "events": events,
-        "meta": {
-            "archivedCount": len([e for e in events if e.get("source") == "snapshot"]),
-            "snapshotVersionCount": snapshot_versions,
-            "inviteDerivedCount": 0,
-            "total": len(events),
-        },
-    }

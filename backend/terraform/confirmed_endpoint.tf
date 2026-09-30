@@ -28,10 +28,10 @@ resource "aws_api_gateway_method" "admin_members_confirmed_options" {
   authorization = "NONE"
 }
 resource "aws_api_gateway_integration" "admin_members_confirmed_options" {
-  rest_api_id = aws_api_gateway_rest_api.api.id
-  resource_id = aws_api_gateway_resource.admin_members_confirmed.id
-  http_method = aws_api_gateway_method.admin_members_confirmed_options.http_method
-  type        = "MOCK"
+  rest_api_id       = aws_api_gateway_rest_api.api.id
+  resource_id       = aws_api_gateway_resource.admin_members_confirmed.id
+  http_method       = aws_api_gateway_method.admin_members_confirmed_options.http_method
+  type              = "MOCK"
   request_templates = { "application/json" = local.cors_mock_request_template }
 }
 resource "aws_api_gateway_method_response" "admin_members_confirmed_options_200" {

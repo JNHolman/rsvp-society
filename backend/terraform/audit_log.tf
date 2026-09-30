@@ -8,7 +8,7 @@
 #   actionId   (S) — uuid, hash key
 #   timestamp  (S) — ISO-8601, sort key on the GSI
 #   action     (S) — ACTION_* constant (e.g. MEMBER_APPROVED)
-#   actorToken (S) — last 8 chars of admin token
+#   actorFingerprint (S) — SHA-256-derived actor identifier (not token characters)
 #   targetPhone (S) — member phone (when relevant)
 #   targetName  (S) — truncated display name (when relevant)
 #   metadata   (M) — action-specific extra fields

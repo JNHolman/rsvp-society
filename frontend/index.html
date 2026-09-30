@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; connect-src https://api.rsvpsociety.com; img-src 'self' data: https://rsvpsociety.com; frame-ancestors 'none';">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-98tHN0Diw5yJ+o8Gbb5TTueiLSLSktb7hx+RjA1MqO4='; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; connect-src https://api.rsvpsociety.com; img-src 'self' data: https://rsvpsociety.com;">
 
 <!-- Primary Meta -->
 <title>RSVP Society — The list you didn't know existed.</title>
@@ -59,7 +59,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,300;1,400;1,600&family=Montserrat:wght@200;300;400;500&display=swap" rel="stylesheet">
 
 <style>
-*, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; cursor: none; }
+*, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; cursor: auto; }
 
 :root {
   --gold: #D4B96A;
@@ -74,11 +74,11 @@
 }
 
 html { scroll-behavior: smooth; }
-body { background: var(--black); color: var(--white); font-family: 'Montserrat', sans-serif; font-weight: 300; overflow-x: hidden; cursor: none; }
+body { background: var(--black); color: var(--white); font-family: 'Montserrat', sans-serif; font-weight: 300; overflow-x: hidden; cursor: auto; }
 
 /* ── CURSOR ── */
-.cursor { position: fixed; width: 6px; height: 6px; background: var(--gold-light); border-radius: 50%; pointer-events: none; z-index: 9999; transform: translate(-50%,-50%); }
-.cursor-trail { position: fixed; width: 28px; height: 28px; border: 1px solid rgba(201,168,76,0.35); border-radius: 50%; pointer-events: none; z-index: 9998; transform: translate(-50%,-50%); transition: width .3s ease, height .3s ease, border-color .3s ease; }
+.cursor { display:none !important; position: fixed; width: 6px; height: 6px; background: var(--gold-light); border-radius: 50%; pointer-events: none; z-index: 9999; transform: translate(-50%,-50%); }
+.cursor-trail { display:none !important; position: fixed; width: 28px; height: 28px; border: 1px solid rgba(201,168,76,0.35); border-radius: 50%; pointer-events: none; z-index: 9998; transform: translate(-50%,-50%); transition: width .3s ease, height .3s ease, border-color .3s ease; }
 
 /* ── NAV ── */
 nav {
@@ -141,7 +141,7 @@ nav {
 .hero-actions { margin-top: 48px; display: flex; flex-direction: column; align-items: center; gap: 0; opacity: 0; animation: fadeUp 1s ease 1.3s forwards; padding-bottom: 0; }
 
 /* ── BUTTONS ── */
-.btn-primary { display: inline-block; padding: 18px 64px; background: transparent; border: 1px solid rgba(201,168,76,0.55); color: var(--gold-light); font-family: 'Montserrat', sans-serif; font-size: 10px; font-weight: 400; letter-spacing: 0.42em; text-transform: uppercase; text-decoration: none; position: relative; overflow: hidden; transition: color .4s, border-color .4s; cursor: none; }
+.btn-primary { display: inline-block; padding: 18px 64px; background: transparent; border: 1px solid rgba(201,168,76,0.55); color: var(--gold-light); font-family: 'Montserrat', sans-serif; font-size: 10px; font-weight: 400; letter-spacing: 0.42em; text-transform: uppercase; text-decoration: none; position: relative; overflow: hidden; transition: color .4s, border-color .4s; cursor: auto; }
 .btn-primary::before { content: ''; position: absolute; inset: 0; background: linear-gradient(135deg, var(--gold-dim), var(--gold)); transform: translateX(-101%); transition: transform .45s cubic-bezier(0.16,1,0.3,1); }
 .btn-primary:hover { color: var(--black); border-color: var(--gold); }
 .btn-primary:hover::before { transform: translateX(0); }
@@ -189,13 +189,16 @@ nav {
 .access-eyebrow { font-size: 10px; letter-spacing: 0.5em; text-transform: uppercase; color: var(--gold); opacity: 0.9; margin-bottom: 20px; position: relative; z-index: 1; }
 .access-headline { font-family: 'Cormorant Garamond', serif; font-weight: 300; font-size: 52px; color: var(--white); line-height: 1.1; margin-bottom: 16px; position: relative; z-index: 1; }
 .access-sub { font-size: 11px; letter-spacing: 0.28em; text-transform: uppercase; color: rgba(248,244,236,0.72); margin-bottom: 48px; position: relative; z-index: 1; }
-.phone-form { max-width: 380px; margin: 0 auto; display: flex; flex-direction: column; position: relative; z-index: 1; }
-.phone-input { width: 100%; padding: 20px 24px; background: rgba(245,239,224,0.03); border: 1px solid rgba(201,168,76,0.15); color: var(--white); font-family: 'Montserrat', sans-serif; font-size: 13px; font-weight: 300; letter-spacing: 0.18em; outline: none; text-align: center; transition: background .3s, border-color .3s; -webkit-appearance: none; border-radius: 0; margin-bottom: 2px; }
+
+.sr-only { position: absolute !important; width: 1px !important; height: 1px !important; padding: 0 !important; margin: -1px !important; overflow: hidden !important; clip: rect(0,0,0,0) !important; white-space: nowrap !important; border: 0 !important; }
+
+.phone-form { max-width: 420px; margin: 0 auto; display: flex; flex-direction: column; position: relative; z-index: 1; gap: 12px; }
+.phone-input { width: 100%; padding: 20px 24px; background: rgba(245,239,224,0.03); border: 1px solid rgba(201,168,76,0.15); color: var(--white); font-family: 'Montserrat', sans-serif; font-size: 13px; font-weight: 300; letter-spacing: 0.18em; outline: none; text-align: center; transition: background .3s, border-color .3s; -webkit-appearance: none; border-radius: 0; margin-bottom: 0; }
 .phone-input::placeholder { color: rgba(248,244,236,0.5); }
 .phone-input:focus { background: rgba(201,168,76,0.04); border-color: rgba(201,168,76,0.3); }
 .phone-submit { width: 100%; padding: 17px; margin-top: 24px; }
 .phone-submit:disabled { opacity: 0.35; cursor: not-allowed; }
-.sms-opt-in-label { display: flex; align-items: flex-start; gap: 12px; margin-top: 16px; cursor: pointer; padding: 14px 16px; border: 1px solid rgba(201,168,76,0.15); border-radius: 6px; background: rgba(201,168,76,0.03); transition: border-color .25s, background .25s; }
+.sms-opt-in-label { display: flex; align-items: flex-start; gap: 12px; margin-top: 6px; cursor: pointer; padding: 14px 16px; border: 1px solid rgba(201,168,76,0.15); border-radius: 6px; background: rgba(201,168,76,0.03); transition: border-color .25s, background .25s; }
 .sms-opt-in-label:hover { border-color: rgba(201,168,76,0.3); background: rgba(201,168,76,0.06); }
 .sms-opt-in-checkbox { position: absolute; opacity: 0; width: 0; height: 0; }
 .sms-opt-in-box { flex-shrink: 0; width: 18px; height: 18px; border: 1px solid rgba(201,168,76,0.4); border-radius: 3px; background: transparent; display: flex; align-items: center; justify-content: center; transition: border-color .2s, background .2s; margin-top: 1px; }
@@ -374,9 +377,14 @@ footer { padding: 36px 60px; display: flex; align-items: center; justify-content
   <h2 class="access-headline">Get access when<br><em style="font-style:italic;color:var(--gold-light);">the room opens.</em></h2>
   <p class="access-sub">Your name on the list is the difference.</p>
   <form class="phone-form" id="accessForm">
-    <input type="text" id="firstNameInput" required placeholder="First Name" class="phone-input" autocomplete="given-name" />
-    <input type="text" id="lastNameInput" required placeholder="Last Name" class="phone-input" autocomplete="family-name" />
-    <input type="tel" id="phoneInput" required placeholder="Phone Number" class="phone-input" autocomplete="tel" />
+    <label class="sr-only" for="firstNameInput">First name</label>
+    <input type="text" id="firstNameInput" required placeholder="First Name" class="phone-input" autocomplete="given-name" aria-label="First name" />
+    <label class="sr-only" for="lastNameInput">Last name</label>
+    <input type="text" id="lastNameInput" required placeholder="Last Name" class="phone-input" autocomplete="family-name" aria-label="Last name" />
+    <label class="sr-only" for="phoneInput">Phone number</label>
+    <input type="tel" id="phoneInput" required placeholder="Phone Number" class="phone-input" autocomplete="tel" aria-label="Phone number" />
+    <label class="sr-only" for="zipInput">ZIP code</label>
+    <input type="text" id="zipInput" required inputmode="numeric" pattern="[0-9]{5}" maxlength="5" placeholder="ZIP Code" class="phone-input" autocomplete="postal-code" aria-label="ZIP code" />
     <label class="sms-opt-in-label">
       <input type="checkbox" id="smsOptIn" class="sms-opt-in-checkbox" />
       <span class="sms-opt-in-box">
@@ -390,7 +398,7 @@ footer { padding: 36px 60px; display: flex; align-items: center; justify-content
       By checking the box and submitting, you consent to receive recurring automated text messages from RSVP Society (event invitations, access confirmations, and updates) to the phone number provided. Msg &amp; data rates may apply. Message frequency varies. Reply <strong>HELP</strong> for help or <strong>STOP</strong> to opt out at any time. Mobile data will not be shared with third parties for marketing purposes.<br>
       <a href="/terms.html" class="disclaimer-link">SMS Terms &amp; Privacy Policy</a>
     </p>
-    <button type="submit" class="btn-primary phone-submit" id="submitBtn" disabled><span id="submitLabel">Add Me to RSVP Society</span></button>
+    <button type="submit" class="btn-primary phone-submit" id="submitBtn" disabled><span id="submitLabel" aria-live="polite">Add Me to RSVP Society</span></button>
   </form>
 </section>
 
@@ -404,101 +412,6 @@ footer { padding: 36px 60px; display: flex; align-items: center; justify-content
   </ul>
 </footer>
 
-<script>
-// ── Cursor (single instance, no duplicates) ──
-const cursor = document.getElementById('cursor');
-const trail  = document.getElementById('trail');
-let mx = 0, my = 0, tx = 0, ty = 0;
-
-document.addEventListener('mousemove', e => {
-  mx = e.clientX; my = e.clientY;
-  cursor.style.left = mx + 'px';
-  cursor.style.top  = my + 'px';
-});
-
-(function animTrail() {
-  tx += (mx - tx) * 0.1;
-  ty += (my - ty) * 0.1;
-  trail.style.left = tx + 'px';
-  trail.style.top  = ty + 'px';
-  requestAnimationFrame(animTrail);
-})();
-
-document.querySelectorAll('a, button, input').forEach(el => {
-  el.addEventListener('mouseenter', () => {
-    trail.style.width = '52px'; trail.style.height = '52px';
-    trail.style.borderColor = 'rgba(200,184,122,0.6)';
-  });
-  el.addEventListener('mouseleave', () => {
-    trail.style.width = '28px'; trail.style.height = '28px';
-    trail.style.borderColor = 'rgba(201,168,76,0.35)';
-  });
-});
-
-// ── Form ──
-const smsOptInEl = document.getElementById('smsOptIn');
-const submitBtn  = document.getElementById('submitBtn');
-smsOptInEl.addEventListener('change', () => {
-  submitBtn.disabled = !smsOptInEl.checked;
-});
-
-async function handleSubmit(e) {
-  e.preventDefault();
-  const phoneEl = document.getElementById('phoneInput');
-  const firstNameEl = document.getElementById('firstNameInput');
-  const lastNameEl  = document.getElementById('lastNameInput');
-  const label   = document.getElementById('submitLabel');
-  const phone   = (phoneEl?.value || '').trim();
-  const firstName = (firstNameEl?.value || '').trim();
-  const lastName  = (lastNameEl?.value  || '').trim();
-  const name = [firstName, lastName].filter(Boolean).join(' ');
-  if (!phone || !firstName || !lastName || !smsOptInEl.checked) return;
-
-  label.textContent = 'Adding you...';
-
-  try {
-    const res = await fetch('https://api.rsvpsociety.com/access', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        phone,
-        name,
-        firstName,
-        lastName,
-        source: 'web',
-        smsOptIn: true
-      })
-    });
-    const text = await res.text();
-    let data;
-    try { data = JSON.parse(text); } catch { data = { raw: text }; }
-
-    if (!res.ok || data.ok !== true) {
-      label.textContent = 'Something went wrong. Try again.';
-      return;
-    }
-
-    phoneEl.disabled = true;
-    firstNameEl.disabled = true;
-    lastNameEl.disabled  = true;
-    submitBtn.disabled = true;
-    label.textContent = 'Locked in. Next room drops soon.';
-
-  } catch (err) {
-    label.textContent = 'Network error. Try again.';
-  }
-}
-
-document.getElementById('accessForm').addEventListener('submit', handleSubmit);
-
-// ── Smooth scroll ──
-document.querySelectorAll('a[href^="#"]').forEach(a => {
-  if (a.getAttribute('onclick')) return;
-  a.addEventListener('click', e => {
-    const target = document.querySelector(a.getAttribute('href'));
-    if (target) { e.preventDefault(); target.scrollIntoView({ behavior: 'smooth' }); }
-  });
-});
-</script>
+<script defer src="/app.js"></script>
 </body>
 </html>

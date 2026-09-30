@@ -2,26 +2,30 @@ import { apiJson } from './api.js';
 import { ROUTES } from './constants.js';
 import { loadAnalyticsTab, loadEventAnalytics } from './analytics.js';
 import { loadAttendance, markAttendance } from './attendance.js';
-import { loadCurrentEvent, previewJadeMessages, saveEvent, updateVibeTags } from './event.js';
-import { closeImport, confirmImport, handleDrop, handleFileSelect, openImport } from './import.js';
+import { deleteCurrentEvent, draftWithJade, duplicateCurrentEvent, loadCurrentEvent, previewJadeMessages, saveEvent, saveEventAndSetActive, startNewEvent, updateVibeTags } from './event.js';
+import { closeImport, confirmImport, handleDrop, handleFileSelect, openImport, refreshImportPreview } from './import.js';
 import {
-  filterByMarket,
+  clearPreviewSelection,
   loadEventIntoInviteForm,
-  onWaveChange,
   removeFromPreview,
-  renderGapPanel,
   renderPreview,
   runPreview,
+  sendConfirmedUpdate,
+  sendManualReminder,
+  prefillVenueReveal,
   sendInvites,
-  sendReminderBlast,
+  sendManualInviteOverride,
+  togglePreviewSelection,
   updatePreviewCount,
 } from './invite.js';
 import {
   deleteMember,
   filterMembers,
+  refreshMembersWithServerFilters,
   goPage,
   loadMembers,
   loadStats,
+  openMemberDetail,
   setStatus,
   updateGender,
   updateTier,
@@ -41,7 +45,7 @@ async function doLogin() {
 
   try {
     state.adminToken = token;
-    const initialPendingPayload = await apiJson(`${ROUTES.ADMIN_MEMBERS}?status=PENDING`);
+    const initialPendingPayload = await apiJson(`${ROUTES.ADMIN_MEMBERS}?status=PENDING&limit=${state.pageSize || 50}&includeTotal=1`);
 
     state.activeTab = 'members';
     state.currentStatus = 'PENDING';
@@ -99,6 +103,7 @@ async function showSection(section) {
 
 async function goToSection(section) {
   setTab(section);
+  if (window.scrollY > 0) window.scrollTo({ top: 0, behavior: 'auto' });
   await showSection(section);
 }
 
@@ -116,19 +121,27 @@ function bindShellEvents() {
   $('import-close-btn')?.addEventListener('click', closeImport);
   $('import-cancel-btn')?.addEventListener('click', closeImport);
   $('import-confirm-btn')?.addEventListener('click', confirmImport);
-  $('member-search')?.addEventListener('input', (event) => filterMembers(event.target.value));
-  $('inv-wave-number')?.addEventListener('change', onWaveChange);
+  $('import-sms-consent')?.addEventListener('change', refreshImportPreview);
+  $('member-search')?.addEventListener('input', () => refreshMembersWithServerFilters());
   $('preview-run-btn')?.addEventListener('click', runPreview);
   $('send-btn')?.addEventListener('click', sendInvites);
-  $('reminder-blast-btn')?.addEventListener('click', sendReminderBlast);
+  $('manual-invite-send-btn')?.addEventListener('click', sendManualInviteOverride);
+  $('confirmed-update-send-btn')?.addEventListener('click', sendConfirmedUpdate);
+  $('manual-reminder-send-btn')?.addEventListener('click', sendManualReminder);
+  $('reveal-venue-btn')?.addEventListener('click', prefillVenueReveal);
   $('invite-back-btn')?.addEventListener('click', () => goToSection('event'));
   $('ev-type')?.addEventListener('change', updateVibeTags);
-  $('event-save-btn')?.addEventListener('click', saveEvent);
+  $('event-new-btn')?.addEventListener('click', startNewEvent);
+  $('event-duplicate-btn')?.addEventListener('click', duplicateCurrentEvent);
+  $('event-hard-delete-btn')?.addEventListener('click', deleteCurrentEvent);
+  $('event-save-btn')?.addEventListener('click', () => saveEvent({ setActive: false }));
+  $('event-save-active-btn')?.addEventListener('click', saveEventAndSetActive);
   $('event-preview-btn')?.addEventListener('click', previewJadeMessages);
+  $('event-draft-jade-btn')?.addEventListener('click', draftWithJade);
   $('event-next-btn')?.addEventListener('click', () => goToSection('invite'));
-  $('event-lock-btn')?.addEventListener('click', saveEvent);
+  $('event-lock-btn')?.addEventListener('click', () => saveEvent({ setActive: false }));
   $('analytics-event-select')?.addEventListener('change', (event) => loadEventAnalytics(event.target.value));
-  $('analytics-refresh-btn')?.addEventListener('click', loadAnalyticsTab);
+  $('analytics-refresh-btn')?.addEventListener('click', () => loadAnalyticsTab());
   $('import-modal')?.addEventListener('click', (event) => {
     if (event.target === event.currentTarget) closeImport();
   });
@@ -155,9 +168,9 @@ function bindDelegatedEvents() {
       return;
     }
 
-    const marketPill = event.target.closest('.market-pill');
-    if (marketPill && marketPill.dataset.market) {
-      filterByMarket(marketPill.dataset.market);
+    const clearSelected = event.target.closest('.preview-clear-selected-btn');
+    if (clearSelected) {
+      clearPreviewSelection();
       return;
     }
 
@@ -173,7 +186,15 @@ function bindDelegatedEvents() {
         attendanceAction.dataset.phone || '',
         attendanceAction.dataset.attended === 'true',
         attendanceAction.dataset.eventId || '',
+        attendanceAction.dataset.guestType || 'member',
+        attendanceAction.dataset.sponsorPhone || attendanceAction.dataset.phone || '',
       );
+      return;
+    }
+
+    const memberRow = event.target.closest('.member-row[data-phone]');
+    if (memberRow && !event.target.closest('button, a, input, select, textarea, label')) {
+      openMemberDetail(memberRow.dataset.phone || '');
       return;
     }
 
@@ -195,7 +216,29 @@ function bindDelegatedEvents() {
     }
   });
 
+
+  document.addEventListener('dblclick', (event) => {
+    const nameOpen = event.target.closest('.member-name-open');
+    if (!nameOpen) return;
+    openMemberDetail(nameOpen.dataset.phone || '');
+  });
+
+  document.addEventListener('keydown', (event) => {
+    if (event.key !== 'Enter' && event.key !== ' ') return;
+    const nameOpen = event.target.closest('.member-name-open');
+    if (!nameOpen) return;
+    event.preventDefault();
+    openMemberDetail(nameOpen.dataset.phone || '');
+  });
+
   document.addEventListener('change', (event) => {
+    const previewCheckbox = event.target.closest('.preview-select-checkbox');
+    if (previewCheckbox) {
+      togglePreviewSelection(previewCheckbox.dataset.phone || '', previewCheckbox.checked);
+      return;
+    }
+
+
     const genderSelect = event.target.closest('.member-gender-select');
     if (genderSelect) {
       updateGender(genderSelect.dataset.phone || '', genderSelect.value);

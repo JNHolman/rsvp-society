@@ -5,22 +5,24 @@ resource "aws_lambda_function" "reminder_handler" {
   function_name = "rsvp-reminder-handler"
   role          = aws_iam_role.lambda_reminder_handler.arn
   handler       = "reminder_handler.handler"
-  runtime       = "python3.11"
-  timeout       = 300  # rate-limited sends to 300+ confirmed members
-  filename         = data.archive_file.lambda_bundle.output_path
+  runtime       = "python3.13"
+  timeout       = 300 # reminder sends are capped at 15 per invocation for provider timeout margin
+  filename      = local.lambda_bundle_path
 
-  source_code_hash = data.archive_file.lambda_bundle.output_base64sha256
+  source_code_hash = filebase64sha256(local.lambda_bundle_path)
 
   environment {
     variables = {
       EVENTS_TABLE_NAME     = aws_dynamodb_table.events.name
       INVITES_TABLE_NAME    = aws_dynamodb_table.event_invites.name
+      INVITE_JOBS_TABLE_NAME = aws_dynamodb_table.invite_jobs.name
       MEMBERS_TABLE_NAME    = aws_dynamodb_table.members.name
       ALLOWED_ORIGINS       = local.allowed_origins_csv
       ADMIN_TOKEN_SECRET_ID = var.admin_token_secret_id
       AUDIT_LOG_TABLE_NAME  = aws_dynamodb_table.audit_log.name
       SMS_PROVIDER          = "quo"
       QUO_API_KEY_SECRET_ID = var.quo_api_key_secret_id
+      QUO_API_BASE_URL     = var.quo_api_base_url
       QUO_PHONE_NUMBER_ID   = var.quo_phone_number_id
       SMS_ENABLED           = "true"
     }
@@ -55,7 +57,7 @@ resource "aws_lambda_permission" "reminder_api" {
   action        = "lambda:InvokeFunction"
   function_name = aws_lambda_function.reminder_handler.function_name
   principal     = "apigateway.amazonaws.com"
-  source_arn    = "${aws_api_gateway_rest_api.api.execution_arn}/*/*"
+  source_arn    = "${aws_api_gateway_rest_api.api.execution_arn}/*/POST/admin/invite/reminder"
 }
 
 # CORS OPTIONS for reminder endpoint
@@ -66,10 +68,10 @@ resource "aws_api_gateway_method" "admin_invite_reminder_options" {
   authorization = "NONE"
 }
 resource "aws_api_gateway_integration" "admin_invite_reminder_options" {
-  rest_api_id = aws_api_gateway_rest_api.api.id
-  resource_id = aws_api_gateway_resource.admin_invite_reminder.id
-  http_method = aws_api_gateway_method.admin_invite_reminder_options.http_method
-  type        = "MOCK"
+  rest_api_id       = aws_api_gateway_rest_api.api.id
+  resource_id       = aws_api_gateway_resource.admin_invite_reminder.id
+  http_method       = aws_api_gateway_method.admin_invite_reminder_options.http_method
+  type              = "MOCK"
   request_templates = { "application/json" = local.cors_mock_request_template }
 }
 resource "aws_api_gateway_method_response" "admin_invite_reminder_options_200" {
@@ -96,49 +98,31 @@ resource "aws_api_gateway_integration_response" "admin_invite_reminder_options_2
 }
 
 # -----------------------------
-# EventBridge — Hourly reminder check
-# Two separate hourly rules pass timing context to the Lambda.
-# The Lambda now decides whether it is the correct local event date/hour
-# using the saved event_timezone (default America/New_York).
+# EventBridge Scheduler — one-time reminder delivery
+# The admin Lambda creates at most two one-time schedules for the active event
+# (day-before/day-of). Each schedule auto-deletes after it fires.
 # -----------------------------
-resource "aws_cloudwatch_event_rule" "reminder_day_before" {
-  name                = "rsvp-reminder-day-before"
-  description         = "Every 5 min all day — Lambda checks event timezone and fires at correct local time"
-  schedule_expression = "cron(0/5 * * * ? *)"
+resource "aws_iam_role" "reminder_scheduler_invoker" {
+  name = "rsvp-reminder-scheduler-invoker"
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect = "Allow"
+      Principal = { Service = "scheduler.amazonaws.com" }
+      Action = "sts:AssumeRole"
+    }]
+  })
 }
 
-resource "aws_cloudwatch_event_rule" "reminder_day_of" {
-  name                = "rsvp-reminder-day-of"
-  description         = "Every 5 min all day — Lambda checks event timezone and fires at correct local time"
-  schedule_expression = "cron(0/5 * * * ? *)"
-}
-
-resource "aws_cloudwatch_event_target" "reminder_day_before" {
-  rule      = aws_cloudwatch_event_rule.reminder_day_before.name
-  target_id = "ReminderDayBefore"
-  arn       = aws_lambda_function.reminder_handler.arn
-  input     = jsonencode({ source = "eventbridge", timing = "day_before" })
-}
-
-resource "aws_cloudwatch_event_target" "reminder_day_of" {
-  rule      = aws_cloudwatch_event_rule.reminder_day_of.name
-  target_id = "ReminderDayOf"
-  arn       = aws_lambda_function.reminder_handler.arn
-  input     = jsonencode({ source = "eventbridge", timing = "day_of" })
-}
-
-resource "aws_lambda_permission" "reminder_eventbridge_day_before" {
-  statement_id  = "AllowEventBridgeDayBefore"
-  action        = "lambda:InvokeFunction"
-  function_name = aws_lambda_function.reminder_handler.function_name
-  principal     = "events.amazonaws.com"
-  source_arn    = aws_cloudwatch_event_rule.reminder_day_before.arn
-}
-
-resource "aws_lambda_permission" "reminder_eventbridge_day_of" {
-  statement_id  = "AllowEventBridgeDayOf"
-  action        = "lambda:InvokeFunction"
-  function_name = aws_lambda_function.reminder_handler.function_name
-  principal     = "events.amazonaws.com"
-  source_arn    = aws_cloudwatch_event_rule.reminder_day_of.arn
+resource "aws_iam_role_policy" "reminder_scheduler_invoker" {
+  name = "invoke-reminder-lambda"
+  role = aws_iam_role.reminder_scheduler_invoker.id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect   = "Allow"
+      Action   = ["lambda:InvokeFunction"]
+      Resource = aws_lambda_function.reminder_handler.arn
+    }]
+  })
 }

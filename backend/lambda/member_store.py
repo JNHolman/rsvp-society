@@ -1,131 +1,58 @@
+import base64
+import json
 import logging
 import os
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
+from decimal import Decimal
 from typing import Any, Dict, List, Optional
 
-import boto3
 from boto3.dynamodb.conditions import Key as DKey
-from boto3.dynamodb.types import TypeSerializer
 
 logger = logging.getLogger()
 
-# ── Member/Invite State Machine ──────────────────────────────────────────────
-# Formal definition of every status: what causes it, what it blocks,
-# what analytics it feeds, whether Jade can engage the member.
-# This is the single source of truth for state behavior across the system.
 
-INVITE_STATUS_RULES = {
-    "INVITED": {
-        "description":        "Invite SMS was successfully delivered",
-        "entered_by":         "invite_handler after SMS confirmed sent",
-        "counts_as_invited":  True,
-        "blocks_future_wave": True,   # already got an invite — skip
-        "jade_can_engage":    True,
-        "can_receive_logistics": False,  # venue gated by revealVenue
-        "can_check_in":       False,
-        "counts_in_analytics": True,
-    },
-    "CONFIRMED": {
-        "description":        "Member replied YES and confirmed attendance",
-        "entered_by":         "sms_handler on YES/CONFIRM keyword",
-        "counts_as_invited":  True,
-        "blocks_future_wave": True,
-        "jade_can_engage":    True,
-        "can_receive_logistics": True,  # full venue/address unlocked
-        "can_check_in":       True,
-        "counts_in_analytics": True,
-    },
-    "DECLINED": {
-        "description":        "Member replied NO and declined",
-        "entered_by":         "sms_handler on NO/DECLINE keyword",
-        "counts_as_invited":  True,
-        "blocks_future_wave": True,   # respected their decline
-        "jade_can_engage":    False,
-        "can_receive_logistics": False,
-        "can_check_in":       False,
-        "counts_in_analytics": True,
-    },
-    "ATTENDED": {
-        "description":        "Member checked in at the door",
-        "entered_by":         "member_store.record_attendance(attended=True)",
-        "counts_as_invited":  True,
-        "blocks_future_wave": True,
-        "jade_can_engage":    True,
-        "can_receive_logistics": True,
-        "can_check_in":       False,  # already checked in
-        "counts_in_analytics": True,
-        "feeds_invite_score": True,   # +attendedCount, improves tier
-    },
-    "NO_SHOW": {
-        "description":        "Confirmed but did not check in by event end",
-        "entered_by":         "member_store.record_attendance(attended=False)",
-        "counts_as_invited":  True,
-        "blocks_future_wave": True,
-        "jade_can_engage":    False,
-        "can_receive_logistics": False,
-        "can_check_in":       False,
-        "counts_in_analytics": True,
-        "feeds_invite_score": True,   # +noShowCount, degrades tier
-    },
-    "SKIPPED_CONSENT": {
-        "description":        "Member has no SMS opt-in — invite row written but SMS not sent",
-        "entered_by":         "invite_handler when smsOptIn=False",
-        "counts_as_invited":  False,  # never reached — does NOT count
-        "blocks_future_wave": False,  # eligible for retry if they opt in
-        "jade_can_engage":    False,
-        "can_receive_logistics": False,
-        "can_check_in":       False,
-        "counts_in_analytics": False,
-    },
-    "FAILED": {
-        "description":        "SMS send failed after all retries",
-        "entered_by":         "invite_handler after rate-limit retry exhaustion",
-        "counts_as_invited":  False,  # never reached — does NOT count
-        "blocks_future_wave": False,  # eligible for retry in next wave
-        "jade_can_engage":    False,
-        "can_receive_logistics": False,
-        "can_check_in":       False,
-        "counts_in_analytics": False,
-    },
-    "DELETED": {
-        "description":        "Tombstoned — PII wiped, row kept for integrity",
-        "entered_by":         "admin_member_routes on DELETE",
-        "counts_as_invited":  False,
-        "blocks_future_wave": False,
-        "jade_can_engage":    False,
-        "can_receive_logistics": False,
-        "can_check_in":       False,
-        "counts_in_analytics": False,
-    },
-}
 
-MEMBER_STATUS_RULES = {
-    "PENDING": {
-        "description":        "Applied — waiting for host approval",
-        "entered_by":         "access_request on form submission",
-        "can_be_invited":     False,
-        "jade_can_engage":    True,   # Jade handles inquiries
-        "can_receive_event_info": False,
-    },
-    "APPROVED": {
-        "description":        "Approved by host — eligible for invite waves",
-        "entered_by":         "admin action or host Y code",
-        "can_be_invited":     True,
-        "jade_can_engage":    True,
-        "can_receive_event_info": False,  # no logistics until invited/confirmed
-    },
-    "DENIED": {
-        "description":        "Denied by host — not eligible",
-        "entered_by":         "admin action or host N code",
-        "can_be_invited":     False,
-        "jade_can_engage":    False,
-        "can_receive_event_info": False,
-    },
-}
+def _json_default(value):
+    if isinstance(value, Decimal):
+        return int(value) if value % 1 == 0 else float(value)
+    raise TypeError(f"Object of type {type(value).__name__} is not JSON serializable")
 
+
+def _encode_cursor(key: Optional[Dict[str, Any]]) -> str:
+    if not key:
+        return ""
+    raw = json.dumps(key, default=_json_default, separators=(",", ":")).encode("utf-8")
+    return base64.urlsafe_b64encode(raw).decode("ascii")
+
+
+def _decode_cursor(token: str) -> Optional[Dict[str, Any]]:
+    raw = (token or "").strip()
+    if not raw:
+        return None
+    try:
+        padded = raw + "=" * (-len(raw) % 4)
+        return json.loads(base64.urlsafe_b64decode(padded.encode("ascii")).decode("utf-8"))
+    except Exception:
+        raise ValueError("invalid pagination token")
+
+
+def _safe_limit(value: int, *, default: int = 50, maximum: int = 200) -> int:
+    try:
+        parsed = int(value)
+    except Exception:
+        parsed = default
+    return max(1, min(maximum, parsed))
+
+# ── Runtime state constants ─────────────────────────────────────────────────
 # States excluded from analytics invite counts
-ANALYTICS_EXCLUDE_STATUSES = frozenset({"SKIPPED_CONSENT", "FAILED", "DELETED"})
+ANALYTICS_EXCLUDE_STATUSES = frozenset({"FAILED", "DELETED"})
+
+# Event lifecycle states where invite blasts may be sent.
+INVITABLE_EVENT_STATES = frozenset({"LIVE"})
+
+# Event lifecycle states where SMS confirmations and Jade event conversations are allowed.
+CONFIRMABLE_EVENT_STATES = frozenset({"LIVE"})
 
 # States that block a member from future invite waves
 WAVE_BLOCK_STATUSES = frozenset({"INVITED", "CONFIRMED", "DECLINED", "ATTENDED", "NO_SHOW"})
@@ -134,45 +61,110 @@ WAVE_BLOCK_STATUSES = frozenset({"INVITED", "CONFIRMED", "DECLINED", "ATTENDED",
 LOGISTICS_ELIGIBLE_STATUSES = frozenset({"CONFIRMED", "ATTENDED"})
 
 # Family of statuses that represent a completed confirmation (used for analytics + capacity math)
-CONFIRMED_FAMILY_STATUSES = frozenset({"CONFIRMED", "ATTENDED", "NO_SHOW"})
-
-# Statuses eligible for check-in (ATTENDED transition)
-# Strict RSVP Society: only CONFIRMED members can check in.
-# INVITED (not yet confirmed) cannot check in — must confirm first.
-# This matches the INVITE_STATUS_RULES["INVITED"]["can_check_in"] = False rule above.
-CHECKIN_ELIGIBLE_STATUSES = frozenset({"CONFIRMED"})
-
-# Only CONFIRMED can become NO_SHOW
-NO_SHOW_ELIGIBLE_STATUSES = frozenset({"CONFIRMED"})
-
-# Invite statuses that accept a confirmation (YES reply)
-CONFIRMABLE_INVITE_STATUSES = frozenset({"INVITED"})
+from store_common import CONFIRMED_FAMILY_STATUSES as CONFIRMED_FAMILY_STATUSES, _table, _now_iso, normalize_phone
 
 # Invite rows in these statuses should be overwritten on retry
 # (never reached the member — eligible for the next wave)
-RETRYABLE_INVITE_STATUSES = frozenset({"SKIPPED_CONSENT", "FAILED", "DELETED"})
+RETRYABLE_INVITE_STATUSES = frozenset({"FAILED", "DELETED"})
 
 # Statuses that mean a member is actively in the current wave
 # Used by Jade context to determine what info to share
 JADE_IN_WAVE_STATUSES = frozenset({"INVITED", "CONFIRMED", "ATTENDED"})
 
-def _ddb():
-    return boto3.resource("dynamodb")
 
 
-def _table():
-    name = os.getenv("MEMBERS_TABLE_NAME")
-    if not name:
-        raise RuntimeError("MEMBERS_TABLE_NAME env var is not set")
-    return _ddb().Table(name)
 
 
-def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
-def _ttl_90_days() -> int:
-    return int((datetime.now(timezone.utc).timestamp()) + (90 * 24 * 60 * 60))
+
+
+# ── Attendance finalization: grace window + no-show settling ──────────────────
+# A confirmed guest is NOT a no-show just because they have not checked in yet.
+# No-show is only real once attendance is settled, which happens when either:
+#   (a) the admin hits "Close Event" on the check-in page (explicit, immediate), or
+#   (b) the event end time has passed by more than NO_SHOW_GRACE_HOURS (auto fallback).
+# If an event has no end time, the auto fallback never fires — the check-in list is
+# only final once explicitly closed. Both members and plus-ones use this same gate.
+NO_SHOW_GRACE_HOURS = 4
+
+
+def _event_end_dt(event: dict) -> datetime | None:
+    """Return the event's end as a tz-aware UTC datetime, or None if no end time set.
+
+    Combines the event date + endTime in the event's own timezone, then converts to
+    UTC. endTime is optional; with no endTime we cannot compute an auto grace cutoff,
+    so this returns None and the caller treats the event as 'not auto-finalizable'."""
+    date_str = (event.get("date") or "").strip()[:10]
+    end_time = (event.get("endTime") or "").strip()
+    if not date_str or not end_time:
+        return None
+    tz_name = (event.get("event_timezone") or "America/New_York").strip() or "America/New_York"
+    try:
+        from zoneinfo import ZoneInfo
+        tz = ZoneInfo(tz_name)
+    except Exception:
+        tz = timezone.utc
+    for fmt in ("%Y-%m-%d %H:%M", "%Y-%m-%d %H:%M:%S"):
+        try:
+            naive = datetime.strptime(f"{date_str} {end_time}", fmt)
+            start_time = (event.get("startTime") or "").strip()
+            if start_time:
+                from datetime import time as clock_time
+                if naive.time() <= clock_time.fromisoformat(start_time):
+                    naive += timedelta(days=1)
+            return naive.replace(tzinfo=tz).astimezone(timezone.utc)
+        except Exception:
+            continue
+    return None
+
+
+def attendance_is_settled(event: dict, now: datetime | None = None) -> bool:
+    """True when no-shows can be counted for this event.
+
+    Settled if explicitly finalized (Close Event) OR the end time has passed by more
+    than the grace window. Events with no end time are settled ONLY when explicitly
+    finalized."""
+    _fin = event.get("attendanceFinalized")
+    if _fin is True or str(_fin).strip().lower() in ("true", "1", "yes"):
+        return True
+    end_dt = _event_end_dt(event)
+    if end_dt is None:
+        return False
+    now = now or datetime.now(timezone.utc)
+    return now >= end_dt + timedelta(hours=NO_SHOW_GRACE_HOURS)
+
+
+def _pending_retention_days() -> int:
+    try:
+        return max(1, int(os.getenv("PENDING_RETENTION_DAYS", "90")))
+    except Exception:
+        return 90
+
+
+def _pending_expiry_iso(now: str | None = None) -> str:
+    base = datetime.fromisoformat((now or _now_iso()).replace("Z", "+00:00"))
+    return (base + timedelta(days=_pending_retention_days())).isoformat(timespec="seconds")
+
+
+def _pending_is_expired(item: Dict[str, Any]) -> bool:
+    if (item.get("status") or "").upper() != "PENDING":
+        return False
+    expiry = (item.get("pendingExpiresAt") or "").strip()
+    if not expiry:
+        submitted = (item.get("submittedAt") or item.get("createdAt") or "").strip()
+        if not submitted:
+            return False
+        try:
+            submitted_dt = datetime.fromisoformat(submitted.replace("Z", "+00:00"))
+            return datetime.now(timezone.utc) > submitted_dt + timedelta(days=_pending_retention_days())
+        except Exception:
+            return False
+    try:
+        expiry_dt = datetime.fromisoformat(expiry.replace("Z", "+00:00"))
+        return datetime.now(timezone.utc) > expiry_dt
+    except Exception:
+        return False
 
 
 def split_legacy_name(name: Optional[str], last_name: Optional[str] = None) -> tuple[str, str]:
@@ -197,23 +189,6 @@ def normalize_member_record(item: Optional[Dict[str, Any]]) -> Optional[Dict[str
     return normalized
 
 
-def normalize_phone(raw: str) -> str:
-    if not raw:
-        raise ValueError("phone is required")
-    s = raw.strip()
-    if s.startswith("+"):
-        digits = re.sub(r"\D", "", s)
-        if not (10 <= len(digits) <= 15):
-            raise ValueError("phone must be valid E.164 length (10–15 digits)")
-        return f"+{digits}"
-    digits = re.sub(r"\D", "", s)
-    if len(digits) == 10:
-        return f"+1{digits}"
-    if len(digits) == 11 and digits.startswith("1"):
-        return f"+{digits}"
-    if 10 <= len(digits) <= 15:
-        return f"+{digits}"
-    raise ValueError("phone must be valid E.164")
 
 
 def upsert_member(
@@ -225,9 +200,26 @@ def upsert_member(
     source: str = "web",
     sms_opt_in: bool = False,
     tags: Optional[str] = None,
+    zip_code: Optional[str] = None,
+    city: Optional[str] = None,
+    state: Optional[str] = None,
+    latitude: Optional[float] = None,
+    longitude: Optional[float] = None,
 ) -> Dict[str, Any]:
     t = _table()
     now = _now_iso()
+
+    # Public re-apply rule:
+    # - Brand-new members become PENDING.
+    # - APPROVED members keep their status unless opted out; an opted-out
+    #   reapplication returns to PENDING and requires fresh host approval.
+    # - DENIED/DELETED members may submit a genuinely new request and return to
+    #   PENDING so the host can make a fresh decision.
+    phone = normalize_phone(phone)
+    existing = t.get_item(Key={"phone": phone}, ConsistentRead=True).get("Item") or {}
+    existing_status = (existing.get("status") or "").upper().strip()
+    opted_out = str(existing.get("optOut", False)).lower() == "true"
+    should_reset_pending = existing_status in ("", "DENIED", "DELETED") or opted_out
 
     expr_names = {
         "#n": "name",
@@ -235,51 +227,105 @@ def upsert_member(
         "#src": "source",
     }
 
+    protect_identity = existing_status == "APPROVED" and not opted_out
+
     expr_vals: Dict[str, Any] = {
-        ":n":       name[:120],
-        ":src":     (source or "web")[:40],
         ":ls":      now,
         ":ca":      now,
         ":pending": "PENDING",
-        ":soi":     sms_opt_in,
+        ":soi":     False if opted_out else (existing.get("smsOptIn", sms_opt_in) if protect_identity else sms_opt_in),
+        ":pex":     _pending_expiry_iso(now),
     }
 
     set_parts = [
-        "#n = :n",
-        "#src = :src",
         "lastSeenAt = :ls",
         "submittedAt = :ls",
         "createdAt = if_not_exists(createdAt, :ca)",
-        # Only set PENDING for NEW members. Existing members keep their
-        # current status so an APPROVED member can't be downgraded by a
-        # re-submission. access_request.py already gates host notification
-        # on status == PENDING so only genuinely new members trigger it.
-        "#s = if_not_exists(#s, :pending)",
         "smsOptIn = :soi",
     ]
+    # Public signup is unauthenticated. Once a member is approved, a person who
+    # merely knows that phone number must not be able to rewrite the member's
+    # identity/profile fields. STOP reapplications enter a new host review below.
+    if not protect_identity:
+        expr_vals[":n"] = name[:120]
+        expr_vals[":src"] = (source or "web")[:40]
+        set_parts[0:0] = ["#n = :n", "#src = :src"]
 
-    # Record WHEN sms consent was given — TCPA compliance.
-    # Only stamp on the first opt-in; never overwrite an existing timestamp.
-    if sms_opt_in:
+    remove_parts = []
+    if should_reset_pending:
+        set_parts.extend([
+            "#s = :pending",
+            "pendingExpiresAt = :pex",
+        ])
+        # A deleted member reapplying is a fresh approval cycle. Clear tombstone
+        # and welcome markers so host approval can send the member welcome once.
+        remove_parts.extend(["deletedAt", "welcomeSentAt", "welcomeSendingAt", "lastWelcomeError"])
+    else:
+        set_parts.extend([
+            "#s = if_not_exists(#s, :pending)",
+            "pendingExpiresAt = if_not_exists(pendingExpiresAt, :pex)",
+        ])
+
+    # A reapplication records fresh requested consent but cannot clear STOP.
+    # Host approval promotes this request atomically; a later STOP removes it.
+    if sms_opt_in and opted_out:
+        expr_vals[":requested"] = now
+        set_parts.append("pendingSmsConsentAt = :requested")
+    elif sms_opt_in and not protect_identity:
         expr_vals[":oiat"] = now
         set_parts.append("smsOptInAt = if_not_exists(smsOptInAt, :oiat)")
 
-    if last_name:
+    if last_name and not protect_identity:
         expr_vals[":ln"] = last_name[:120]
         set_parts.append("lastName = :ln")
 
-    if email:
+    if email and not protect_identity:
         expr_vals[":e"] = email[:200]
         set_parts.append("email = :e")
 
-    if tags:
+    if tags and not protect_identity:
         expr_vals[":tg"] = tags[:200]
         set_parts.append("tags = :tg")
 
-    update_expr = "SET " + ", ".join(set_parts)
+    # Location is profile data supplied by the public form. Protect it for an
+    # already-approved member just like name/email so knowing a phone number is
+    # not enough to move somebody into another invite geography.
+    if zip_code and city and state and latitude is not None and longitude is not None and not protect_identity:
+        expr_vals[":zip"] = zip_code[:10]
+        expr_vals[":city"] = city[:120]
+        expr_vals[":state"] = state[:40]
+        expr_vals[":lat"] = Decimal(str(latitude))
+        expr_vals[":lon"] = Decimal(str(longitude))
+        expr_vals[":locsrc"] = "zip"
+        set_parts.extend([
+            "zipCode = :zip",
+            "city = :city",
+            "#state = :state",
+            "latitude = :lat",
+            "longitude = :lon",
+            "locationSource = :locsrc",
+        ])
+        expr_names["#state"] = "state"
 
+    update_expr = "SET " + ", ".join(set_parts)
+    if remove_parts:
+        update_expr += " REMOVE " + ", ".join(remove_parts)
+
+    # Reject a stale signup if approval, STOP, deletion or consent changed.
+    guards = []
+    for i, field in enumerate(("status", "optOut", "optOutAt", "smsOptIn", "submittedAt", "consentRevision")):
+        key, value = f"#snapshot{i}", f":snapshot{i}"
+        expr_names[key] = field
+        if field in existing:
+            guards.append(f"{key} = {value}")
+            expr_vals[value] = existing[field]
+        else:
+            guards.append(f"attribute_not_exists({key})")
+    expression_text = update_expr + " " + " AND ".join(guards)
+    expr_names = {k: v for k, v in expr_names.items() if k in re.findall(r"#[A-Za-z0-9_]+", expression_text)}
     t.update_item(
         Key={"phone": phone},
+        ConditionExpression=" AND ".join(guards),
         UpdateExpression=update_expr,
         ExpressionAttributeNames=expr_names,
         ExpressionAttributeValues=expr_vals,
@@ -289,16 +335,36 @@ def upsert_member(
     return resp.get("Item", {"phone": phone})
 
 
-def set_status(phone: str, status: str) -> None:
+def set_status(phone: str, status: str, *, expected_status: str | None = None) -> None:
     st = (status or "").upper().strip()
     if st not in ("PENDING", "APPROVED", "DENIED"):
         raise ValueError("status must be PENDING, APPROVED, or DENIED")
     phone_e164 = normalize_phone(phone)
+    now = _now_iso()
+    values = {":s": st, ":ls": now, ":deleted": "DELETED"}
+    condition = "attribute_exists(phone) AND (attribute_not_exists(#s) OR #s <> :deleted)"
+    if expected_status is not None:
+        condition += " AND #s = :expected"
+        values[":expected"] = expected_status
+    if st == "PENDING":
+        expression = "SET #s = :s, lastSeenAt = :ls, pendingExpiresAt = :pex"
+        values[":pex"] = _pending_expiry_iso(now)
+    else:
+        expression = "SET #s = :s, lastSeenAt = :ls REMOVE pendingExpiresAt"
+    if st == "APPROVED":
+        current = _table().get_item(Key={"phone": phone_e164}, ConsistentRead=True).get("Item") or {}
+        if current.get("status") == "PENDING" and current.get("pendingSmsConsentAt"):
+            values.update({":pendingReview": "PENDING", ":request": current["pendingSmsConsentAt"], ":yes": True, ":consentSource": "web_reapplication_host_approved"})
+            condition += " AND #s = :pendingReview AND pendingSmsConsentAt = :request"
+            expression = ("SET #s = :s, lastSeenAt = :ls, smsOptIn = :yes, smsOptInAt = :request, "
+                          "smsOptInConfirmedAt = :ls, smsOptInConfirmationSource = :consentSource "
+                          "REMOVE pendingExpiresAt, optOut, optOutAt, pendingSmsConsentAt")
+    elif st == "DENIED":
+        expression += ", pendingSmsConsentAt"
     _table().update_item(
-        Key={"phone": phone_e164},
-        UpdateExpression="SET #s = :s, lastSeenAt = :ls",
+        Key={"phone": phone_e164}, UpdateExpression=expression,
         ExpressionAttributeNames={"#s": "status"},
-        ExpressionAttributeValues={":s": st, ":ls": _now_iso()},
+        ExpressionAttributeValues=values, ConditionExpression=condition,
     )
 
 
@@ -326,12 +392,128 @@ def list_members_by_status(status: str = "PENDING", limit: int = 200) -> List[Di
         kwargs["ExclusiveStartKey"] = last
 
     items = [normalize_member_record(item) for item in items]
+    items = [item for item in items if not _pending_is_expired(item)]
     items.sort(key=lambda x: (
         (x.get("lastName") or x.get("name") or "").lower(),
         (x.get("name") or "").lower(),
     ))
     return items
 
+
+
+
+
+
+def count_members_by_status(status: str = "PENDING") -> int:
+    """Return the admin-visible count for one member status.
+
+    PENDING counts only requests that are still reviewable; logically expired
+    rows are excluded using the same rule as the pending member list.
+    """
+    st = (status or "PENDING").upper().strip()
+    if st not in {"PENDING", "APPROVED", "DENIED"}:
+        st = "PENDING"
+
+    total = 0
+    kwargs: Dict[str, Any] = {
+        "IndexName": "status-index",
+        "KeyConditionExpression": DKey("status").eq(st),
+    }
+    if st != "PENDING":
+        kwargs["Select"] = "COUNT"
+
+    while True:
+        page = _table().query(**kwargs)
+        if st == "PENDING":
+            total += sum(1 for item in page.get("Items", []) if not _pending_is_expired(item))
+        else:
+            total += int(page.get("Count") or 0)
+        last = page.get("LastEvaluatedKey")
+        if not last:
+            break
+        kwargs["ExclusiveStartKey"] = last
+    return total
+
+
+def list_members_by_status_page(status: str = "PENDING", *, limit: int = 50, next_token: str = "") -> Dict[str, Any]:
+    """Return one DynamoDB page for a member status.
+
+    This is the backend-supported pagination path for the admin UI. The older
+    list_members_by_status() intentionally remains for small internal jobs and
+    tests that need the full list.
+    """
+    st = (status or "PENDING").upper().strip()
+    if st not in {"PENDING", "APPROVED", "DENIED"}:
+        st = "PENDING"
+
+    kwargs: Dict[str, Any] = {
+        "IndexName": "status-index",
+        "KeyConditionExpression": DKey("status").eq(st),
+        "Limit": _safe_limit(limit),
+    }
+    cursor = _decode_cursor(next_token)
+    if cursor:
+        kwargs["ExclusiveStartKey"] = cursor
+
+    response = _table().query(**kwargs)
+    items = [normalize_member_record(item) for item in response.get("Items", [])]
+    items = [item for item in items if not _pending_is_expired(item)]
+    items.sort(key=lambda x: (
+        (x.get("lastName") or x.get("name") or "").lower(),
+        (x.get("name") or "").lower(),
+    ))
+    next_page_token = _encode_cursor(response.get("LastEvaluatedKey"))
+    return {
+        "members": items,
+        "nextPageToken": next_page_token,
+        "hasMore": bool(next_page_token),
+        "pageSize": kwargs["Limit"],
+    }
+
+
+def search_members_page(query: str, *, limit: int = 50, next_token: str = "") -> Dict[str, Any]:
+    """Search one scan page and return a cursor so results do not silently cap at 50."""
+    q = (query or "").strip().lower()
+    if not q:
+        return {"members": [], "nextPageToken": "", "hasMore": False, "pageSize": _safe_limit(limit)}
+
+    limit_safe = _safe_limit(limit)
+    kwargs: Dict[str, Any] = {}
+    cursor = _decode_cursor(next_token)
+    if cursor:
+        kwargs["ExclusiveStartKey"] = cursor
+
+    items: List[Dict[str, Any]] = []
+    last_key = None
+
+    while len(items) < limit_safe:
+        response = _table().scan(**kwargs)
+        for raw_item in response.get("Items", []):
+            item = normalize_member_record(raw_item) or {}
+            first = (item.get("name") or "").lower()
+            last = (item.get("lastName") or "").lower()
+            phone = (item.get("phone") or "").lower()
+            full = f"{first} {last}".strip()
+            if q in first or q in last or q in full or q in phone:
+                items.append(item)
+
+        last_key = response.get("LastEvaluatedKey")
+        if not last_key or len(items) >= limit_safe:
+            break
+        kwargs["ExclusiveStartKey"] = last_key
+
+    items = [item for item in items if not _pending_is_expired(item)]
+    items.sort(key=lambda x: (
+        (x.get("lastName") or x.get("name") or "").lower(),
+        (x.get("name") or "").lower(),
+    ))
+    next_page_token = _encode_cursor(last_key)
+    return {
+        "members": items,
+        "nextPageToken": next_page_token,
+        "hasMore": bool(next_page_token),
+        "pageSize": limit_safe,
+    }
 
 def search_members(query: str, limit: int = 50) -> List[Dict[str, Any]]:
     """
@@ -356,7 +538,8 @@ def search_members(query: str, limit: int = 50) -> List[Dict[str, Any]]:
             phone = (item.get("phone") or "").lower()
             full  = f"{first} {last}".strip()
             if q in first or q in last or q in full or q in phone:
-                items.append(item)
+                if not _pending_is_expired(item):
+                    items.append(item)
                 if len(items) >= limit:
                     return items
         last_key = resp.get("LastEvaluatedKey")
@@ -379,8 +562,11 @@ def set_gender(phone: str, gender: str) -> None:
     _table().update_item(
         Key={"phone": phone_e164},
         UpdateExpression="SET gender = :g, lastSeenAt = :ls",
-        ExpressionAttributeValues={":g": g, ":ls": _now_iso()},
-    )
+        ExpressionAttributeValues={':g': g, ':ls': _now_iso(), ':guardDeleted': 'DELETED'},
+
+            ExpressionAttributeNames={'#guardStatus': 'status'},
+            ConditionExpression='attribute_exists(phone) AND (attribute_not_exists(#guardStatus) OR #guardStatus <> :guardDeleted)',
+        )
 
 
 def set_tier_override(phone: str, tier: int) -> None:
@@ -392,305 +578,27 @@ def set_tier_override(phone: str, tier: int) -> None:
         t.update_item(
             Key={"phone": phone_e164},
             UpdateExpression="REMOVE tierOverride SET lastSeenAt = :ls",
-            ExpressionAttributeValues={":ls": _now_iso()},
+            ExpressionAttributeValues={':ls': _now_iso(), ':guardDeleted': 'DELETED'},
+
+            ExpressionAttributeNames={'#guardStatus': 'status'},
+            ConditionExpression='attribute_exists(phone) AND (attribute_not_exists(#guardStatus) OR #guardStatus <> :guardDeleted)',
         )
     else:
         t.update_item(
             Key={"phone": phone_e164},
             UpdateExpression="SET tierOverride = :t, lastSeenAt = :ls",
-            ExpressionAttributeValues={":t": tier, ":ls": _now_iso()},
+            ExpressionAttributeValues={':t': tier, ':ls': _now_iso(), ':guardDeleted': 'DELETED'},
+
+            ExpressionAttributeNames={'#guardStatus': 'status'},
+            ConditionExpression='attribute_exists(phone) AND (attribute_not_exists(#guardStatus) OR #guardStatus <> :guardDeleted)',
         )
 
 
-def _checkins_table():
-    name = os.getenv("CHECKINS_TABLE_NAME")
-    if not name:
-        raise RuntimeError(
-            "CHECKINS_TABLE_NAME env var is not set. "
-            "Deploy checkins.tf and add it to the Lambda environment."
-        )
-    return boto3.resource("dynamodb").Table(name)
-
-
-def _invites_table():
-    name = os.getenv("INVITES_TABLE_NAME", "rsvp-event-invites")
-    return boto3.resource("dynamodb").Table(name)
-
-
-# Structured attendance result codes
-ATTENDANCE_OK               = "OK"
-ATTENDANCE_ALREADY          = "ALREADY_CHECKED_IN"
-ATTENDANCE_NOT_CONFIRMED    = "NOT_CONFIRMED"
-ATTENDANCE_INVITE_NOT_FOUND = "INVITE_NOT_FOUND"
-ATTENDANCE_INVALID_STATUS   = "INVALID_STATUS"
-ATTENDANCE_DDB_ERROR        = "DDB_ERROR"
-
-
-def _ddb_av(value):
-    """Serialize a Python value to a DynamoDB AttributeValue for transactions."""
-    return TypeSerializer().serialize(value)
-
-
-def _ddb_key(**kwargs) -> Dict[str, Any]:
-    return {k: _ddb_av(v) for k, v in kwargs.items()}
-
-
-def _attendance_failure_reason(phone_e164: str, event_id: str, *, attended: bool) -> dict:
-    """
-    Diagnose a failed transactional attendance/no-show write.
-    This keeps the admin response useful without trusting partial writes.
-    """
-    try:
-        existing = _checkins_table().get_item(
-            Key={"eventId": event_id, "phone": phone_e164}
-        ).get("Item")
-        if existing:
-            return {"ok": False, "result": ATTENDANCE_ALREADY, "reason": "Already checked in"}
-    except Exception:
-        logger.exception("record_attendance: checkin diagnostic failed phone=...%s", phone_e164[-4:])
-
-    try:
-        invite = _invites_table().get_item(
-            Key={"eventId": event_id, "phone": phone_e164}
-        ).get("Item")
-    except Exception:
-        logger.exception("record_attendance: invite diagnostic failed phone=...%s", phone_e164[-4:])
-        return {"ok": False, "result": ATTENDANCE_DDB_ERROR, "reason": "Database error while checking invite status"}
-
-    if not invite:
-        return {"ok": False, "result": ATTENDANCE_INVITE_NOT_FOUND, "reason": "Invite not found"}
-
-    status = (invite.get("status") or "").upper()
-    if attended and status == "ATTENDED":
-        return {"ok": False, "result": ATTENDANCE_ALREADY, "reason": "Already checked in"}
-    if not attended and status == "NO_SHOW":
-        return {"ok": False, "result": ATTENDANCE_INVALID_STATUS, "reason": "Already marked no-show"}
-
-    return {
-        "ok": False,
-        "result": ATTENDANCE_NOT_CONFIRMED,
-        "reason": f"Invite status is {status or 'missing'}; CONFIRMED required",
-    }
-
-
-
-def _test_disable_transactions() -> bool:
-    """Unit-test escape hatch: moto's TransactWriteItems condition parser is incomplete."""
-    return (os.getenv("RSVP_TEST_DISABLE_DDB_TRANSACTIONS", "false") or "").lower() == "true"
-
-
-def _record_attendance_non_transactional_for_tests(phone_e164: str, attended: bool, event_id: str, now: str) -> dict:
-    """
-    Strict non-transactional fallback used only in moto tests.
-    Production path still uses DynamoDB TransactWriteItems.
-    """
-    from botocore.exceptions import ClientError
-
-    if attended:
-        try:
-            existing = _checkins_table().get_item(Key={"eventId": event_id, "phone": phone_e164}).get("Item")
-            if existing:
-                return {"ok": False, "result": ATTENDANCE_ALREADY, "reason": "Already checked in"}
-
-            _invites_table().update_item(
-                Key={"eventId": event_id, "phone": phone_e164},
-                UpdateExpression="SET attendedAt = :now, #s = :attended",
-                ConditionExpression="attribute_exists(phone) AND #s = :confirmed",
-                ExpressionAttributeNames={"#s": "status"},
-                ExpressionAttributeValues={":now": now, ":attended": "ATTENDED", ":confirmed": "CONFIRMED"},
-            )
-            _checkins_table().put_item(
-                Item={"eventId": event_id, "phone": phone_e164, "checkedInAt": now, "ttl": _ttl_90_days()},
-                ConditionExpression="attribute_not_exists(phone)",
-            )
-            _table().update_item(
-                Key={"phone": phone_e164},
-                UpdateExpression="SET attendedCount = if_not_exists(attendedCount, :zero) + :one, lastSeenAt = :ls",
-                ConditionExpression="attribute_exists(phone)",
-                ExpressionAttributeValues={":zero": 0, ":one": 1, ":ls": now},
-            )
-            return {"ok": True, "result": ATTENDANCE_OK, "reason": ""}
-        except ClientError as ce:
-            code = ce.response.get("Error", {}).get("Code")
-            if code in {"ConditionalCheckFailedException", "TransactionCanceledException"}:
-                return _attendance_failure_reason(phone_e164, event_id, attended=True)
-            logger.exception("record_attendance test fallback failed phone=...%s", phone_e164[-4:])
-            return {"ok": False, "result": ATTENDANCE_DDB_ERROR, "reason": "Database error during check-in"}
-
-    try:
-        existing = _checkins_table().get_item(Key={"eventId": event_id, "phone": phone_e164}).get("Item")
-        if existing:
-            return {"ok": False, "result": ATTENDANCE_ALREADY, "reason": "Already checked in — cannot mark no-show"}
-
-        _invites_table().update_item(
-            Key={"eventId": event_id, "phone": phone_e164},
-            UpdateExpression="SET noShowAt = :now, #s = :noshow",
-            ConditionExpression="attribute_exists(phone) AND #s = :confirmed",
-            ExpressionAttributeNames={"#s": "status"},
-            ExpressionAttributeValues={":now": now, ":noshow": "NO_SHOW", ":confirmed": "CONFIRMED"},
-        )
-        _table().update_item(
-            Key={"phone": phone_e164},
-            UpdateExpression="SET noShowCount = if_not_exists(noShowCount, :zero) + :one",
-            ConditionExpression="attribute_exists(phone)",
-            ExpressionAttributeValues={":zero": 0, ":one": 1},
-        )
-        return {"ok": True, "result": ATTENDANCE_OK, "reason": ""}
-    except ClientError as ce:
-        code = ce.response.get("Error", {}).get("Code")
-        if code in {"ConditionalCheckFailedException", "TransactionCanceledException"}:
-            return _attendance_failure_reason(phone_e164, event_id, attended=False)
-        logger.exception("record_attendance test fallback no-show failed phone=...%s", phone_e164[-4:])
-        return {"ok": False, "result": ATTENDANCE_DDB_ERROR, "reason": "Database error during no-show"}
-
-
-def record_attendance(phone: str, attended: bool, event_id: str = "current") -> dict:
-    """
-    Record attendance/no-show for a member at a specific event.
-    Returns {"ok": bool, "result": ATTENDANCE_* constant, "reason": str}.
-
-    10/10 state-integrity rule:
-      - Check-in is transactional: invite status, check-in row, and member counter
-        succeed together or fail together.
-      - No-show is transactional: invite status and noShowCount succeed together
-        or fail together.
-      - Only CONFIRMED can become ATTENDED or NO_SHOW.
-    """
-    from botocore.exceptions import ClientError
-
-    phone_e164 = normalize_phone(phone)
-    now = _now_iso()
-
-    if _test_disable_transactions():
-        return _record_attendance_non_transactional_for_tests(phone_e164, attended, event_id, now)
-
-    client = _ddb().meta.client
-
-    members_table = _table().name
-    invites_table = _invites_table().name
-    checkins_table = _checkins_table().name
-
-    if attended:
-        # Fast path for clearer door/admin UX; the transaction below also protects races.
-        try:
-            existing = _checkins_table().get_item(
-                Key={"eventId": event_id, "phone": phone_e164}
-            ).get("Item")
-            if existing:
-                return {"ok": False, "result": ATTENDANCE_ALREADY, "reason": "Already checked in"}
-        except Exception:
-            logger.exception("record_attendance: checkin lookup failed phone=...%s", phone_e164[-4:])
-
-        try:
-            client.transact_write_items(
-                TransactItems=[
-                    {
-                        "Update": {
-                            "TableName": invites_table,
-                            "Key": _ddb_key(eventId=event_id, phone=phone_e164),
-                            "UpdateExpression": "SET attendedAt = :now, #s = :attended",
-                            "ConditionExpression": "attribute_exists(phone) AND #s = :confirmed",
-                            "ExpressionAttributeNames": {"#s": "status"},
-                            "ExpressionAttributeValues": {
-                                ":now": _ddb_av(now),
-                                ":attended": _ddb_av("ATTENDED"),
-                                ":confirmed": _ddb_av("CONFIRMED"),
-                            },
-                        }
-                    },
-                    {
-                        "Put": {
-                            "TableName": checkins_table,
-                            "Item": {
-                                "eventId": _ddb_av(event_id),
-                                "phone": _ddb_av(phone_e164),
-                                "checkedInAt": _ddb_av(now),
-                                "ttl": _ddb_av(_ttl_90_days()),
-                            },
-                            "ConditionExpression": "attribute_not_exists(phone)",
-                        }
-                    },
-                    {
-                        "Update": {
-                            "TableName": members_table,
-                            "Key": _ddb_key(phone=phone_e164),
-                            "UpdateExpression": (
-                                "SET attendedCount = if_not_exists(attendedCount, :zero) + :one, "
-                                "lastSeenAt = :ls"
-                            ),
-                            "ConditionExpression": "attribute_exists(phone)",
-                            "ExpressionAttributeValues": {
-                                ":zero": _ddb_av(0),
-                                ":one": _ddb_av(1),
-                                ":ls": _ddb_av(now),
-                            },
-                        }
-                    },
-                ]
-            )
-            return {"ok": True, "result": ATTENDANCE_OK, "reason": ""}
-        except ClientError as ce:
-            code = ce.response.get("Error", {}).get("Code")
-            if code in {"TransactionCanceledException", "ConditionalCheckFailedException"}:
-                return _attendance_failure_reason(phone_e164, event_id, attended=True)
-            logger.exception("record_attendance: transactional check-in failed phone=...%s", phone_e164[-4:])
-            return {"ok": False, "result": ATTENDANCE_DDB_ERROR, "reason": "Database error during check-in"}
-        except Exception:
-            logger.exception("record_attendance: transactional check-in failed phone=...%s", phone_e164[-4:])
-            return {"ok": False, "result": ATTENDANCE_DDB_ERROR, "reason": "Unexpected error during check-in"}
-
-    # No-show path
-    try:
-        existing = _checkins_table().get_item(
-            Key={"eventId": event_id, "phone": phone_e164}
-        ).get("Item")
-        if existing:
-            return {"ok": False, "result": ATTENDANCE_ALREADY, "reason": "Already checked in — cannot mark no-show"}
-    except Exception:
-        logger.exception("record_attendance: checkin lookup failed phone=...%s", phone_e164[-4:])
-
-    try:
-        client.transact_write_items(
-            TransactItems=[
-                {
-                    "Update": {
-                        "TableName": invites_table,
-                        "Key": _ddb_key(eventId=event_id, phone=phone_e164),
-                        "UpdateExpression": "SET noShowAt = :now, #s = :noshow",
-                        "ConditionExpression": "attribute_exists(phone) AND #s = :confirmed",
-                        "ExpressionAttributeNames": {"#s": "status"},
-                        "ExpressionAttributeValues": {
-                            ":now": _ddb_av(now),
-                            ":noshow": _ddb_av("NO_SHOW"),
-                            ":confirmed": _ddb_av("CONFIRMED"),
-                        },
-                    }
-                },
-                {
-                    "Update": {
-                        "TableName": members_table,
-                        "Key": _ddb_key(phone=phone_e164),
-                        "UpdateExpression": "SET noShowCount = if_not_exists(noShowCount, :zero) + :one",
-                        "ConditionExpression": "attribute_exists(phone)",
-                        "ExpressionAttributeValues": {
-                            ":zero": _ddb_av(0),
-                            ":one": _ddb_av(1),
-                        },
-                    }
-                },
-            ]
-        )
-        return {"ok": True, "result": ATTENDANCE_OK, "reason": ""}
-    except ClientError as ce:
-        code = ce.response.get("Error", {}).get("Code")
-        if code in {"TransactionCanceledException", "ConditionalCheckFailedException"}:
-            return _attendance_failure_reason(phone_e164, event_id, attended=False)
-        logger.exception("record_attendance: transactional no-show failed phone=...%s", phone_e164[-4:])
-        return {"ok": False, "result": ATTENDANCE_DDB_ERROR, "reason": "Database error during no-show"}
-    except Exception:
-        logger.exception("record_attendance: transactional no-show failed phone=...%s", phone_e164[-4:])
-        return {"ok": False, "result": ATTENDANCE_DDB_ERROR, "reason": "Unexpected error during no-show"}
-
+from attendance_store import (
+    ATTENDANCE_OK as ATTENDANCE_OK, ATTENDANCE_ALREADY as ATTENDANCE_ALREADY, ATTENDANCE_NOT_CONFIRMED as ATTENDANCE_NOT_CONFIRMED,
+    ATTENDANCE_INVITE_NOT_FOUND as ATTENDANCE_INVITE_NOT_FOUND, ATTENDANCE_INVALID_STATUS as ATTENDANCE_INVALID_STATUS, ATTENDANCE_DDB_ERROR as ATTENDANCE_DDB_ERROR,
+    record_attendance as record_attendance, finalize_event_attendance as finalize_event_attendance,
+)
 
 def claim_welcome_send(phone: str) -> bool:
     """
@@ -714,8 +622,10 @@ def claim_welcome_send(phone: str) -> bool:
         t.update_item(
             Key={"phone": phone_e164},
             UpdateExpression="SET welcomeSendingAt = :now",
-            ExpressionAttributeValues={":now": now},
-            ConditionExpression="attribute_not_exists(welcomeSentAt) AND attribute_not_exists(welcomeSendingAt)",
+            ExpressionAttributeValues={':now': now, ':guardDeleted': 'DELETED'},
+            ConditionExpression='attribute_exists(phone) AND (attribute_not_exists(#guardStatus) OR #guardStatus <> :guardDeleted) AND (attribute_not_exists(welcomeSentAt) AND attribute_not_exists(welcomeSendingAt))',
+
+            ExpressionAttributeNames={'#guardStatus': 'status'},
         )
         return True
     except ClientError as e:
@@ -729,10 +639,12 @@ def claim_welcome_send(phone: str) -> bool:
         t.update_item(
             Key={"phone": phone_e164},
             UpdateExpression="SET welcomeSendingAt = :now",
-            ExpressionAttributeValues={":now": now, ":expiry": expiry},
+            ExpressionAttributeValues={':now': now, ':expiry': expiry, ':guardDeleted': 'DELETED'},
             ConditionExpression=(
-                "attribute_not_exists(welcomeSentAt) AND welcomeSendingAt <= :expiry"
+                'attribute_exists(phone) AND (attribute_not_exists(#guardStatus) OR #guardStatus <> :guardDeleted) AND (attribute_not_exists(welcomeSentAt) AND welcomeSendingAt <= :expiry)'
             ),
+
+            ExpressionAttributeNames={'#guardStatus': 'status'},
         )
         logger.warning(
             "claim_welcome_send: overwrote stale claim phone=...%s", phone_e164[-4:]
@@ -749,7 +661,11 @@ def clear_welcome_send_claim(phone: str) -> None:
     _table().update_item(
         Key={"phone": phone_e164},
         UpdateExpression="REMOVE welcomeSendingAt",
-    )
+
+            ExpressionAttributeNames={'#guardStatus': 'status'},
+            ExpressionAttributeValues={':guardDeleted': 'DELETED'},
+            ConditionExpression='attribute_exists(phone) AND (attribute_not_exists(#guardStatus) OR #guardStatus <> :guardDeleted)',
+        )
 
 
 def set_sms_opt_in(phone: str, value: bool) -> None:
@@ -758,8 +674,11 @@ def set_sms_opt_in(phone: str, value: bool) -> None:
     _table().update_item(
         Key={"phone": phone_e164},
         UpdateExpression="SET smsOptIn = :v",
-        ExpressionAttributeValues={":v": value},
-    )
+        ExpressionAttributeValues={':v': value, ':guardDeleted': 'DELETED'},
+
+            ExpressionAttributeNames={'#guardStatus': 'status'},
+            ConditionExpression='attribute_exists(phone) AND (attribute_not_exists(#guardStatus) OR #guardStatus <> :guardDeleted)',
+        )
 
 
 def write_welcome_error(phone: str, error: str) -> None:
@@ -773,10 +692,10 @@ def write_welcome_error(phone: str, error: str) -> None:
         _table().update_item(
             Key={"phone": phone_e164},
             UpdateExpression="SET lastWelcomeError = :e, lastWelcomeErrorAt = :t",
-            ExpressionAttributeValues={
-                ":e": error[:3000],
-                ":t": _now_iso(),
-            },
+            ExpressionAttributeValues={':e': error[:3000], ':t': _now_iso(), ':guardDeleted': 'DELETED'},
+
+            ExpressionAttributeNames={'#guardStatus': 'status'},
+            ConditionExpression='attribute_exists(phone) AND (attribute_not_exists(#guardStatus) OR #guardStatus <> :guardDeleted)',
         )
     except Exception:
         # Never let debug logging block the caller
@@ -798,8 +717,10 @@ def mark_welcome_sent(phone: str) -> bool:
         t.update_item(
             Key={"phone": phone_e164},
             UpdateExpression="SET welcomeSentAt = :now REMOVE welcomeSendingAt",
-            ExpressionAttributeValues={":now": now},
-            ConditionExpression="attribute_not_exists(welcomeSentAt)",
+            ExpressionAttributeValues={':now': now, ':guardDeleted': 'DELETED'},
+            ConditionExpression='attribute_exists(phone) AND (attribute_not_exists(#guardStatus) OR #guardStatus <> :guardDeleted) AND (attribute_not_exists(welcomeSentAt))',
+
+            ExpressionAttributeNames={'#guardStatus': 'status'},
         )
         return True
     except ClientError as e:

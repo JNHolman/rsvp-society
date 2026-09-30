@@ -1,3 +1,9 @@
+variable "alert_sms_phone" {
+  description = "Optional SMS phone number for CloudWatch/SNS alerts. Leave blank to disable SMS alert subscription."
+  type        = string
+  default     = ""
+}
+
 resource "aws_cloudwatch_dashboard" "rsvp_operations" {
   dashboard_name = "rsvp-society-operations"
 
@@ -278,9 +284,10 @@ resource "aws_sns_topic_subscription" "alerts_email" {
 
 # SMS alerts → host phone
 resource "aws_sns_topic_subscription" "alerts_sms" {
+  count     = var.alert_sms_phone != "" ? 1 : 0
   topic_arn = aws_sns_topic.rsvp_alerts.arn
   protocol  = "sms"
-  endpoint  = "+12702269660"
+  endpoint  = var.alert_sms_phone
 }
 
 resource "aws_cloudwatch_metric_alarm" "lambda_errors" {
@@ -472,6 +479,35 @@ resource "aws_cloudwatch_metric_alarm" "reminder_errors" {
   ok_actions    = [aws_sns_topic.rsvp_alerts.arn]
 }
 
+# Signature failures deliberately return HTTP 200 to Quo, so the API 4xx/5xx
+# alarms cannot see these rejected webhooks. Count the handler's explicit log.
+resource "aws_cloudwatch_log_metric_filter" "invalid_webhook_signature" {
+  name           = "rsvp-invalid-webhook-signature"
+  log_group_name = aws_cloudwatch_log_group.sms_handler.name
+  pattern        = "\"rejected request with invalid webhook signature\""
+
+  metric_transformation {
+    name      = "InvalidWebhookSignature"
+    namespace = "RSVPSociety/Security"
+    value     = "1"
+  }
+}
+
+resource "aws_cloudwatch_metric_alarm" "invalid_webhook_signature" {
+  alarm_name          = "rsvp-invalid-webhook-signature"
+  comparison_operator = "GreaterThanThreshold"
+  evaluation_periods  = 1
+  metric_name         = aws_cloudwatch_log_metric_filter.invalid_webhook_signature.metric_transformation[0].name
+  namespace           = aws_cloudwatch_log_metric_filter.invalid_webhook_signature.metric_transformation[0].namespace
+  period              = 300
+  statistic           = "Sum"
+  threshold           = 0
+  alarm_description   = "SMS webhook requests failed signature verification"
+  treat_missing_data  = "notBreaching"
+
+  alarm_actions = [aws_sns_topic.rsvp_alerts.arn]
+}
+
 # API Gateway latency p99 — catch slow backend responses before users notice
 resource "aws_cloudwatch_metric_alarm" "api_latency" {
   alarm_name          = "rsvp-api-latency-high"
@@ -494,3 +530,47 @@ resource "aws_cloudwatch_metric_alarm" "api_latency" {
 }
 
 # =============================================================================
+
+
+# One failed invite worker matters: it may interrupt the remaining recipients.
+resource "aws_cloudwatch_metric_alarm" "invite_worker_failure" {
+  for_each            = toset(["Errors", "AsyncEventsDropped"])
+  alarm_name          = "rsvp-invite-worker-${each.key}"
+  comparison_operator = "GreaterThanOrEqualToThreshold"
+  evaluation_periods  = 1
+  metric_name         = each.key
+  namespace           = "AWS/Lambda"
+  period              = 60
+  statistic           = "Sum"
+  threshold           = 1
+  treat_missing_data  = "notBreaching"
+  alarm_description   = "Invite worker failed or expired; inspect the job and delivery records before resending."
+  dimensions          = { FunctionName = aws_lambda_function.invite_handler.function_name }
+  alarm_actions       = [aws_sns_topic.rsvp_alerts.arn]
+}
+
+# Application failures are caught and stored as FAILED jobs, so count their log too.
+resource "aws_cloudwatch_log_metric_filter" "invite_job_failed" {
+  name           = "rsvp-invite-job-failed"
+  log_group_name = aws_cloudwatch_log_group.invite_handler.name
+  pattern        = "\"invite_job_failed\""
+  metric_transformation {
+    name      = "InviteJobFailed"
+    namespace = "RSVPSociety/Operations"
+    value     = "1"
+  }
+}
+
+resource "aws_cloudwatch_metric_alarm" "invite_job_failed" {
+  alarm_name          = "rsvp-invite-job-failed"
+  comparison_operator = "GreaterThanOrEqualToThreshold"
+  evaluation_periods  = 1
+  metric_name         = "InviteJobFailed"
+  namespace           = "RSVPSociety/Operations"
+  period              = 60
+  statistic           = "Sum"
+  threshold           = 1
+  treat_missing_data  = "notBreaching"
+  alarm_description   = "Invite job failed; review its error and delivered recipients before resending."
+  alarm_actions       = [aws_sns_topic.rsvp_alerts.arn]
+}

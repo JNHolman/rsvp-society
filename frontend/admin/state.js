@@ -15,7 +15,7 @@ function parseBool(value) {
 }
 
 export const state = {
-  apiBase: (localStorage.getItem('rsvp_api_base') || API_DEFAULT).replace(/\/+$/, ''),
+  apiBase: API_DEFAULT.replace(/\/+$/, ''),
   adminToken: '',
   activeTab: 'members',
   currentStatus: 'PENDING',
@@ -29,14 +29,27 @@ export const state = {
     APPROVED: 0,
     DENIED: 0,
   },
+  memberPagination: {
+    key: '',
+    page: 1,
+    tokens: [''],
+    nextPageToken: '',
+    hasMore: false,
+  },
   importRows: [],
   importDetectedSource: 'csv',
   importSkipped: 0,
+  importLocationSkipped: 0,
+  importUniqueZipCount: 0,
   preview: {
     lastPreview: null,
     members: [],
     removedPhones: new Set(),
+    selectedPhones: new Set(),
     activeMarketFilter: 'All',
+    page: 1,
+    pageSize: 25,
+    sendMode: 'selected',
   },
 };
 
@@ -44,7 +57,11 @@ export function resetPreviewState() {
   state.preview.lastPreview = null;
   state.preview.members = [];
   state.preview.removedPhones = new Set();
+  state.preview.selectedPhones = new Set();
   state.preview.activeMarketFilter = 'All';
+  state.preview.page = 1;
+  state.preview.pageSize = 25;
+  state.preview.sendMode = 'selected';
 }
 
 export function resetSessionState() {
@@ -57,6 +74,7 @@ export function resetSessionState() {
     APPROVED: 0,
     DENIED: 0,
   };
+  state.memberPagination = { key: '', page: 1, tokens: [''], nextPageToken: '', hasMore: false };
   state.importRows = [];
   state.importDetectedSource = 'csv';
   state.importSkipped = 0;

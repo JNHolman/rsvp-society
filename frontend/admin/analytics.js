@@ -381,17 +381,26 @@ function createTierRow(tier, tierData) {
 }
 
 function createWaveRow(wave, waveData) {
-  const waveConfirmed = waveData.confirmed || 0;
-  const waveInvited = waveData.invited || 0;
+  const waveInvited = Number(waveData.invited || 0);
+  const waveConfirmed = Number(waveData.confirmed || 0);
+  const waveExpected = Number(waveData.expected_headcount || waveData.expectedHeadcount || waveConfirmed);
+  const waveCheckedIn = Number(waveData.checked_in_headcount || waveData.checkedInHeadcount || waveData.attended || 0);
+  const waveNoShow = Number(waveData.no_show_headcount || waveData.noShowHeadcount || waveData.no_show || 0);
   const waveRate = waveInvited > 0 ? Math.round((waveConfirmed / waveInvited) * 100) : 0;
+  const showRate = waveExpected > 0 ? Math.round((waveCheckedIn / waveExpected) * 100) : 0;
+  const ghostRate = waveExpected > 0 ? Math.round((waveNoShow / waveExpected) * 100) : 0;
+  const label = waveData.label || (wave === 'manual' ? 'Manual / Resend' : `Wave ${wave}`);
 
   const row = createNode('tr');
   [
-    `Wave ${wave}`,
+    label,
     waveInvited,
     waveConfirmed,
     `${waveRate}%`,
-    waveData.attended || 0,
+    waveCheckedIn,
+    `${showRate}%`,
+    waveNoShow,
+    `${ghostRate}%`,
   ].forEach((value) => row.appendChild(createNode('td', { text: value })));
   return row;
 }
@@ -449,9 +458,14 @@ function renderEventAnalyticsView({
 
   const summaryGrid = createNode('div', { className: 'analytics-grid' });
   [
-    createSummaryStat(totals.invited || 0, 'Invited'),
-    createSummaryStat(totals.confirmed || 0, 'Confirmed', 'gold'),
-    createSummaryStat(totals.attended || 0, 'Attended', 'green'),
+    createSummaryStat(totals.invited || 0, 'Members Invited'),
+    createSummaryStat(totals.confirmed || 0, 'Members Confirmed', 'gold'),
+    createSummaryStat(totals.expected_headcount || totals.confirmed || 0, 'Expected Headcount', 'gold'),
+    createSummaryStat(totals.checked_in_headcount || totals.attended || 0, 'Checked In', 'green'),
+    createSummaryStat(totals.plus_one_confirmed || 0, '+1 Confirmed', 'dim'),
+    createSummaryStat(totals.plus_one_attended || 0, '+1 Attended', 'green'),
+    createSummaryStat(totals.plus_one_no_show || 0, '+1 No-Show', 'dim'),
+    createSummaryStat(totals.no_show_headcount || totals.no_show || 0, 'No-Show Headcount', 'dim'),
     createSummaryStat(totals.no_response || 0, 'No Response', 'dim'),
     createSummaryStat(totals.declined || 0, 'Declined', 'dim'),
   ].forEach((card) => summaryGrid.appendChild(card));
@@ -462,9 +476,11 @@ function renderEventAnalyticsView({
   const funnelPanel = createAnalyticsPanel('Conversion Funnel');
   const funnel = createNode('div', { className: 'analytics-funnel' });
   [
-    createFunnelRow('Invited', totals.invited || 0, '', 100),
-    createFunnelRow('Confirmed', totals.confirmed || 0, `${confirmRatePct}%`, confirmRatePct),
-    createFunnelRow('Attended', totals.attended || 0, `${showRatePct}%`, attendedFunnelPct, 'green-fill'),
+    createFunnelRow('Members Invited', totals.invited || 0, '', 100),
+    createFunnelRow('Members Confirmed', totals.confirmed || 0, `${confirmRatePct}%`, confirmRatePct),
+    createFunnelRow('Expected Headcount', totals.expected_headcount || totals.confirmed || 0, '', confirmRatePct),
+    createFunnelRow('Checked In Headcount', totals.checked_in_headcount || totals.attended || 0, showRatePct == null ? 'Pending' : `${showRatePct}%`, attendedFunnelPct, 'green-fill'),
+    createFunnelRow('No-Show Headcount', totals.no_show_headcount || totals.no_show || 0, ghostRatePct == null ? 'Pending' : `${ghostRatePct}%`, ghostRatePct, 'red-fill'),
   ].forEach((row) => funnel.appendChild(row));
   funnelPanel.appendChild(funnel);
 
@@ -472,9 +488,9 @@ function renderEventAnalyticsView({
   const rateGrid = createNode('div', { className: 'analytics-rate-grid' });
   [
     createRateCard(`${confirmRatePct}%`, 'Confirm Rate', 'analytics-rate-value-gold'),
-    createRateCard(`${showRatePct}%`, 'Show Rate', 'analytics-rate-value-green'),
+    createRateCard(showRatePct == null ? 'Pending' : `${showRatePct}%`, 'Show Rate', 'analytics-rate-value-green'),
     createRateCard(`${noResponseRatePct}%`, 'No Response', 'analytics-rate-value-dim'),
-    createRateCard(`${ghostRatePct}%`, 'Ghost Rate', 'analytics-rate-value-red'),
+    createRateCard(ghostRatePct == null ? 'Pending' : `${ghostRatePct}%`, 'Ghost Rate', 'analytics-rate-value-red'),
   ].forEach((card) => rateGrid.appendChild(card));
   ratesPanel.appendChild(rateGrid);
 
@@ -504,12 +520,15 @@ function renderEventAnalyticsView({
   appendChildren(secondGrid, genderPanel, tierPanel);
   root.appendChild(secondGrid);
 
-  const thirdGrid = createNode('div', { className: 'analytics-grid-2 analytics-grid-2-spaced' });
   const wavePanel = createAnalyticsPanel('By Wave');
-  const waveRows = Object.keys(byWave)
-    .sort((a, b) => Number(a) - Number(b))
+  const waveOrder = ['1', '2', '3', 'manual'];
+  const waveRows = waveOrder
+    .filter((wave) => byWave[wave])
     .map((wave) => createWaveRow(wave, byWave[wave] || {}));
-  wavePanel.appendChild(createTable(['Wave', 'Invited', 'Confirmed', 'Rate', 'Attended'], waveRows, 'No wave data'));
+  wavePanel.appendChild(createTable(['Wave', 'Invited', 'Confirmed', 'Confirm Rate', 'Checked In', 'Show Rate', 'No-Show', 'Ghost Rate'], waveRows, 'No wave data'));
+  // By Wave (8 cols) and Attendance Check (interactive mark buttons) each need the
+  // full width — sharing a half-width 2-col grid cell overflowed the panel.
+  root.appendChild(wavePanel);
 
   const attendancePanel = createAnalyticsPanel('Attendance Check');
   const subHeader = createNode('div', { className: 'att-sub-header' });
@@ -528,25 +547,37 @@ function renderEventAnalyticsView({
   attendanceContainer.appendChild(createNode('div', { className: 'analytics-empty analytics-empty-compact', text: 'Load confirmed list' }));
   appendChildren(attendancePanel, subHeader, attendanceContainer);
 
-  appendChildren(thirdGrid, wavePanel, attendancePanel);
-  root.appendChild(thirdGrid);
+  root.appendChild(attendancePanel);
 
   body.replaceChildren(root);
 }
 
 export async function loadAnalyticsTab() {
+  const refreshButton = $('analytics-refresh-btn');
+  const refreshStamp = $('analytics-refresh-stamp');
+  if (refreshButton) { refreshButton.disabled = true; refreshButton.textContent = 'Refreshing...'; }
   // Fetch tracked events once and share the result — avoids two parallel
-  // /admin/event requests on every tab open (FE-L2)
+  // /admin/event requests on every tab open (FE-L2). Refresh also reloads the
+  // currently selected event instead of only refreshing the selector cards.
+  const selectedBeforeRefresh = $('analytics-event-select')?.value || '';
   let sharedEvents = null;
   try {
     sharedEvents = await getTrackedEvents();
   } catch (_) {
     // each child will handle its own error if events is null
   }
+
   await Promise.all([
     loadEventSelector(sharedEvents),
     loadAllTimeStats(sharedEvents),
   ]);
+
+  const selectedAfterRefresh = $('analytics-event-select')?.value || selectedBeforeRefresh;
+  if (selectedAfterRefresh) {
+    await loadEventAnalytics(selectedAfterRefresh);
+  }
+  if (refreshStamp) refreshStamp.textContent = `Last refreshed ${new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`;
+  if (refreshButton) { refreshButton.disabled = false; refreshButton.textContent = 'Refresh'; }
 }
 
 export async function loadAllTimeStats(prefetchedEvents = null) {
@@ -641,19 +672,14 @@ export async function loadEventAnalytics(eventId) {
     const byTier = analytics.by_tier || {};
     const byWave = analytics.by_wave || {};
 
-    const confirmRate = totals.invited > 0 ? totals.confirmed / totals.invited : 0;
-    const showRate = totals.confirmed > 0 ? totals.attended / totals.confirmed : 0;
-    const noResponseRate = totals.invited > 0 ? (totals.no_response || 0) / totals.invited : 0;
-    const ghostRate = totals.confirmed > 0
-      ? (totals.declined_after_confirm || Math.max(0, (totals.confirmed || 0) - (totals.attended || 0))) / totals.confirmed
-      : 0;
+    const rates = analytics.rates || {};
+    const confirmRatePct = Math.round(Number(rates.confirm_rate ?? ((totals.invited > 0 ? (totals.confirmed / totals.invited) * 100 : 0))) || 0);
+    const showRatePct = analytics.attendanceSettled === false ? null : Math.round(Number(rates.show_rate ?? ((totals.expected_headcount > 0 ? ((totals.checked_in_headcount || totals.attended || 0) / totals.expected_headcount) * 100 : 0))) || 0);
+    const noResponseRatePct = Math.round(Number(rates.no_response_rate ?? ((totals.invited > 0 ? ((totals.no_response || 0) / totals.invited) * 100 : 0))) || 0);
+    const ghostRatePct = analytics.attendanceSettled === false ? null : Math.round(Number(rates.no_show_rate ?? ((totals.expected_headcount > 0 ? ((totals.no_show_headcount || totals.no_show || 0) / totals.expected_headcount) * 100 : 0))) || 0);
 
     const funnelMax = Math.max(totals.invited || 0, 1);
-    const confirmRatePct = Math.round(confirmRate * 100);
-    const showRatePct = Math.round(showRate * 100);
-    const noResponseRatePct = Math.round(noResponseRate * 100);
-    const ghostRatePct = Math.round(ghostRate * 100);
-    const attendedFunnelPct = Math.round(((totals.attended || 0) / funnelMax) * 100);
+    const attendedFunnelPct = Math.round(((totals.checked_in_headcount || totals.attended || 0) / funnelMax) * 100);
 
     $('analytics-subtitle').textContent = buildEventLabel(meta, eventId);
     renderEventAnalyticsView({
@@ -679,3 +705,8 @@ export async function loadEventAnalytics(eventId) {
     renderBodyState(`Failed to load — ${message}`);
   }
 }
+
+window.addEventListener('rsvp:attendance-updated', async (event) => {
+  const selected = $('analytics-event-select')?.value || event.detail?.eventId || '';
+  if (selected) await loadEventAnalytics(selected);
+});

@@ -13,14 +13,22 @@ METHOD_BLOCK_RE = re.compile(r'resource\s+"aws_api_gateway_method"\s+"([^"]+)"\s
 PATH_PART_RE = re.compile(r'path_part\s*=\s*"([^"]+)"')
 PARENT_RESOURCE_RE = re.compile(r'parent_id\s*=\s*aws_api_gateway_resource\.([A-Za-z0-9_]+)\.id')
 RESOURCE_ID_RE = re.compile(r'resource_id\s*=\s*aws_api_gateway_resource\.([A-Za-z0-9_]+)\.id')
+RESOURCE_ID_EACH_VALUE_RE = re.compile(r'resource_id\s*=\s*each\.value')
+FOR_EACH_LOCAL_RE = re.compile(r'for_each\s*=\s*local\.([A-Za-z0-9_]+)')
+LOCAL_MAP_RE = re.compile(r'([A-Za-z0-9_]+)\s*=\s*\{(.*?)\n\s*\}', re.S)
+LOCAL_MAP_ENTRY_RE = re.compile(r'([A-Za-z0-9_]+)\s*=\s*aws_api_gateway_resource\.([A-Za-z0-9_]+)\.id')
 ROOT_PARENT_RE = re.compile(r'parent_id\s*=\s*aws_api_gateway_rest_api\.[A-Za-z0-9_]+\.root_resource_id')
 HTTP_METHOD_RE = re.compile(r'http_method\s*=\s*"([A-Z]+)"')
 BACKEND_ROUTE_METHOD_RE = re.compile(r'if\s+method\s*==\s*"([A-Z]+)"\s+and\s+path\.endswith\("([^"]+)"\)')
 # Also detect dict-based routing: ("GET", "/admin/event"): handler_fn
-BACKEND_DICT_ROUTE_RE = re.compile(r'\("([A-Z]+)",\s*"([^"]+)"\)\s*:\s*[a-z_]+')
+BACKEND_DICT_ROUTE_RE = re.compile(r'\("([A-Z]+)",\s*"(/[^"]+)"\)\s*:\s*[a-z_]+')
 IN_PATH_ROUTE_RE = re.compile(r'if\s+method\s*==\s*"([A-Z]+)"\s+and\s+"([^"]+)"\s+in\s+path')
 HARDCODED_ROUTE_RE = re.compile(r'''['"](/admin/[^'"]+|/event(?:/current)?)['"]''')
-FRONTEND_CALL_RE = re.compile(r'api(?:Json|Fetch)\(\s*(?:`[^`]*ROUTES\.([A-Z0-9_]+)[^`]*`|ROUTES\.([A-Z0-9_]+))', re.S)
+FRONTEND_CALL_RE = re.compile(
+    r'(?:apiJson|apiFetch|requestJson|fetchAllPages)\(\s*'
+    r'(?:`[^`]*ROUTES\.([A-Z0-9_]+)[^`]*`|ROUTES\.([A-Z0-9_]+))',
+    re.S,
+)
 METHOD_IN_WINDOW_RE = re.compile(r'method\s*:\s*["\']([A-Z]+)["\']')
 INLINE_BODY_RE = re.compile(r'body\s*:\s*\{(.*?)\}', re.S)
 BODY_COLON_KEY_RE = re.compile(r'([A-Za-z_][A-Za-z0-9_]*)\s*:')
@@ -35,14 +43,15 @@ BACKEND_REQUIRED_KEYS: Dict[str, Dict[str, List[str]]] = {
     '/admin/members/import': {'POST': ['members']},
     '/admin/event': {'POST': ['date']},
     '/admin/events': {'GET': []},
-    '/admin/invite/preview': {'POST': ['eventId', 'capacity', 'femalePercent', 'tier2BufferPct', 'waveNumber', 'waveSize']},
-    '/admin/invite/send': {'POST': ['eventId', 'capacity', 'femalePercent', 'tier2BufferPct', 'waveNumber', 'waveSize', 'phones', 'confirmSend', 'removedPhones']},
+    '/admin/invite/preview': {'POST': ['eventId', 'capacity', 'femalePercent', 'waveNumber', 'waveSize']},
+    '/admin/invite/send': {'POST': ['eventId', 'capacity', 'femalePercent', 'waveNumber', 'waveSize', 'phones', 'confirmSend', 'removedPhones']},
+    '/admin/members/history': {'GET': []},
     '/admin/invite/reminder': {'POST': ['timing']},
 }
 
 FRONTEND_BODY_HINTS: Dict[str, Dict[str, List[str]]] = {
-    'ADMIN_EVENT': {'POST': ['eventSlug', 'event_label', 'date', 'startTime', 'city', 'capacity', 'event_timezone', 'venue', 'address', 'dresscode', 'revealVenue', 'event_type', 'vibe_tag', 'description', 'invite_template', 'reminder_template', 'day_before_template', 'day_of_template', 'reminderTiming', 'day_before_send_time', 'day_of_send_time']},
-    'ADMIN_INVITE_SEND': {'POST': ['eventId', 'capacity', 'femalePercent', 'tier2BufferPct', 'waveNumber', 'waveSize', 'phones', 'confirmSend', 'removedPhones']},
+    'ADMIN_EVENT': {'POST': ['eventSlug', 'event_label', 'date', 'startTime', 'city', 'capacity', 'event_timezone', 'venue', 'address', 'dresscode', 'revealVenue', 'event_type', 'vibe_tag', 'description', 'invite_template', 'reminder_template', 'day_before_template', 'day_of_template', 'reminderTiming', 'day_before_send_time', 'day_of_send_time', 'parkingInfo']},
+    'ADMIN_INVITE_SEND': {'POST': ['eventId', 'capacity', 'femalePercent', 'waveNumber', 'waveSize', 'phones', 'confirmSend', 'removedPhones']},
     'ADMIN_EVENTS': {'GET': []},
     'ADMIN_INVITE_REMINDER': {'POST': ['timing']},
 }
@@ -57,10 +66,11 @@ QUO_BONE_CHECKS = {
     'terraform_sms_enabled_default': ('backend/terraform/main.tf', 'SMS_ENABLED              = "true"'),
     'eventbridge_sms_enabled_default': ('backend/terraform/eventbridge.tf', 'SMS_ENABLED           = "true"'),
     'sms_adapter_quo_secret_lookup': ('backend/lambda/sms_adapter.py', 'QUO_API_KEY_SECRET_ID'),
-    'sms_adapter_live_send': ('backend/lambda/sms_adapter.py', 'https://api.openphone.com/v1/messages'),
-    'sms_handler_quo_signature': ('backend/lambda/sms_handler.py', 'openphone-signature'),
-    'admin_handler_welcome_hook': ('backend/lambda/admin_handler.py', 'maybe_send_welcome'),
-    'admin_handler_welcome_gate': ('backend/lambda/admin_handler.py', 'status == "APPROVED" and prev_status != "APPROVED"'),
+    'sms_adapter_live_send': ('backend/lambda/sms_adapter.py', 'https://api.quo.com'),
+    'sms_handler_quo_signature': ('backend/lambda/sms_webhook.py', 'openphone-signature'),
+    'sms_handler_standard_signature': ('backend/lambda/sms_webhook.py', 'webhook-signature'),
+    'admin_member_routes_welcome_hook': ('backend/lambda/admin_member_routes.py', 'maybe_send_welcome'),
+    'admin_member_routes_welcome_gate': ('backend/lambda/admin_member_routes.py', 'status == "APPROVED" and prev_status != "APPROVED"'),
 }
 
 
@@ -185,18 +195,41 @@ def _resource_path(name: str, resources: Dict[str, Dict[str, Optional[str]]]) ->
     return '/' + '/'.join(reversed(parts)) if parts else None
 
 
+
+def parse_tf_local_resource_maps(terraform_dir: Path) -> Dict[str, Dict[str, str]]:
+    maps: Dict[str, Dict[str, str]] = {}
+    for tf_path in terraform_dir.glob('*.tf'):
+        text = tf_path.read_text()
+        for map_name, body in LOCAL_MAP_RE.findall(text):
+            entries = dict(LOCAL_MAP_ENTRY_RE.findall(body))
+            if entries:
+                maps[map_name] = entries
+    return maps
+
 def load_terraform_methods(terraform_dir: Path, resources: Dict[str, Dict[str, Optional[str]]]) -> Dict[str, Set[str]]:
     methods: Dict[str, Set[str]] = {}
+    local_resource_maps = parse_tf_local_resource_maps(terraform_dir)
     for tf_path in terraform_dir.glob('*.tf'):
         text = tf_path.read_text()
         for _, body in METHOD_BLOCK_RE.findall(text):
-            resource_match = RESOURCE_ID_RE.search(body)
             http_match = HTTP_METHOD_RE.search(body)
-            if not resource_match or not http_match:
+            if not http_match:
                 continue
-            route = _resource_path(resource_match.group(1), resources)
-            if route:
-                methods.setdefault(route, set()).add(http_match.group(1))
+            method = http_match.group(1)
+            resource_match = RESOURCE_ID_RE.search(body)
+            if resource_match:
+                route = _resource_path(resource_match.group(1), resources)
+                if route:
+                    methods.setdefault(route, set()).add(method)
+                continue
+            if RESOURCE_ID_EACH_VALUE_RE.search(body):
+                each_match = FOR_EACH_LOCAL_RE.search(body)
+                if not each_match:
+                    continue
+                for resource_name in local_resource_maps.get(each_match.group(1), {}).values():
+                    route = _resource_path(resource_name, resources)
+                    if route:
+                        methods.setdefault(route, set()).add(method)
     return methods
 
 

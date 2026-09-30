@@ -52,6 +52,24 @@ resource "aws_s3_bucket_versioning" "pics" {
   }
 }
 
+resource "aws_s3_bucket_lifecycle_configuration" "pics" {
+  depends_on = [aws_s3_bucket_versioning.pics]
+  bucket     = aws_s3_bucket.pics.id
+
+  rule {
+    id     = "expire-noncurrent-photo-versions"
+    status = "Enabled"
+
+    filter {}
+
+    # Keep a 30-day recovery window, then stop paying indefinitely for
+    # superseded/deleted photo versions. Current photos are never expired.
+    noncurrent_version_expiration {
+      noncurrent_days = 30
+    }
+  }
+}
+
 resource "aws_s3_bucket_server_side_encryption_configuration" "pics" {
   bucket = aws_s3_bucket.pics.id
 
