@@ -16,13 +16,29 @@ Apply through the manual GitHub deploy workflow after reviewing the plan. The
 workflow stages CloudFront before WAF so the origin rule cannot block traffic
 during CloudFront propagation.
 
-Before deployment, create the GitHub Actions secret
-`CLOUDFRONT_ORIGIN_VERIFY_HEADER` with at least 32 random characters. The deploy
-workflow applies the CloudFront origin header and viewer-IP function first,
-waits for the distribution to finish deploying, and only then applies the WAF
-origin-block rule. A missing/short secret must fail the workflow before plan or
-apply. Confirm Quo's webhook URL is `https://api.rsvpsociety.com/...`, never the
-raw `execute-api` hostname.
+Before deployment, add `CLOUDFRONT_ORIGIN_VERIFY_HEADER` (at least 32 random
+characters) under GitHub **Settings → Environments → production → Environment
+secrets**. The deploy job uses that environment so its secrets and any required
+approval gate are available to Terraform. A missing or short value produces a
+clear workflow error before plan or apply. Do not put the secret in this repo,
+commit it in a `.tfvars` file, or paste it into a shared log.
+
+If you are running `terraform plan` locally, Terraform also needs the required
+variable in that shell. Enter it without adding the value to shell history, then
+run plan and apply in the same shell session:
+
+```bash
+read -rsp "CloudFront origin secret: " TF_VAR_cloudfront_origin_verify_header
+printf '\n'
+export TF_VAR_cloudfront_origin_verify_header
+terraform plan -input=false
+```
+
+Use the manual GitHub deploy workflow for production apply. It applies the
+CloudFront origin header and viewer-IP function first, waits for the distribution
+to finish deploying, and only then applies the WAF origin-block rule. Confirm
+Quo's webhook URL is `https://api.rsvpsociety.com/...`, never the raw
+`execute-api` hostname.
 
 For secret rotation, keep availability during propagation: first set the
 previous-header secret to the new value while the current secret remains old,

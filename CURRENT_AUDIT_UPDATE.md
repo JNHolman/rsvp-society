@@ -22,6 +22,8 @@ This is the current audit record. Older audit/patch notes are historical. The sc
 | Invite failures | Failed recipient reads abort instead of silently dropping people. Failed jobs emit a monitored log marker. Terraform alarms on a single invite worker error, async drop or recorded job failure; automatic function-error retries are disabled. |
 | Cost/read work | Routine job polling reads saved counters instead of rescanning recipients. Current-event invite lookups use direct consistent reads; redundant ticket-reply lookups were removed. |
 | Cleanup | Removed unused imports/locals, an unused argument, the obsolete attendance fallback and the stale ignore entry. Preview/+1 wrappers used through dependency injection remain. The empty event directory is excluded from the deploy archive. |
+| Repo documentation | Replaced the technical README with a short product overview centered on Jade and the host/guest journey. Removed eight superseded audit and patch-note copies; the current audit, release test record, Jade guide and validation checklist remain. |
+| Terraform secret setup | Bound the manual deploy job to the `production` GitHub Environment, matching the secret location described in the deployment checklist. This makes environment-scoped CloudFront secrets available to Terraform. |
 | Privacy wording | Describes stored location, Jade/AI processing, retention and deletion requests, and separates SMS opt-out from RSVP cancellation. This is a factual documentation update, not a legal-compliance certification. |
 
 ## Existing behavior preserved and checked
@@ -48,7 +50,7 @@ Total: 320 Python tests and 23 frontend tests (343), all passing. All 13 Terrafo
 ## Limits and deployment checks
 
 - The source update is published to GitHub. No AWS deployment, text message or live account change occurred. No live-Lambda diff or production-state reconciliation was performed.
-- Native Terraform provider validation/plan, live AWS transactions/IAM, WAF rollout/viewer IPs, GitHub secrets, Quo suppression/reapplication/redelivery and live Jade responses remain deployment checks in VALIDATION.md.
+- Native Terraform provider validation/plan, live AWS transactions/IAM, WAF rollout/viewer IPs, GitHub secret configuration, Quo suppression/reapplication/redelivery and live Jade responses remain deployment checks in VALIDATION.md. The workflow wiring is fixed; the GitHub secret value still needs to exist in the `production` environment.
 - A processing lease makes interrupted messages retryable; recovery still depends on provider redelivery. A crash after a text is accepted but before its receipt is completed can still produce an ambiguous outcome. Exactly-once outbound SMS is not claimed.
 - Invite worker failures must be reviewed against job/provider delivery records before resending. The alert configuration must be applied and SNS subscribers verified to deliver alerts.
 - A late untagged YES after switching events cannot identify which party the sender meant. The single active-event model is retained; do not overlap RSVP windows for the same member.

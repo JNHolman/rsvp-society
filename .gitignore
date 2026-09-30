@@ -1,28 +1,21 @@
-# Terraform
+# Terraform working data and local plans
 **/.terraform/
 *.tfstate
-*.tfstate.backup
+*.tfstate.*
 *.tfplan
 tfplan
 
-# Lambda build artifacts
+# Generated packages (release archives are committed explicitly)
 *.zip
-backend/terraform/admin_handler.py
-backend/terraform/invite_handler.py
-backend/terraform/member_store.py
-backend/terraform/sms_adapter.py
-backend/terraform/event_handler.py
+!backend/terraform/lambda_bundle.zip
+!dist/frontend-deploy.zip
+!dist/lambda-bundle.zip
+!dist/terraform-source.zip
 
 # Python
 __pycache__/
-*.pyc
-*.pyo
+*.py[cod]
 
-# macOS
+# Local tooling and OS files
+.ruff_cache/
 .DS_Store
-
-# CLI accident files
-backend/terraform/--*
-backend/terraform/terraform.tfstate
-backend/terraform/terraform.tfstate.backup
-backend/terraform/lambda_bundle.zip
