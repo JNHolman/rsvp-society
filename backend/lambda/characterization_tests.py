@@ -1037,9 +1037,11 @@ class TestAutomaticWaveScheduling(unittest.TestCase):
             call.kwargs.get("updates") or (call.args[1] if len(call.args) > 1 else {})
             for call in update_job.call_args_list
         ]
-        self.assertTrue(any(update.get("status") == "COMPLETE" for update in job_updates))
         schedule_wave.assert_called_once_with(event, 1, female_percent=60, audience_filters={"market": "Louisville"})
-        self.assertTrue(any(update.get("autoWaveStatus") == "SCHEDULED" for update in job_updates))
+        self.assertTrue(any(
+            update.get("status") == "COMPLETE" and update.get("autoWaveStatus") == "SCHEDULED"
+            for update in job_updates
+        ))
 
     @patch("invite_sender.reserve_invite", new=lambda invites, members, item, expected_status=None: invites.put_item(Item=item))
     def test_execute_send_chunks_large_locked_audience_and_continues_same_job(self):

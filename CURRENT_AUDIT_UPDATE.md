@@ -6,7 +6,7 @@ This is the current audit record. Older audit/patch notes are historical. The sc
 
 | Area | Change |
 | --- | --- |
-| Auto waves | Wave 1/2 completion schedules the next formal wave after 24–48 hours, shortened only to preserve at least 24 hours before event start. The trigger rechecks the active event, current seat count and eligible audience, then creates a locked preview and idempotent send job. Wave 3 ends automation. CI checks Python F rules, including undefined names and unused imports/locals. |
+| Auto waves | Wave 1/2 completion schedules the next formal wave after 24–48 hours, shortened only to preserve at least 24 hours before event start. The trigger rechecks the active event, current seat count and eligible audience, then creates a locked preview and idempotent send job. The admin send-status panel reports the scheduled wave or says when manual handling is needed. Wave 3 ends automation. CI checks Python F rules, including undefined names and unused imports/locals. |
 | Inbound SMS | STOP runs before receipt storage. Receipt storage failures no longer masquerade as duplicates. In-progress receipts expire after 60 seconds; completed receipts last 30 days. Unexpected processing failures return 503 and release their lease. |
 | RSVP versus opt-out | “Cancel my RSVP” cancels attendance and releases its seat through the existing transaction. STOP ALL is recognized. Standard opt-out keywords retain their meaning; SMS opt-out preserves the member profile and existing RSVP. |
 | Jade timing | Context uses the event's local date/time, including overnight end times. |
@@ -22,6 +22,8 @@ This is the current audit record. Older audit/patch notes are historical. The sc
 | Invite failures | Failed recipient reads abort instead of silently dropping people. Failed jobs emit a monitored log marker. Terraform alarms on a single invite worker error, async drop or recorded job failure; automatic function-error retries are disabled. |
 | Cost/read work | Routine job polling reads saved counters instead of rescanning recipients. Current-event invite lookups use direct consistent reads; redundant ticket-reply lookups were removed. |
 | Cleanup | Removed unused imports/locals, an unused argument, the obsolete attendance fallback and the stale ignore entry. Preview/+1 wrappers used through dependency injection remain. The empty event directory is excluded from the deploy archive. |
+| Repo documentation | Replaced the technical README with a short product overview centered on Jade and the host/guest journey. Removed eight superseded audit and patch-note copies; the current audit, release test record, Jade guide and validation checklist remain. |
+| Terraform secret setup | Bound the manual deploy job to the `production` GitHub Environment, matching the secret location described in the deployment checklist. This makes environment-scoped CloudFront secrets available to Terraform. |
 | Privacy wording | Describes stored location, Jade/AI processing, retention and deletion requests, and separates SMS opt-out from RSVP cancellation. This is a factual documentation update, not a legal-compliance certification. |
 
 ## Existing behavior preserved and checked
@@ -40,15 +42,15 @@ The complete shell runner passed using the recovered local test dependencies and
 - 183 characterization/known-defect tests.
 - 122 Moto integration tests using the real handlers.
 - 15 production-reconciliation tests.
-- 22 frontend execution tests.
+- 23 frontend execution tests.
 - Python/JavaScript syntax, Jade scenarios/contracts, route/runtime checks and canonical Lambda imports.
 
-Total: 320 Python tests and 22 frontend tests (342), all passing. All 13 Terraform files parse as HCL. Five handler entrypoints import from the rebuilt Lambda package. Package/source hashes and nested deploy archives are checked during release packaging. Ruff F checks pass, including undefined names and unused imports/locals. Optional coverage reporting was skipped. See RELEASE_VERIFICATION.txt.
+Total: 320 Python tests and 23 frontend tests (343), all passing. All 13 Terraform files parse as HCL. Five handler entrypoints import from the rebuilt Lambda package. Package/source hashes and nested deploy archives are checked during release packaging. Ruff F checks pass, including undefined names and unused imports/locals. Optional coverage reporting was skipped. See RELEASE_VERIFICATION.txt.
 
 ## Limits and deployment checks
 
 - The source update is published to GitHub. No AWS deployment, text message or live account change occurred. No live-Lambda diff or production-state reconciliation was performed.
-- Native Terraform provider validation/plan, live AWS transactions/IAM, WAF rollout/viewer IPs, GitHub secrets, Quo suppression/reapplication/redelivery and live Jade responses remain deployment checks in VALIDATION.md.
+- Native Terraform provider validation/plan, live AWS transactions/IAM, WAF rollout/viewer IPs, GitHub secret configuration, Quo suppression/reapplication/redelivery and live Jade responses remain deployment checks in VALIDATION.md. The workflow wiring is fixed; the GitHub secret value still needs to exist in the `production` environment.
 - A processing lease makes interrupted messages retryable; recovery still depends on provider redelivery. A crash after a text is accepted but before its receipt is completed can still produce an ambiguous outcome. Exactly-once outbound SMS is not claimed.
 - Invite worker failures must be reviewed against job/provider delivery records before resending. The alert configuration must be applied and SNS subscribers verified to deliver alerts.
 - A late untagged YES after switching events cannot identify which party the sender meant. The single active-event model is retained; do not overlap RSVP windows for the same member.
@@ -66,12 +68,12 @@ Total: 320 Python tests and 22 frontend tests (342), all passing. All 13 Terrafo
 
 ### Current executed checks
 
-183 characterization/known-defect + 122 Moto integration + 15 reconciliation = 320 Python tests, plus 22 frontend tests (342 total), all pass. Jade scenario/behavior/v2, runtime and route audits pass. Python compilation and JavaScript syntax pass. All 13 Terraform files parse as HCL. Ruff F checks pass. No live AWS, Quo, Netlify, Terraform provider plan/apply or model-response test was performed.
+183 characterization/known-defect + 122 Moto integration + 15 reconciliation = 320 Python tests, plus 23 frontend tests (343 total), all pass. Jade scenario/behavior/v2, runtime and route audits pass. Python compilation and JavaScript syntax pass. All 13 Terraform files parse as HCL. Ruff F checks pass. No live AWS, Quo, Netlify, Terraform provider plan/apply or model-response test was performed.
 
 ## Pre-automation clean baseline
 
 - A failed or partially completed invite-history/analytics query now propagates its error. It cannot become Wave 1 or a zero-confirmation estimate. Preview fails without locking an audience; the existing worker error handling fails the job before sends. Two failure-path regressions cover partial pagination and aborted preview.
 - Removed an overwritten duplicate test helper and unused test imports/variables. Production modules and development tools/tests pass all Ruff F rules; CI now enforces that broader check.
-- The full runner passes: 183 characterization/known-defect, 122 Moto integration, 15 reconciliation and 22 frontend tests (342 total), plus Jade/runtime/route, syntax and canonical packaging checks.
+- The full runner passes: 183 characterization/known-defect, 122 Moto integration, 15 reconciliation and 23 frontend tests (343 total), plus Jade/runtime/route, syntax and canonical packaging checks.
 - Timed progression is part of this source release. Its one-time schedules and alert configuration are not active until the Terraform changes are planned and applied. Review the Terraform plan and live environment before deployment.
 - Passing source checks do not certify the live deployment. The existing live-Lambda comparison, Terraform provider plan and AWS/Quo/Netlify runtime checks remain outstanding.

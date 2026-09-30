@@ -2573,10 +2573,14 @@ class TestRequestedAuditFixes(unittest.TestCase):
     def test_job_poll_uses_saved_counters_without_reading_all_invites(self):
         import invite_handler, invite_job_store
         jobs = boto3.resource("dynamodb").Table("rsvp-invite-jobs-test")
-        jobs.put_item(Item={"jobId": "poll-job", "status": "PROCESSING", "recipientCount": 500, "invitesWritten": 20, "smsSent": 20, "failed": 0})
+        jobs.put_item(Item={"jobId": "poll-job", "status": "COMPLETE", "recipientCount": 500, "invitesWritten": 20, "smsSent": 20, "failed": 0, "autoWaveStatus": "SCHEDULED", "autoWaveNumber": 2, "autoWaveAt": 48})
         with patch.object(invite_job_store, "fallback_job_summary") as fallback:
             result = invite_job_store.handle_job_status({"jobId": "poll-job"}, "", deps=invite_handler._job_deps())
-        self.assertEqual(json.loads(result["body"])["smsSent"], 20)
+        response = json.loads(result["body"])
+        self.assertEqual(response["smsSent"], 20)
+        self.assertEqual(response["autoWaveStatus"], "SCHEDULED")
+        self.assertEqual(response["autoWaveNumber"], 2)
+        self.assertEqual(response["autoWaveAt"], 48)
         fallback.assert_not_called()
 
     def test_coffee_question_is_not_misread_as_a_fee_question(self):
