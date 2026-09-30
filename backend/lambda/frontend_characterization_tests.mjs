@@ -17,6 +17,7 @@ const importSource = fs.readFileSync(path.join(adminDir, 'import.js'), 'utf8');
 const adminIndexSource = fs.readFileSync(path.join(adminDir, 'index.html'), 'utf8');
 const adminAppSource = fs.readFileSync(path.join(adminDir, 'admin-app.js'), 'utf8');
 const eventSource = fs.readFileSync(path.join(adminDir, 'event.js'), 'utf8');
+const inviteViewSource = fs.readFileSync(path.join(adminDir, 'invite_view.js'), 'utf8');
 
 const AREA_TO_STATE = {
   '502': 'Kentucky',
@@ -148,6 +149,39 @@ test('executeInviteSend sends the exact preview session and selected phone subse
   assert.deepEqual(Array.from(request.options.body.phones), ['+15025550002']);
   assert.deepEqual(Array.from(request.options.body.removedPhones), ['+15025550003']);
   assert.equal(request.options.body.confirmSend, true);
+});
+
+test('invite job status shows the scheduled next wave', async () => {
+  const summaries = [];
+  let modal;
+  const makeNode = (tag, props = {}) => ({
+    tag,
+    ...props,
+    children: [],
+    addEventListener() {},
+    appendChild(child) { this.children.push(child); },
+  });
+  const openStatus = loadFunction(inviteViewSource, 'openJobStatusModal', {
+    apiJson: async () => ({
+      status: 'COMPLETE', smsSent: 20, invitesWritten: 20, failed: 0,
+      autoWaveStatus: 'SCHEDULED', autoWaveNumber: 2, autoWaveAt: 48,
+    }),
+    ROUTES: { ADMIN_INVITE_STATUS: '/admin/invite/status' },
+    createNode: makeNode,
+    appendChildren: (parent, ...children) => parent.children.push(...children),
+    buildSummaryCard: (rows) => { summaries.push(rows); return { rows }; },
+    clearNode: (node) => { node.children = []; },
+    openModal: (value) => { modal = value; },
+    closeModal: () => {},
+    currentEventLabel: () => 'RSVP Society',
+    window: { setTimeout() { throw new Error('completed job should not poll again'); } },
+  });
+
+  openStatus('job-1', { mode: 'Invite Wave', count: 20 });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  assert.ok(modal);
+  assert.ok(summaries.at(-1).some(([label, value]) => label === 'Next Wave' && value === 'Wave 2 in 48 hours'));
 });
 
 

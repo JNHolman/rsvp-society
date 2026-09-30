@@ -257,12 +257,19 @@ export function openJobStatusModal(jobId, fallback = {}) {
       const status = data.status || 'UNKNOWN';
       statusLine.textContent = `Status: ${status}`;
       clearNode(breakdown);
-      breakdown.appendChild(buildSummaryCard([
+      const rows = [
         ['Invites Written', data.invitesWritten ?? '—'],
         ['SMS Sent', data.smsSent ?? '—'],
         ['Failed', data.failed ?? '—', Number(data.failed || 0) > 0 ? 'is-danger' : ''],
-      ]));
+      ];
+      if (data.autoWaveStatus === 'SCHEDULED') {
+        rows.push(['Next Wave', `Wave ${data.autoWaveNumber} in ${data.autoWaveAt} hours`]);
+      } else if (data.autoWaveStatus === 'SKIPPED') {
+        rows.push(['Next Wave', 'Not scheduled; handle manually if another wave is needed']);
+      }
+      breakdown.appendChild(buildSummaryCard(rows));
       if (data.error) breakdown.appendChild(createNode('p', { className: 'send-confirm-warning', text: data.error }));
+      if (data.autoWaveError) breakdown.appendChild(createNode('p', { className: 'send-confirm-warning', text: 'The next wave could not be scheduled. Handle it manually if another wave is needed.' }));
       if (!['COMPLETE', 'FAILED'].includes(status)) window.setTimeout(poll, 4000);
     } catch (error) {
       statusLine.textContent = 'Texts were queued. Status check is temporarily unavailable. Refresh this panel or Analytics in a moment.';
