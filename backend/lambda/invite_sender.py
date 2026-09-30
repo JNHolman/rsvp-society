@@ -512,3 +512,22 @@ def execute_send(body: dict, origin: str, token: str, job_id: str, *, deps: dict
         "breakdown": json.dumps(cumulative),
         "message": "Invite send complete",
     })
+
+    schedule_auto_wave = deps.get("_schedule_auto_wave")
+    if (callable(schedule_auto_wave) and wave_number in (1, 2) and cumulative["smsSent"] > 0
+            and not coerce_bool(body.get("manualSend", False))):
+        try:
+            schedule_result = schedule_auto_wave(
+                current_event,
+                wave_number,
+                female_percent=int(body.get("femalePercent") or 60),
+                audience_filters=body.get("audienceFilters") or {},
+            )
+            _update_job(job_id, {
+                "autoWaveStatus": "SCHEDULED" if schedule_result.get("scheduled") else "SKIPPED",
+                "autoWaveNumber": wave_number + 1,
+                "autoWaveAt": schedule_result.get("responseWindowHours"),
+            })
+        except Exception as exc:
+            logger.exception("auto_wave_failed stage=schedule event=%s wave=%d", event_id, wave_number)
+            _update_job(job_id, {"autoWaveStatus": "FAILED", "autoWaveError": str(exc)[:300]})

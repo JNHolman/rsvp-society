@@ -1721,6 +1721,7 @@ class TestContinuationMutationGuards(unittest.TestCase):
                  patch.object(invite_handler, "_get_existing_invited_phones", return_value=set()), \
                  patch.object(invite_handler, "_assert_formal_wave_available"), \
                  patch.object(invite_handler, "send_sms", side_effect=delete_while_provider_accepts), \
+                 patch.object(invite_handler, "schedule_next_wave", return_value={"scheduled": False}), \
                  patch.object(invite_handler, "_update_job"), \
                  patch.object(invite_handler, "log_action"), \
                  patch("invite_sender.time.sleep"):

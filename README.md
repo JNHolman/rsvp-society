@@ -99,7 +99,7 @@ rsvp-society/
 | Database | DynamoDB | Members, events, invites, check-ins, jobs, audit |
 | SMS | Quo | Outbound invite/reminder/conversation SMS and webhooks |
 | AI | Anthropic Claude | Jade SMS concierge responses |
-| Scheduling | EventBridge | Day-before/day-of reminders |
+| Scheduling | EventBridge Scheduler | One-time reminders and invite-wave follow-ups |
 | Secrets | AWS Secrets Manager | Admin token, Quo API key, webhook secrets, Anthropic key |
 | IaC | Terraform | AWS infrastructure |
 
@@ -201,7 +201,7 @@ Invite flow:
 5. Admin sends the locked preview or a selected subset.
 6. Backend sends using the locked session. It does not recalculate the audience during send.
 
-Each next wave is currently initiated by the admin. Auto selects the wave number and invitation count; it does not schedule a send or enforce a 24–48-hour response window. Timed wave progression is not included in this release.
+After a formal Wave 1 or Wave 2 send completes, the next wave is scheduled automatically. The system waits 48 hours when the event date allows; otherwise it shortens the wait so the next wave still goes out at least 24 hours before the event. If that minimum window has already passed, no automatic blast is sent and the host must handle it manually. At send time the system rechecks the active event, RSVP/+1 headcount, eligible audience, gender mix, and tier order. A full headcount means no follow-up text. The next wave reuses the first wave's audience filters and gender percentage. Wave 3 ends automatic progression.
 
 Tier pacing is staged: Wave 1 selects Tier 1 and estimates its invitation target using the 80% attendance cutoff; if the eligible audience has no Tier 1 members, it uses Tier 2 as a cold-start fallback. Wave 2 expands to not-yet-invited Tier 1 and Tier 2 members; Wave 3 can include Tier 3 if capacity still needs guests. Each new preview uses current RSVP/show results, counts confirmed plus-ones as seats, and excludes people already invited to that event. Newer members with fewer than three countable invite results remain Tier 2 until their attendance history is meaningful.
 
@@ -379,7 +379,7 @@ These are current accepted decisions, not hidden bugs:
 - Venue/address/ticket URL are not exposed before confirmation.
 - Check-in writes are idempotent/transactional where headcount could drift.
 - Jade's logistics privacy gate strips venue/address/sections/parking/tickets/Event Intelligence from the model's context (in code) until a member is confirmed.
-- Wave sizing uses the event's real show-rate and confirm-rate, with a minimum-sample floor so thin early data cannot trigger an over-send. Waves are operator-triggered; only reminders auto-fire.
+- Wave sizing uses the event's real show-rate and confirm-rate, with a minimum-sample floor so thin early data cannot trigger an over-send. Wave 1 and Wave 2 schedule one-time follow-ups after the response window; reminders use their own one-time schedules.
 
 ## Project status
 

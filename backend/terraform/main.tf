@@ -458,6 +458,8 @@ resource "aws_lambda_function" "invite_handler" {
       QUO_PHONE_NUMBER_ID    = var.quo_phone_number_id
       ADMIN_TOKEN_SECRET_ID  = var.admin_token_secret_id
       AUDIT_LOG_TABLE_NAME   = aws_dynamodb_table.audit_log.name
+      AUTO_WAVE_SCHEDULER_ROLE_ARN = aws_iam_role.reminder_scheduler_invoker.arn
+      INVITE_HANDLER_ARN     = "arn:aws:lambda:${local.region}:${local.account}:function:rsvp-invite-handler"
     }
   }
 }
