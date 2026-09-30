@@ -1446,8 +1446,9 @@ resource "aws_wafv2_web_acl" "api_acl" {
                 }
               }
             }
+            # AWS WAF requires at least two OR statements. With no old key, the second match repeats the current key.
             dynamic "statement" {
-              for_each = var.cloudfront_origin_verify_previous_header == "" ? [] : [var.cloudfront_origin_verify_previous_header]
+              for_each = [var.cloudfront_origin_verify_previous_header != "" ? var.cloudfront_origin_verify_previous_header : var.cloudfront_origin_verify_header]
               content {
                 byte_match_statement {
                   search_string = statement.value
