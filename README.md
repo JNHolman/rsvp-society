@@ -1,31 +1,35 @@
 # RSVP Society
 
-RSVP Society helps the hosts of curated R&B events build a community and run each event from the first invitation through the door.
+RSVP Society is an invite-only event operations platform built to manage a curated community's guest journey—from access request through event attendance and follow-up.
 
-## Meet Jade
+## The product
 
-Jade is RSVP Society's text concierge. Guests can ask her about an event, reply to an invitation, confirm or cancel, and manage a plus-one by text. She uses the event details to answer questions and shares private arrival information only with confirmed guests.
+Hosts use a web dashboard to review member requests, plan events, coordinate invitations, track responses, and manage check-in. Guests can interact by text with Jade, the event concierge, to ask event questions, respond to invitations, update a plus-one, or opt out.
 
-## How an event works
+The platform brings these activities into one operating flow so hosts can manage guest communication and attendance consistently across events.
 
-1. **The hosts plan a party.** They set the date, location, capacity, guest details, and which information should be shared after confirmation.
-2. **The hosts choose who to invite.** Members are organized by their history with RSVP Society. Invitations prioritize the people who have shown up and supported past events.
-3. **Invitations go out in waves.** Guests get time to respond before the next wave. Jade checks replies and plus-ones against the available seats; the next wave is scheduled only when more guests are needed.
-4. **Jade helps guests by text.** She handles replies and common questions, shares event details at the right time, and respects opt-outs.
-5. **The door team checks people in.** The guest list covers members and their confirmed plus-ones. A star marks a plus-one who is not already a member, so the host can invite them to join.
-6. **The hosts learn from the night.** Attendance and cancellations help shape future invitation tiers and event planning.
+## Guest and host journey
 
-The system supports one live event at a time. It is built for a growing, curated community across cities, with one event per day at most.
+1. A guest requests access and waits for host approval.
+2. Hosts set up an event and choose the invitation audience.
+3. Invitations and reminders go out in paced waves.
+4. Guests respond by text; confirmations and plus-ones are tracked against event capacity.
+5. The door team checks in confirmed guests and their plus-ones.
+6. Attendance data supports post-event reporting and future planning.
 
-## What is in this repository
+## Platform at a glance
 
-- The public RSVP Society website.
-- The private host dashboard for members, events, invitations, check-in, and attendance.
-- Jade's SMS and event workflows.
-- The cloud infrastructure and deployment workflow.
+- **Guest experience:** Public website for access requests and event information.
+- **Host experience:** Private dashboard for members, events, invitations, attendance, and reporting.
+- **Application services:** Serverless backend, managed data storage, SMS messaging, and an AI-assisted text concierge.
+- **Infrastructure and delivery:** AWS resources defined with Terraform and managed through GitHub Actions.
 
-## For hosts and maintainers
+## Engineering focus
 
-See [Jade's behavior](JADE.md) for how the text concierge works and [the validation checklist](VALIDATION.md) for deployment and live checks. [Current audit and release results](CURRENT_AUDIT_UPDATE.md) and [test record](RELEASE_VERIFICATION.txt) describe the reviewed source.
+The project brings together privacy-aware event information, invitation pacing, RSVP and plus-one capacity tracking, opt-out handling, and reliable attendance records. Those constraints make it a practical example of designing a cloud application around real operational workflows.
 
-The current source has passed its automated checks, but it has not been validated against live AWS, SMS, or event data. The validation checklist covers what remains before production use.
+**Technology:** JavaScript · Python · AWS · Terraform · GitHub Actions · SMS integration
+
+## Project discussion
+
+Questions about the product workflow, architecture, or engineering trade-offs are welcome through GitHub Issues.
