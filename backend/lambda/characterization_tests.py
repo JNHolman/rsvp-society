@@ -2199,12 +2199,12 @@ class TestExternalRuntimeCompatibilityContract(unittest.TestCase):
         self.assertIn("branches:\n      - main", self.workflow)
 
     def test_current_ci_toolchain_versions_are_pinned(self):
-        self.assertRegex(self.workflow, r"uses: actions/checkout@[0-9a-f]{40} # v7\\.")
-        self.assertRegex(self.workflow, r"uses: actions/setup-python@[0-9a-f]{40} # v7\\.")
-        self.assertRegex(self.workflow, r"uses: actions/setup-node@[0-9a-f]{40} # v7\\.")
+        self.assertRegex(self.workflow, r"uses: actions/checkout@[0-9a-f]{40} # v7")
+        self.assertRegex(self.workflow, r"uses: actions/setup-python@[0-9a-f]{40} # v7")
+        self.assertRegex(self.workflow, r"uses: actions/setup-node@[0-9a-f]{40} # v7")
         self.assertIn('node-version: "24"', self.workflow)
-        self.assertRegex(self.workflow, r"uses: aws-actions/configure-aws-credentials@[0-9a-f]{40} # v6\\.")
-        self.assertRegex(self.workflow, r"uses: hashicorp/setup-terraform@[0-9a-f]{40} # v4\\.")
+        self.assertRegex(self.workflow, r"uses: aws-actions/configure-aws-credentials@[0-9a-f]{40} # v6")
+        self.assertRegex(self.workflow, r"uses: hashicorp/setup-terraform@[0-9a-f]{40} # v4")
         self.assertIn('terraform_version: "1.16.4"', self.workflow)
         self.assertIn('required_version = "~> 1.16.0"', self.main_tf)
 
