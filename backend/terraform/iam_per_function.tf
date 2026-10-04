@@ -115,7 +115,6 @@ resource "aws_iam_role_policy" "lambda_admin_handler" {
           local.members_arn,
           local.members_index,
           local.events_arn,
-          local.event_history_arn,
           local.invites_arn,
           local.invites_index,
           local.checkins_arn,
