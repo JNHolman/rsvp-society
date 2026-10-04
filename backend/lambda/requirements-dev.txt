@@ -2,7 +2,7 @@
 # (excluded by the canonical build_lambda.sh deployment package).
 -r requirements.txt
 
-moto[dynamodb,secretsmanager]~=5.0
+moto[dynamodb,secretsmanager]~=5.2
 pytest==9.0.3
 ruff==0.16.9
 pip-audit==2.10.1
