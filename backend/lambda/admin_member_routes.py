@@ -60,6 +60,11 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
+def _checkin_window_open(now: datetime, start: datetime, end: datetime) -> bool:
+    """Door check-in is available from three hours before start through event end."""
+    return start - timedelta(hours=3) <= now <= end
+
+
 def _active_event_slug() -> str:
     try:
         ev = boto3.resource("dynamodb").Table(os.getenv("EVENTS_TABLE_NAME", "rsvp-events")).get_item(Key={"eventId": "current"}).get("Item") or {}
@@ -731,8 +736,7 @@ def record_member_attendance(event: dict, headers: dict, token: str) -> dict:
         end = datetime.combine(start.date(), datetime.strptime(event_row.get("endTime") or "23:59", "%H:%M").time(), tzinfo=zone)
         if end <= start:
             end += timedelta(days=1)
-        checkin_open = start - timedelta(hours=3)
-        if not (checkin_open <= now <= end):
+        if not _checkin_window_open(now, start, end):
             return resp(headers, 409, {"ok": False, "error": "Check-in opens 3 hours before the event and closes at the scheduled event end"})
     except (ValueError, TypeError):
         return resp(headers, 409, {"ok": False, "error": "Save the event date and time before check-in"})
