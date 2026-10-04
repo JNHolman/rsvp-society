@@ -371,6 +371,26 @@ class TestFinalAuditRegressionContracts(unittest.TestCase):
         self.assertEqual(response["statusCode"], 413)
         upsert.assert_not_called()
 
+    def test_base64_payload_size_is_measured_after_decoding(self):
+        import base64
+
+        # Base64 expansion itself must not trigger the application body limit.
+        # This decoded JSON is valid and below the limit, while its encoded form
+        # is larger than MAX_ACCESS_REQUEST_BYTES.
+        valid = json.dumps({"firstName": "A", "lastName": "B", "phone": "1", "smsOptIn": True, "zipCode": "0", "pad": "x" * 12200}).encode("utf-8")
+        self.assertLessEqual(len(valid), access_request.MAX_ACCESS_REQUEST_BYTES)
+        self.assertGreater(len(base64.b64encode(valid)), access_request.MAX_ACCESS_REQUEST_BYTES)
+        event = {
+            "httpMethod": "POST",
+            "headers": {},
+            "isBase64Encoded": True,
+            "body": base64.b64encode(valid).decode("ascii"),
+        }
+        with patch.object(access_request, "normalize_phone", side_effect=ValueError("bad phone")):
+            response = access_request.handler(event, None)
+        self.assertEqual(response["statusCode"], 400)
+        self.assertNotEqual(json.loads(response["body"]).get("error"), "request body too large")
+
     def test_public_signup_rejects_oversized_decoded_base64_body(self):
         import base64
 
