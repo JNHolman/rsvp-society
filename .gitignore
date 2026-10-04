@@ -5,12 +5,9 @@
 *.tfplan
 tfplan
 
-# Generated packages (release archives are committed explicitly)
+# Generated deployment packages
 *.zip
-!backend/terraform/lambda_bundle.zip
-!dist/frontend-deploy.zip
-!dist/lambda-bundle.zip
-!dist/terraform-source.zip
+dist/
 
 # Python
 __pycache__/
@@ -19,3 +16,13 @@ __pycache__/
 # Local tooling and OS files
 .ruff_cache/
 .DS_Store
+
+# Credentials and private local configuration
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.tfvars
+!*.tfvars.example
+*.log

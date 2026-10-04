@@ -1,7 +1,7 @@
+import { syncReminderTimingUi } from './event.js';
 import { apiJson } from './api.js';
 import { ROUTES } from './constants.js';
 import { loadAnalyticsTab, loadEventAnalytics } from './analytics.js';
-import { loadAttendance, markAttendance } from './attendance.js';
 import { deleteCurrentEvent, draftWithJade, duplicateCurrentEvent, loadCurrentEvent, previewJadeMessages, saveEvent, saveEventAndSetActive, startNewEvent, updateVibeTags } from './event.js';
 import { closeImport, confirmImport, handleDrop, handleFileSelect, openImport, refreshImportPreview } from './import.js';
 import {
@@ -11,10 +11,8 @@ import {
   renderPreview,
   runPreview,
   sendConfirmedUpdate,
-  sendManualReminder,
   prefillVenueReveal,
   sendInvites,
-  sendManualInviteOverride,
   togglePreviewSelection,
   updatePreviewCount,
 } from './invite.js';
@@ -125,9 +123,7 @@ function bindShellEvents() {
   $('member-search')?.addEventListener('input', () => refreshMembersWithServerFilters());
   $('preview-run-btn')?.addEventListener('click', runPreview);
   $('send-btn')?.addEventListener('click', sendInvites);
-  $('manual-invite-send-btn')?.addEventListener('click', sendManualInviteOverride);
   $('confirmed-update-send-btn')?.addEventListener('click', sendConfirmedUpdate);
-  $('manual-reminder-send-btn')?.addEventListener('click', sendManualReminder);
   $('reveal-venue-btn')?.addEventListener('click', prefillVenueReveal);
   $('invite-back-btn')?.addEventListener('click', () => goToSection('event'));
   $('ev-type')?.addEventListener('change', updateVibeTags);
@@ -140,6 +136,7 @@ function bindShellEvents() {
   $('event-draft-jade-btn')?.addEventListener('click', draftWithJade);
   $('event-next-btn')?.addEventListener('click', () => goToSection('invite'));
   $('event-lock-btn')?.addEventListener('click', () => saveEvent({ setActive: false }));
+  $('ev-venue-mode')?.addEventListener('change', syncReminderTimingUi);
   $('analytics-event-select')?.addEventListener('change', (event) => loadEventAnalytics(event.target.value));
   $('analytics-refresh-btn')?.addEventListener('click', () => loadAnalyticsTab());
   $('import-modal')?.addEventListener('click', (event) => {
@@ -171,24 +168,6 @@ function bindDelegatedEvents() {
     const clearSelected = event.target.closest('.preview-clear-selected-btn');
     if (clearSelected) {
       clearPreviewSelection();
-      return;
-    }
-
-    const attendanceLoad = event.target.closest('.attendance-load-btn');
-    if (attendanceLoad) {
-      loadAttendance();
-      return;
-    }
-
-    const attendanceAction = event.target.closest('.attendance-action-btn');
-    if (attendanceAction) {
-      markAttendance(
-        attendanceAction.dataset.phone || '',
-        attendanceAction.dataset.attended === 'true',
-        attendanceAction.dataset.eventId || '',
-        attendanceAction.dataset.guestType || 'member',
-        attendanceAction.dataset.sponsorPhone || attendanceAction.dataset.phone || '',
-      );
       return;
     }
 

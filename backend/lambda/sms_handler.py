@@ -7,6 +7,8 @@ import re
 import uuid
 from datetime import datetime, timezone
 
+from event_policy import venue_available, cutoff_reached, event_start
+
 import boto3
 from botocore.exceptions import ClientError
 from boto3.dynamodb.conditions import Key as DKey
@@ -36,11 +38,8 @@ from jade_prompt import JADE_SYSTEM_PROMPT
 
 from sms_intent import (
     _is_status_question, _detect_rsvp_intent, AMBIGUOUS_KEYWORDS, IGNORE_KEYWORDS,
-    RUNNING_LATE_KEYWORDS, COST_KEYWORDS, EXTRA_GUEST_KEYWORDS, PLUS_ONE_UPDATE_INTENTS,
-    _is_opt_out_message, UNKNOWN_PLUS_ONE_REPLIES,
-    _is_correction_text, _correction_reply, _normalized_tokens,
-    _contains_topic, _is_question_like_text, _looks_like_name_token,
-    _is_bare_name_for_catch, _looks_like_person_name,
+    RUNNING_LATE_KEYWORDS, COST_KEYWORDS, EXTRA_GUEST_KEYWORDS, _is_opt_out_message, _is_correction_text, _correction_reply, _normalized_tokens,
+    _contains_topic,
 )
 
 # ── DynamoDB helpers ──────────────────────────────────────────────────────────
@@ -100,6 +99,9 @@ def _get_pending_approval(host_phone: str, approval_code: str = None) -> dict | 
             KeyConditionExpression=_K("hostPhone").eq(host_phone),
         )
         items = resp.get("Items", [])
+        while resp.get("LastEvaluatedKey"):
+            resp = _pending_approvals_table().query(KeyConditionExpression=_K("hostPhone").eq(host_phone), ExclusiveStartKey=resp["LastEvaluatedKey"])
+            items.extend(resp.get("Items", []))
         if not items:
             return None
 
@@ -184,8 +186,7 @@ def _extract_inbound_message_id(body: dict, event: dict) -> str:
 def _claim_inbound_message(message_id: str) -> str:
     """Use a short processing lease; only completed messages get long retention.
 
-    Receipt storage outages fail open so an actual message is never called a
-    duplicate just because DynamoDB is unavailable.
+    Receipt storage outages return BUSY so the provider retries without duplicate processing.
     """
     if not message_id:
         return ""
@@ -208,12 +209,12 @@ def _claim_inbound_message(message_id: str) -> str:
                 # Old receipts had no state and were treated as completed.
                 return "DONE" if row and row.get("receiptState", "DONE") == "DONE" else "BUSY"
             except Exception:
-                logger.exception("sms_handler: inbound receipt read unavailable; processing message")
-                return ""
-        logger.exception("sms_handler: inbound receipt claim unavailable; processing message")
+                logger.exception("sms_handler: inbound receipt read unavailable; retry required")
+                return "BUSY"
+        logger.exception("sms_handler: inbound receipt claim unavailable; retry required")
     except Exception:
-        logger.exception("sms_handler: inbound receipt claim unavailable; processing message")
-    return ""
+        logger.exception("sms_handler: inbound receipt claim unavailable; retry required")
+    return "BUSY"
 
 
 def _finish_inbound_message(message_id: str, owner: str, successful: bool) -> None:
@@ -598,7 +599,7 @@ def _build_confirmation_message(phone: str) -> str:
         # Confirmation should only reveal venue/address when the event is explicitly
         # marked ready to reveal. This protects draft/test/live mismatches from
         # leaking sensitive logistics immediately after a YES response.
-        reveal = coerce_bool(ev.get("revealVenue", False))
+        reveal = venue_available(ev, confirmed=True)
         venue = (ev.get("venue") or "").strip()
         address = (ev.get("address") or "").strip()
         if reveal:
@@ -685,8 +686,8 @@ def _plus_one_reservation_key(name: str) -> str:
 def _ensure_plus_one_reservation_map(event_id: str) -> None:
     return _po_ensure_reservation_map(event_id, deps=_plus_one_deps())
 
-def _set_plus_one(event_id: str, phone: str, plus_one_name: str, is_member: bool) -> str:
-    return _po_set_plus_one(event_id, phone, plus_one_name, is_member, deps=_plus_one_deps())
+def _set_plus_one(event_id: str, phone: str, plus_one_name: str, is_member: bool, *, expected_name=None, capacity_override=None) -> str:
+    return _po_set_plus_one(event_id, phone, plus_one_name, is_member, deps=_plus_one_deps(), expected_name=expected_name, capacity_override=capacity_override)
 
 def _set_awaiting_plus_one(event_id: str, phone: str) -> None:
     return _po_set_awaiting(event_id, phone, deps=_plus_one_deps())
@@ -733,12 +734,20 @@ def _build_event_context(member: dict = None) -> str:
 
 def _claude(message: str, mode: str = "general", member: dict = None) -> str:
     from jade_service import claude
-    return claude(message, mode, member, deps={
+    reply = claude(message, mode, member, deps={
         "JADE_SYSTEM_PROMPT": JADE_SYSTEM_PROMPT,
         "_build_event_context": _build_event_context,
         "get_secret_string": get_secret_string,
-    })
-
+    }).strip()
+    if reply == "[NO_REPLY]":
+        return ""
+    if reply == "[HANDOFF]":
+        _queue_host_request(member["phone"], member, "HANDOFF", message[:500])
+        return "Let me check on that."
+    if reply.startswith("[FEEDBACK]"):
+        _queue_host_request(member["phone"], member, "HANDOFF", "Event feedback: " + message[:400])
+        return reply.removeprefix("[FEEDBACK]").strip() or "Appreciate you."
+    return reply
 
 
 def draft_template_messages(event: dict) -> dict:
@@ -769,6 +778,7 @@ def _host_approval_deps():
     from member_store import mark_welcome_sent, claim_welcome_send, clear_welcome_send_claim
     from sms_adapter import maybe_send_welcome
     return {
+        "request_deps": _request_deps,
         "get_pending_approval": _get_pending_approval,
         "clear_pending_approval": _clear_pending_approval,
         "get_member": get_member,
@@ -804,6 +814,21 @@ def _extract_inbound_message(body: dict) -> tuple[str, str, str]:
 
 
 # ── Main handler ──────────────────────────────────────────────────────────────
+
+def _queue_host_request(phone, member, kind, detail):
+    from host_requests import queue_request
+    return queue_request(_get_current_event(), phone,
+                         " ".join(str(member.get(k) or "") for k in ("name", "lastName")).strip(),
+                         kind, detail, hosts=get_host_phones(), send_sms=send_sms,
+                         current_guest=str((_get_confirmed_invite(phone) or {}).get('plusOneName') or '') if kind.startswith('GUEST_') else None)
+
+
+def _request_deps():
+    return {"get_member": get_member, "get_current_event": _get_current_event, "validate_candidate": _validate_plus_one_candidate,
+            "set_plus_one": _set_plus_one, "plus_one_deps": _plus_one_deps,
+            "cancel_invite": _cancel_confirmed_invite, "confirm_invite": _confirm_invite_with_capacity,
+            "confirmation_message": _build_confirmation_message, "send_sms": send_sms}
+
 
 def _handle_message(event, context, *, verified=False):
     request_id = (context.aws_request_id if context and hasattr(context, "aws_request_id") else "local")
@@ -884,6 +909,13 @@ def _handle_message(event, context, *, verified=False):
         if member.get("smsOptIn") is not None and not coerce_bool(member.get("smsOptIn")):
             return {"statusCode": 200, "body": json.dumps({"ok": True})}
 
+        if re.search(r"\b(kill myself|commit suicide|end my life)\b", text, re.I):
+            if sms_enabled:
+                send_sms(from_phone, "I'm sorry you're feeling this way. If you might act on this now, call 911 or go to the nearest emergency department. You can call or text 988 in the US. Please reach out to someone you trust who can stay with you.")
+            return {"statusCode": 200, "body": json.dumps({"ok": True})}
+        if re.search(r"(how old are you|are you single|date you|love you|lawn work|mow my|terrible day)", text, re.I):
+            return {"statusCode": 200, "body": json.dumps({"ok": True})}
+
         # ── Corrections / hallucination accusations must never be saved as +1 names ──
         if _is_correction_text(text, normalized):
             if sms_enabled:
@@ -897,116 +929,15 @@ def _handle_message(event, context, *, verified=False):
         # Must run before keyword routing so a name reply like "Mike Smith"
         # doesn't fall through to the Jade general handler.
         confirmed_invite = _get_confirmed_invite(from_phone)
-        if confirmed_invite and confirmed_invite.get("awaitingPlusOneName") and not _is_question_like_text(text, normalized) and not _detect_rsvp_intent(text, normalized):
-            try:
-                event_id = confirmed_invite["eventId"]
-
-                # If they're trying to update/change while we're waiting for a name,
-                # just re-ask — don't treat the intent phrase as a name.
-                if any(intent in normalized for intent in PLUS_ONE_UPDATE_INTENTS):
-                    if sms_enabled:
-                        send_sms(from_phone, "Yes. Send the new first and last name.")
-                    return {"statusCode": 200, "body": json.dumps({"ok": True})}
-
-                if normalized in UNKNOWN_PLUS_ONE_REPLIES:
-                    # Keep flag open — they can still send a name later
-                    if sms_enabled:
-                        send_sms(from_phone, "No rush. Lock it in when you know.")
-                else:
-                    # Require a likely first and last name. Do not save questions or casual replies as guests.
-                    name_parts = text.strip().split()
-                    if not _looks_like_person_name(text) and len(name_parts) >= 2:
-                        if sms_enabled:
-                            send_sms(from_phone, "Send their first and last name when you know.")
-                    elif len(name_parts) < 2:
-                        _invites_table().update_item(
-                            Key={"eventId": event_id, "phone": from_phone},
-                            UpdateExpression="SET awaitingPlusOneLastName = :fn, awaitingPlusOneName = :f",
-                            ExpressionAttributeValues={":fn": name_parts[0].title(), ":f": False},
-                        )
-                        if sms_enabled:
-                            send_sms(from_phone, "And their last name?")
-                    else:
-                        plus_one_name = " ".join(p.title() for p in name_parts[:3])[:100]
-                        can_save, reply, is_member = _validate_plus_one_candidate(plus_one_name, event_id, from_phone)
-                        if not can_save:
-                            _invites_table().update_item(
-                                Key={"eventId": event_id, "phone": from_phone},
-                                UpdateExpression="SET awaitingPlusOneName = :t",
-                                ExpressionAttributeValues={":t": True},
-                            )
-                            if sms_enabled:
-                                send_sms(from_phone, reply)
-                        else:
-                            save_result = _set_plus_one(event_id, from_phone, plus_one_name, is_member=is_member)
-                            if save_result != "SAVED":
-                                _set_awaiting_plus_one(event_id, from_phone)
-                                if sms_enabled:
-                                    if save_result == "FULL":
-                                        send_sms(from_phone, "I can't add another guest — this one's full.")
-                                    else:
-                                        send_sms(from_phone, _plus_one_unavailable_reply(plus_one_name))
-                            elif sms_enabled:
-                                send_sms(from_phone, f"{plus_one_name}. Got it.")
-            except Exception:
-                logger.exception("sms_handler: plus one name collection failed phone=...%s", from_phone[-4:])
-            return {"statusCode": 200, "body": json.dumps({"ok": True})}
-
-        # ── Bare name sent OUTSIDE any awaiting-name context ──────────────────
-        # A lone person-name ("Raven", "Ericka Jackson") with no awaiting flag is not
-        # a capture and not a greeting target. Claude's default is to greet it ("Hey
-        # Raven"), which leaks a fake plus-one flow. Deflect deterministically instead:
-        # only confirmed members can attach a guest, and only the system captures it.
-        if _is_bare_name_for_catch(text, normalized) and _detect_rsvp_intent(text, normalized) == "" and not _is_status_question(normalized) and not (confirmed_invite and confirmed_invite.get("awaitingPlusOneLastName")):
-                if sms_enabled:
-                    _status = _get_current_invite_status(from_phone)
-                    if _status in LOGISTICS_ELIGIBLE_STATUSES:
-                        # Confirmed: they may be trying to set a guest out of flow.
-                        send_sms(from_phone, "If that's your plus one, say so and send their first and last name.")
-                    else:
-                        # Not confirmed: a name means nothing yet.
-                        send_sms(from_phone, "Lock your own spot first. Reply yes.")
-                return {"statusCode": 200, "body": json.dumps({"ok": True})}
-
-        # ── AWAITING PLUS ONE LAST NAME ────────────────────────────────────────
-        if confirmed_invite and confirmed_invite.get("awaitingPlusOneLastName") and not _is_question_like_text(text, normalized) and not _detect_rsvp_intent(text, normalized):
-            try:
-                event_id = confirmed_invite["eventId"]
-                first_name = confirmed_invite.get("awaitingPlusOneLastName", "")
-                raw_last_name = text.strip()
-                if normalized in UNKNOWN_PLUS_ONE_REPLIES or not _looks_like_name_token(raw_last_name):
-                    _invites_table().update_item(
-                        Key={"eventId": event_id, "phone": from_phone},
-                        UpdateExpression="SET awaitingPlusOneName = :t, awaitingPlusOneLastName = :e",
-                        ExpressionAttributeValues={":t": True, ":e": ""},
-                    )
-                    if sms_enabled:
-                        send_sms(from_phone, "No rush. Lock it in when you know.")
-                    return {"statusCode": 200, "body": json.dumps({"ok": True})}
-                last_name = raw_last_name.title()
-                plus_one_name = f"{first_name} {last_name}"[:100]
-                can_save, reply, is_member = _validate_plus_one_candidate(plus_one_name, event_id, from_phone)
-                if not can_save:
-                    _invites_table().update_item(
-                        Key={"eventId": event_id, "phone": from_phone},
-                        UpdateExpression="SET awaitingPlusOneName = :t, awaitingPlusOneLastName = :e",
-                        ExpressionAttributeValues={":t": True, ":e": ""},
-                    )
-                    if sms_enabled:
-                        send_sms(from_phone, reply)
-                else:
-                    save_result = _set_plus_one(event_id, from_phone, plus_one_name, is_member=is_member)
-                    if save_result != "SAVED":
-                        _set_awaiting_plus_one(event_id, from_phone)
-                        if sms_enabled:
-                            if save_result == "FULL":
-                                send_sms(from_phone, "I can't add another guest — this one's full.")
-                            else:
-                                send_sms(from_phone, _plus_one_unavailable_reply(plus_one_name))
-                    elif sms_enabled:
-                        send_sms(from_phone, f"{plus_one_name}. Got it.")
-            except Exception:
-                logger.exception("sms_handler: plus one last name collection failed phone=...%s", from_phone[-4:])
+        from sms_guest_flow import handle_guest
+        guest_reply = handle_guest(from_phone, text, normalized, confirmed_invite, _get_current_event() if confirmed_invite else {}, deps={
+            **_request_deps(),
+            "request": lambda kind, detail: _queue_host_request(from_phone, member, kind, detail),
+            "set_awaiting": _set_awaiting_plus_one, "invites_table": _invites_table,
+        })
+        if guest_reply is not None:
+            if sms_enabled and guest_reply:
+                send_sms(from_phone, guest_reply.strip())
             return {"statusCode": 200, "body": json.dumps({"ok": True})}
 
         # ── STATUS QUESTION (not a fresh confirm) ────────────────────────────
@@ -1049,6 +980,9 @@ def _handle_message(event, context, *, verified=False):
                             event_id, from_phone, target_confirmed
                         )
                         if confirmation_result == "FULL":
+                            _queue_host_request(from_phone, member, "WAITLIST", "RSVP at capacity")
+                            _invites_table().update_item(Key={"eventId": event_id, "phone": from_phone},
+                                UpdateExpression="SET waitlisted = :yes", ExpressionAttributeValues={":yes": True})
                             logger.info(
                                 "sms_handler: capacity reached target=%d event=%s phone=...%s",
                                 target_confirmed, event_id, from_phone[-4:],
@@ -1057,7 +991,7 @@ def _handle_message(event, context, *, verified=False):
                                 try:
                                     send_sms(
                                         from_phone,
-                                        "This one's full. You'll hear from me for the next.",
+                                        "I have you on the waitlist. Let me see what I can do.",
                                     )
                                 except Exception:
                                     logger.exception("sms_handler: at-capacity SMS failed phone=...%s", from_phone[-4:])
@@ -1073,7 +1007,12 @@ def _handle_message(event, context, *, verified=False):
                             # separate sentence so Jade/details copy does not get mangled.
                             if ev.get("allowPlusOnes"):
                                 _set_awaiting_plus_one(event_id, from_phone)
-                                confirmation_msg = confirmation_msg.rstrip() + "\n\nIf you're bringing someone, send their first and last name."
+                                from followups import schedule
+                                try:
+                                    schedule(ev, 'guest', from_phone, after_hours=72)
+                                except Exception:
+                                    logger.exception('Guest follow-up scheduling failed; RSVP remains confirmed')
+                                confirmation_msg = "You’re in. Bringing someone? Send their first and last name, or let me know if it’s just you."
                             send_sms(from_phone, confirmation_msg)
                         except Exception:
                             logger.exception("sms_handler: confirmation SMS failed phone=...%s", from_phone[-4:])
@@ -1101,6 +1040,11 @@ def _handle_message(event, context, *, verified=False):
                         current_invite = _invites_table().get_item(
                             Key={"eventId": event_id, "phone": from_phone}, ConsistentRead=True,
                         ).get("Item") or {}
+                        if current_invite.get("status") == "CONFIRMED" and cutoff_reached(current_event, 24):
+                            _queue_host_request(from_phone, member, "CANCEL", "Cancel RSVP")
+                            if sms_enabled:
+                                send_sms(from_phone, "Let me see what I can do.")
+                            return {"statusCode": 200, "body": json.dumps({"ok": True})}
                         if (current_invite.get("status") or "").upper() == "CONFIRMED" and _cancel_confirmed_invite(event_id, from_phone):
                             if sms_enabled:
                                 try:
@@ -1133,74 +1077,19 @@ def _handle_message(event, context, *, verified=False):
                     logger.exception("sms_handler: correction SMS failed phone=...%s", from_phone[-4:])
             return {"statusCode": 200, "body": json.dumps({"ok": True})}
 
-        # ── PLUS ONE UPDATE ANYTIME ────────────────────────────────────────────
-        # First: catch natural-language update intents (sets awaitingPlusOneName flag
-        # so the next reply is handled deterministically instead of falling to Jade).
-        # Second: catch inline "my plus one is X" / "change my plus one to X" patterns.
-        _plus_one_intent = any(intent in normalized for intent in PLUS_ONE_UPDATE_INTENTS)
-        if _plus_one_intent and confirmed_invite:
-            try:
-                event_id = confirmed_invite["eventId"]
-                _set_awaiting_plus_one(event_id, from_phone)
-                if sms_enabled:
-                    send_sms(from_phone, "Send their first and last name when you know.")
-            except Exception:
-                logger.exception("sms_handler: plus one intent routing failed phone=...%s", from_phone[-4:])
-            return {"statusCode": 200, "body": json.dumps({"ok": True})}
-
-        # Detect "my plus one is X", "change my plus one to X", "plus one is X"
-        _plus_update_match = re.match(
-            r"^(?:my\s+)?(?:change\s+my\s+)?plus\s+one\s+(?:is|to)\s+(.+)$",
-            text.strip(),
-            re.IGNORECASE,
-        )
-        if _plus_update_match and confirmed_invite:
-            try:
-                event_id = confirmed_invite["eventId"]
-                raw_name = _plus_update_match.group(1).strip()
-                name_parts = raw_name.split()
-                if raw_name.upper().strip() in UNKNOWN_PLUS_ONE_REPLIES or _is_question_like_text(raw_name):
-                    _set_awaiting_plus_one(event_id, from_phone)
-                    if sms_enabled:
-                        send_sms(from_phone, "No rush. Lock it in when you know.")
-                elif not _looks_like_person_name(raw_name) and len(name_parts) >= 2:
-                    if sms_enabled:
-                        send_sms(from_phone, "Send their first and last name when you know.")
-                elif len(name_parts) < 2:
-                    _invites_table().update_item(
-                        Key={"eventId": event_id, "phone": from_phone},
-                        UpdateExpression="SET awaitingPlusOneLastName = :fn, awaitingPlusOneName = :f",
-                        ExpressionAttributeValues={":fn": name_parts[0].title(), ":f": False},
-                    )
-                    if sms_enabled:
-                        send_sms(from_phone, "And their last name?")
-                else:
-                    plus_one_name = " ".join(p.title() for p in name_parts[:3])[:100]
-                    can_save, reply, is_member = _validate_plus_one_candidate(plus_one_name, event_id, from_phone)
-                    if not can_save:
-                        _set_awaiting_plus_one(event_id, from_phone)
-                        if sms_enabled:
-                            send_sms(from_phone, reply)
-                    else:
-                        save_result = _set_plus_one(event_id, from_phone, plus_one_name, is_member=is_member)
-                        if save_result != "SAVED":
-                            _set_awaiting_plus_one(event_id, from_phone)
-                            if sms_enabled:
-                                if save_result == "FULL":
-                                    send_sms(from_phone, "I can't add another guest — this one's full.")
-                                else:
-                                    send_sms(from_phone, _plus_one_unavailable_reply(plus_one_name))
-                        elif sms_enabled:
-                            send_sms(from_phone, f"{plus_one_name}. Got it.")
-            except Exception:
-                logger.exception("sms_handler: plus one update anytime failed phone=...%s", from_phone[-4:])
-            return {"statusCode": 200, "body": json.dumps({"ok": True})}
-
         # ── RUNNING LATE ───────────────────────────────────────────────────────
         if any(phrase in normalized for phrase in RUNNING_LATE_KEYWORDS):
             if sms_enabled:
                 try:
-                    send_sms(from_phone, "See you there.")
+                    ev = _get_current_event()
+                    started = datetime.now(timezone.utc) >= event_start(ev)
+                    if started and not ev.get("endTime"):
+                        _queue_host_request(from_phone, member, "HANDOFF", text[:500])
+                        send_sms(from_phone, "Let me check on that.")
+                    elif started:
+                        send_sms(from_phone, "It ends at " + _display_time(str(ev["endTime"])) + ".")
+                    else:
+                        send_sms(from_phone, "See you there.")
                 except Exception:
                     logger.exception("sms_handler: running late SMS failed phone=...%s", from_phone[-4:])
             return {"statusCode": 200, "body": json.dumps({"ok": True})}
@@ -1249,19 +1138,12 @@ def _handle_message(event, context, *, verified=False):
             return {"statusCode": 200, "body": json.dumps({"ok": True})}
 
 
-        # Section/table inquiry — silently alert hosts
-        TABLE_TRIGGERS = {"TABLE", "SECTION", "VIP", "SECTIONS", "TABLES", "BOOTH", "CABANA", "CABANAS"}
-        if _normalized_tokens(text) & TABLE_TRIGGERS:
-            host_phones = get_host_phones()
-            if host_phones and sms_enabled:
-                first = member.get("name", "")
-                last = member.get("lastName", "")
-                alert = f"Table inquiry — {first} {last} {from_phone}".strip()
-                for hp in host_phones:
-                    try:
-                        send_sms(hp, alert)
-                    except Exception:
-                        logger.exception("sms_handler: host alert failed to %s", hp[-4:])
+        arrangements = bool(_normalized_tokens(text) & {"TABLE", "SECTION", "VIP", "SECTIONS", "TABLES", "BOOTH", "CABANA", "CABANAS", "BOTTLE", "BOTTLES", "BIRTHDAY"}) or "GROUP PRIC" in normalized
+        if arrangements and (not _get_current_event().get("sectionInfo") or re.search(r"\b(book|reserve|want|need|birthday|group)\b", text, re.I)):
+            _queue_host_request(from_phone, member, "HANDOFF", text[:500])
+            if sms_enabled:
+                send_sms(from_phone, "I'll have the person handling that get back to you.")
+            return {"statusCode": 200, "body": json.dumps({"ok": True})}
 
         # ── OPERATIONAL DETAILS — deterministic unknown handling ──────────────
         # Legacy event records may still carry one fact in the retired Jade Answers field,
@@ -1297,7 +1179,11 @@ def _handle_message(event, context, *, verified=False):
                 start = _display_time(str(ev.get("startTime") or ""))
                 end = _display_time(str(ev.get("endTime") or ""))
                 if start and end:
-                    detail_parts.append(f"{start} to {end}.")
+                    try:
+                        started = datetime.now(timezone.utc) >= event_start(ev)
+                    except (ValueError, TypeError, KeyError):
+                        started = False
+                    detail_parts.append(f"It ends at {end}." if started else f"{start}–{end}.")
                 elif start:
                     detail_parts.append(f"Doors at {start}.")
             if _contains_topic(tokens, "PARK", "PARKING"):

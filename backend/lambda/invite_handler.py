@@ -177,7 +177,7 @@ def _get_next_wave_number(event_id: str) -> int:
 
 def _assert_formal_wave_available(wave_number: int) -> None:
     if wave_number not in FORMAL_WAVE_NUMBERS:
-        raise ValueError("AUTO_WAVES_COMPLETE: Wave 1, Wave 2, and Wave 3 already exist. Use Manual/Resend instead of creating Wave 4.")
+        raise ValueError("All three waves have been sent.")
 
 def _get_existing_invited_phones(event_id: str) -> set:
     invites_t = _invites_table()
@@ -193,7 +193,7 @@ def _get_existing_invited_phones(event_id: str) -> set:
             phone  = item.get("phone")
             status = (item.get("status") or "").upper()
             # Only block future waves for members who actually received the SMS
-            if phone and status in _REAL_INVITE_STATUSES:
+            if phone and (status in _REAL_INVITE_STATUSES or status == "GUEST"):
                 phones.add(phone)
         last = resp.get("LastEvaluatedKey")
         if not last:
@@ -617,7 +617,7 @@ def _get_analytics(event_id: str) -> dict:
             kwargs["ExclusiveStartKey"] = last
 
         # Exclude non-real invite statuses from all analytics (uses central constant)
-        items = [i for i in items if (i.get("status") or "").upper() not in _ANALYTICS_EXCLUDE_STATUSES]
+        items = [i for i in items if (i.get("status") or "").upper() not in (_ANALYTICS_EXCLUDE_STATUSES | {"GUEST"})]
 
         invited = len(items)
         # ATTENDED and NO_SHOW were confirmed — use centralized constant
@@ -687,9 +687,33 @@ def handle_preview(body: dict, origin: str) -> dict:
     except ValueError as ve:
         return _resp(400, {"ok": False, "error": str(ve)}, origin)
 
+    if body.get("action") == "save_plan":
+        if wave_number < _get_next_wave_number(event_id):
+            return _resp(409, {"ok": False, "error": "This wave has already been sent"}, origin)
+        plan = {"waveSize": max(0, wave_size), "femalePercent": female_pct,
+                "audienceFilters": body.get("audienceFilters") or {},
+                "removedPhones": [str(phone) for phone in removed_phones][:2500],
+                "paused": coerce_bool(body.get("paused", False))}
+        _events_table().update_item(Key={"eventId": event_id},
+            UpdateExpression="SET wavePlans = if_not_exists(wavePlans, :empty)",
+            ConditionExpression="attribute_exists(eventId)", ExpressionAttributeValues={":empty": {}})
+        _events_table().update_item(Key={"eventId": event_id}, UpdateExpression="SET wavePlans.#wave = :plan",
+            ExpressionAttributeNames={"#wave": str(wave_number)}, ExpressionAttributeValues={":plan": plan})
+        return _resp(200, {"ok": True, "waveNumber": wave_number, "plan": plan}, origin)
+
     existing_invites = _get_existing_invited_phones(event_id)
     all_existing_invite_map = _get_existing_invite_map(event_id)
     existing_invite_map = all_existing_invite_map if include_existing else {}
+
+    if wave_number < _get_next_wave_number(event_id):
+        historical = []
+        for row in all_existing_invite_map.values():
+            if int(row.get("waveNumber") or 0) != wave_number or row.get("status") in {"FAILED", "DELETED", "GUEST"}:
+                continue
+            historical.append({**row, "displayName": " ".join(str(row.get(k) or "") for k in ("name", "lastName")).strip(),
+                "currentEventInviteStatus": row.get("status"), "tier": row.get("tier", 2)})
+        return _resp(200, {"ok": True, "members": historical, "summary": {"waveNumber": wave_number,
+            "waveSize": len(historical), "totalInvites": len(historical), "historical": True}}, origin)
 
     analytics = _get_analytics(event_id)
     gap_info = None
@@ -891,10 +915,20 @@ def handle_send(body: dict, origin: str, token: str, job_id_override: str | None
     except ValueError as ve:
         return _resp(409, {"ok": False, "error": str(ve)}, origin)
 
+    if not confirmed_update and not coerce_bool(body.get("manualSend", False)):
+        requested_wave = int(body.get("waveNumber") or 0)
+        if requested_wave != _get_next_wave_number(event_id):
+            return _resp(409, {"ok": False, "error": "The wave has already advanced. Refresh the audience."}, origin)
+
+    formal_send = not confirmed_update and not coerce_bool(body.get("manualSend", False))
+    if formal_send:
+        # Manual and scheduled sends contend for the same wave job, even if
+        # they reviewed different audiences at the same moment.
+        job_id = job_id_override or _auto_wave_job_id(event_id, int(body["waveNumber"]))
     try:
         _write_job(job_id, body, origin)
     except ClientError as exc:
-        if job_id_override and exc.response.get("Error", {}).get("Code") == "ConditionalCheckFailedException":
+        if (job_id_override or formal_send) and exc.response.get("Error", {}).get("Code") == "ConditionalCheckFailedException":
             existing_job = _invite_jobs_table().get_item(Key={"jobId": job_id}, ConsistentRead=True).get("Item") or {}
             status = (existing_job.get("status") or "QUEUED").upper()
             return _resp(202, {"ok": True, "jobId": job_id, "status": status,
@@ -972,6 +1006,9 @@ def _handle_auto_wave_schedule(event: dict) -> dict:
     if not 0 <= female_percent <= 100:
         raise ValueError("invalid scheduled gender percentage")
 
+    saved_plan = (active_event.get("wavePlans") or {}).get(str(previous_wave + 1), {})
+    if coerce_bool(saved_plan.get("paused", False)):
+        return {"statusCode": 200, "body": json.dumps({"ok": True, "reason": "wave paused by operator"})}
     preview_body = {
         "eventId": event_id,
         "capacity": int(active_event.get("capacity") or 0),
@@ -980,6 +1017,9 @@ def _handle_auto_wave_schedule(event: dict) -> dict:
         "waveNumber": previous_wave + 1,
         "autoWave": False,
     }
+    for key in ("waveSize", "femalePercent", "audienceFilters", "removedPhones"):
+        if key in saved_plan:
+            preview_body[key] = saved_plan[key]
     preview_response = handle_preview(preview_body, "")
     preview_status = int(preview_response.get("statusCode") or 500)
     preview_data = json.loads(preview_response.get("body") or "{}")

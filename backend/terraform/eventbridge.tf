@@ -13,6 +13,9 @@ resource "aws_lambda_function" "reminder_handler" {
 
   environment {
     variables = {
+      REMINDER_LAMBDA_ARN = "arn:aws:lambda:${local.region}:${local.account}:function:rsvp-reminder-handler"
+      REMINDER_SCHEDULER_ROLE_ARN = aws_iam_role.reminder_scheduler_invoker.arn
+
       EVENTS_TABLE_NAME     = aws_dynamodb_table.events.name
       INVITES_TABLE_NAME    = aws_dynamodb_table.event_invites.name
       INVITE_JOBS_TABLE_NAME = aws_dynamodb_table.invite_jobs.name

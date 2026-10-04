@@ -1,4 +1,4 @@
-import { apiFetch, apiJson } from './api.js';
+import { apiFetch, apiJson, fetchAllPages } from './api.js';
 import { ROUTES } from './constants.js';
 import { state } from './state.js';
 
@@ -150,8 +150,8 @@ async function loadEvent() {
 
 async function loadGuests() {
   try {
-    const data = await requestJson(withEventId(ROUTES.ADMIN_MEMBER_CONFIRMED, currentEventId));
-    allMembers = (data.members || []).sort((a, b) => displayName(a).toLowerCase().localeCompare(displayName(b).toLowerCase()));
+    const { items } = await fetchAllPages(withEventId(ROUTES.ADMIN_MEMBER_CONFIRMED, currentEventId), (data) => data.members || []);
+    allMembers = items.sort((a, b) => displayName(a).toLowerCase().localeCompare(displayName(b).toLowerCase()));
     checkedIn = new Set(allMembers.filter((m) => m.checkedIn).map((m) => m.phone));
     checkedInPlusOnes = new Set(allMembers.filter((m) => m.plusOneCheckedIn).map((m) => m.phone));
     updateCounter();

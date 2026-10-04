@@ -28,6 +28,13 @@ def handle_host_approval(from_phone: str, text: str, sms_enabled: bool, host_pho
                 send_sms(from_phone, f"Include the code. Reply Y {stored_code} to approve or N {stored_code} to deny {target_name}.")
             return {"statusCode": 200, "body": json.dumps({"ok": True})}
 
+        if pending.get("requestKind"):
+            from host_requests import decide_request
+            reply = decide_request(pending, action == "Y", deps=deps["request_deps"]())
+            if sms_enabled:
+                send_sms(from_phone, reply)
+            return {"statusCode": 200, "body": json.dumps({"ok": True})}
+
         target_phone = pending["memberPhone"]
         target_name = pending["memberName"]
         target_member = deps["get_member"](target_phone) or {}

@@ -106,9 +106,9 @@ export function previewJadeMessages() {
   const vibe = $('ev-vibe-tag').value.trim();
   const address = $('ev-address').value.trim();
   const venue = $('ev-venue').value.trim();
-  const revealVenue = $('ev-reveal-venue').checked;
+  const venueMode = $('ev-venue-mode').value;
   const dresscode = $('ev-dresscode').value.trim();
-  const allowPlusOnes = $('ev-allow-plus-ones').checked;
+  
 
   if (!date) {
     showToast('Add a date first', 'error');
@@ -125,19 +125,19 @@ export function previewJadeMessages() {
   if (time) inviteParts.push(`${time}.`);
   // Initial invites never reveal venue/address. Confirmed reminders/logistics may.
   if (dresscode) inviteParts.push(`${dresscode}.`);
-  if (allowPlusOnes) inviteParts.push('+1 welcome.');
-  inviteParts.push('Let me know.');
+  if (venueMode === 'invite') inviteParts.push([venue, address].filter(Boolean).join(', ') + '.');
+  inviteParts.push('You coming?');
 
-  const dayBeforeParts = ['{name}.', 'Tomorrow.'];
+  const dayBeforeParts = ['{name}.', venueMode === '48_hours' ? 'In two days.' : 'Tomorrow.'];
   if (label) dayBeforeParts.push(`${label}.`);
   if (time) dayBeforeParts.push(`Doors at ${time}.`);
-  if (revealVenue && venue) dayBeforeParts.push(`${venue}.`);
+  if (venue) dayBeforeParts.push(`${venue}.`);
 
   const dayOfParts = ['{name}.', 'Tonight.'];
   if (label) dayOfParts.push(`${label}.`);
   if (time) dayOfParts.push(`Doors at ${time}.`);
-  if (revealVenue && venue) dayOfParts.push(`${venue}.`);
-  if (revealVenue && address) dayOfParts.push(`${address}.`);
+  if (venue) dayOfParts.push(`${venue}.`);
+  if (address) dayOfParts.push(`${address}.`);
 
   $('jade-invite-preview').value = inviteParts.join(' ');
   $('jade-day-before-preview').value = dayBeforeParts.join(' ');
@@ -168,6 +168,8 @@ export async function draftWithJade() {
 
   const body = {
     eventSlug: $('ev-id').value.trim(),
+    venueReleaseMode: $('ev-venue-mode').value,
+    description: ($('ev-jade-notes')?.value || '').trim(),
     event_label: label,
     date,
     startTime: $('ev-time').value.trim(),
@@ -267,6 +269,8 @@ function fillEventForm(event = {}) {
   $('ev-address').value = event.address || '';
   $('ev-dresscode').value = event.dresscode || '';
   $('ev-reveal-venue').checked = !!event.revealVenue;
+  $('ev-venue-mode').value = event.venueReleaseMode || (event.revealVenue ? 'confirmation' : '48_hours');
+  syncReminderTimingUi();
   // Field collapse: description is the single source; fall back to legacy jadeNotes.
   const eventIntel = event.description || event.jadeNotes || event.jade_notes || '';
   if ($('ev-jade-notes')) $('ev-jade-notes').value = eventIntel;
@@ -567,6 +571,8 @@ function clearEventForm() {
   if ($('event-save-active-btn')) $('event-save-active-btn').disabled = false;
   if ($('ev-timezone')) $('ev-timezone').value = 'America/New_York';
   if ($('ev-reveal-venue')) $('ev-reveal-venue').checked = false;
+  $('ev-venue-mode').value = '48_hours';
+  syncReminderTimingUi();
   if ($('ev-allow-plus-ones')) $('ev-allow-plus-ones').checked = false;
   if ($('ev-remind-day-before')) $('ev-remind-day-before').checked = false;
   if ($('ev-remind-day-of')) $('ev-remind-day-of').checked = false;
@@ -644,13 +650,14 @@ export async function saveEvent({ setActive = false } = {}) {
     eventZipCode: ($('ev-zip')?.value || '').trim(),
     promotionRadiusMiles: ($('ev-promotion-radius')?.value || '').trim(),
     capacity: parseInt($('ev-capacity').value, 10) || 0,
-    expectedShowRate: (parseInt($('ev-show-rate')?.value || '60', 10) || 60) / 100,
+    expectedShowRate: Number(state.currentEvent?.expectedShowRate || 0.60),
     event_status: setActive ? 'LIVE' : String(($('ev-status')?.value || state.currentEvent?.event_status || 'DRAFT')).toUpperCase(),
     event_timezone: $('ev-timezone').value || 'America/New_York',
     venue: $('ev-venue').value.trim(),
     address: $('ev-address').value.trim(),
     dresscode: $('ev-dresscode').value.trim(),
-    revealVenue: $('ev-reveal-venue').checked,
+    revealVenue: $('ev-venue-mode').value === 'confirmation',
+    venueReleaseMode: $('ev-venue-mode').value,
     event_type: $('ev-type').value,
     vibe_tag: $('ev-vibe-tag').value,
     // Field collapse: the single Event Intelligence box (ev-jade-notes) is the source.
@@ -726,4 +733,14 @@ export async function saveEvent({ setActive = false } = {}) {
 
 export function saveEventAndSetActive() {
   saveEvent({ setActive: true });
+}
+
+export function syncReminderTimingUi() {
+  const delayed = $('ev-venue-mode')?.value === '48_hours';
+  if ($('first-reminder-label')) $('first-reminder-label').textContent = delayed ? '48-hour venue message' : 'Day-before reminder';
+  const time = $('ev-remind-day-before-time');
+  if (time) {
+    time.disabled = delayed;
+    time.title = delayed ? 'Sent exactly 48 hours before the event start time.' : 'Choose a local send time.';
+  }
 }

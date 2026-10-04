@@ -13,7 +13,7 @@ from admin_event_routes import (
 )
 from admin_member_routes import (
     get_confirmed, list_members, get_member_history, delete_member, set_member_status, set_member_gender,
-    set_member_tier, record_member_attendance, import_members, search_members_route,
+    set_member_tier, update_member_profile, record_member_attendance, import_members, search_members_route,
 )
 
 logger = logging.getLogger()
@@ -50,6 +50,7 @@ ROUTES = {
     ("POST", "/admin/members/status"): set_member_status,
     ("POST", "/admin/members/gender"): set_member_gender,
     ("POST", "/admin/members/tier"): set_member_tier,
+    ("POST", "/admin/members/profile"): update_member_profile,
     ("POST", "/admin/members/attendance"): record_member_attendance,
     ("POST", "/admin/members/import"): import_members,
     ("GET", "/admin/event/analytics"): get_analytics,

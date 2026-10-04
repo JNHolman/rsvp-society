@@ -1,5 +1,5 @@
 import { apiJson } from './api.js';
-import { REMINDER_MODES, ROUTES } from './constants.js';
+import { ROUTES } from './constants.js';
 import { rememberEvent, resetPreviewState, state } from './state.js';
 import { $, appendChildren, clearNode, createNode, emptyState, openModal, closeModal, sanitizePhoneId, showToast } from './ui.js';
 import { createPreviewEmpty, createPreviewStat, createInviteEventSummary, renderWaveCommandCenter, loadConfirmedUpdateCount, loadInitialWaveCommandCenter, currentEventLabel, buildSummaryCard, selectedRecipientSample, openJobStatusModal } from './invite_view.js';
@@ -18,7 +18,7 @@ function setSendButtonReady(isReady) {
   const sendButton = $('send-btn');
   if (!sendButton) return;
   sendButton.disabled = !isReady;
-  sendButton.textContent = 'Send Next Wave';
+  sendButton.textContent = 'Send Wave';
   sendButton.classList.toggle('ready', isReady);
 }
 
@@ -208,7 +208,7 @@ function ensureAudienceFilterListeners() {
         applyPreviewVisibility();
         return;
       }
-      clearPreviewUi({ message: 'Audience filters changed. Run Preview Next Wave again so the server can lock the correct audience.', keepVisible: true });
+      clearPreviewUi({ message: 'Audience filters changed. Refresh the audience to apply these filters.', keepVisible: true });
     });
   });
 }
@@ -398,7 +398,7 @@ export function updatePreviewCount() {
   const sendButton = $('send-btn');
   if (sendButton) {
     const target = currentPreviewSendTarget();
-    sendButton.textContent = 'Send Next Wave';
+    sendButton.textContent = 'Send Wave';
     sendButton.setAttribute('aria-label', target.mode === 'selected'
       ? `Send invites to ${target.activeRows.length} checked guests`
       : `Send invites to ${target.activeRows.length} filtered eligible guests`);
@@ -434,6 +434,7 @@ export async function loadEventIntoInviteForm() {
     rememberEvent(event);
 
     const eventId = event.eventSlug || event.eventId || '';
+    if ($('wave-plan-save')) $('wave-plan-save').onclick = saveWavePlan;
     const capacity = event.capacity || '';
     const previousEventId = $('inv-event-id').value.trim();
 
@@ -452,6 +453,32 @@ export async function loadEventIntoInviteForm() {
     ensureAudienceFilterListeners();
     await loadInitialWaveCommandCenter(eventId, Number(capacity) || 0, event);
     await loadConfirmedUpdateCount(eventId);
+    if ($('invite-event-title')) $('invite-event-title').textContent = event.event_label || event.label || eventId;
+    document.querySelectorAll('#wave-tabs [data-wave]').forEach((button) => {
+      button.onclick = () => {
+        const wave = Number(button.dataset.wave);
+        const plan = event.wavePlans?.[String(wave)] || {};
+        $('inv-wave-size').value = plan.waveSize || '';
+        $('inv-female-pct').value = plan.femalePercent ?? 60;
+        const filters = plan.audienceFilters || {};
+        for (const [id, key, fallback] of [['invite-search', 'query', ''], ['invite-market-filter', 'market', 'All'], ['invite-tier-filter', 'tier', ''], ['invite-gender-filter', 'gender', ''], ['invite-status-filter', 'inviteStatus', '']]) {
+          if ($(id)) $(id).value = filters[key] || fallback;
+        }
+        runPreview(wave);
+      };
+    });
+    const schedule = clearNode('invite-message-schedule');
+    if (schedule) {
+      schedule.appendChild(createNode('h3', { text: 'Messages and timing' }));
+      schedule.appendChild(createNode('p', { text: event.invite_template || 'Save an invitation on the Event page.' }));
+      (data.communicationSchedule || []).forEach((item) => {
+        schedule.appendChild(createNode('p', { text: `${item.label}: ${item.when} (${item.timezone})` }));
+        schedule.appendChild(createNode('p', { text: item.message || 'Event details will be included.' }));
+      });
+      schedule.appendChild(createNode('p', { text: 'Edit messages and reminders on the Event page.' }));
+    }
+    selectedWave = 0;
+    await runPreview(0);
 
   } catch {
     // preserve current UI behavior
@@ -459,13 +486,18 @@ export async function loadEventIntoInviteForm() {
 }
 
 
-export async function runPreview() {
+let previewRequest = 0;
+let selectedWave = 0;
+export async function runPreview(requestedWave = selectedWave) {
+  const request = ++previewRequest;
+  selectedWave = typeof requestedWave === "number" ? requestedWave : selectedWave;
+  setSendButtonReady(false);
   const eventId = $('inv-event-id').value.trim();
   const capacity = parseInt($('inv-capacity').value, 10) || 0;
   const femalePercent = parseInt($('inv-female-pct').value, 10) || 60;
   const waveSizeRaw = parseInt($('inv-wave-size').value, 10);
-  const waveSize = Number.isFinite(waveSizeRaw) ? waveSizeRaw : 0;
-  const waveNumber = 0; // backend calculates the next wave from existing event invite rows
+  const waveSize = Number.isFinite(waveSizeRaw) ? waveSizeRaw : Number(state.currentEvent?.wavePlans?.[String(selectedWave)]?.waveSize || 0);
+  const waveNumber = selectedWave;
   const includeExisting = Boolean($('invite-include-existing')?.checked);
   const audienceFilters = {
     query: String($('invite-search')?.value || '').trim(),
@@ -490,15 +522,22 @@ export async function runPreview() {
         eventId,
         capacity,
         femalePercent,
-        autoWave: true,
+        autoWave: waveNumber === 0,
         waveNumber,
         waveSize,
         includeExisting,
+        removedPhones: state.currentEvent?.wavePlans?.[String(waveNumber)]?.removedPhones || [],
         audienceFilters,
       },
     });
 
+    if (request !== previewRequest) return;
     const resolvedWaveNumber = Number(data.summary?.waveNumber || 1);
+    selectedWave = resolvedWaveNumber;
+    if ($('wave-paused')) $('wave-paused').checked = Boolean(state.currentEvent?.wavePlans?.[String(selectedWave)]?.paused);
+    document.querySelectorAll("#wave-tabs [data-wave]").forEach((button) => {
+      button.setAttribute("aria-selected", String(Number(button.dataset.wave) === selectedWave));
+    });
     const previewSessionId = data.previewSessionId || data.summary?.previewSessionId || '';
     state.preview.lastPreview = {
       eventId,
@@ -526,6 +565,7 @@ export async function runPreview() {
     setSendButtonReady(state.preview.selectedPhones.size > 0);
     showToast(`Preview ready — Wave ${resolvedWaveNumber}`);
   } catch (error) {
+    if (request !== previewRequest) return;
     clearPreviewUi({ message: 'Preview failed. Fix the inputs and try again.', keepVisible: false });
     showToast(`Preview failed: ${error.message}`, 'error');
   }
@@ -586,8 +626,8 @@ function currentPreviewSendTarget() {
   const visibleRows = getVisiblePreviewRows();
   const matchingRows = sortPreviewRows(getMatchingPreviewRows());
   const eligibleRows = getSendEligibleRows(matchingRows);
-  const mode = selectedRows.length ? 'selected' : 'eligible';
-  const activeRows = selectedRows.length ? selectedRows : eligibleRows;
+  const mode = 'selected';
+  const activeRows = selectedRows;
   return {
     mode,
     selectedRows,
@@ -646,7 +686,7 @@ function openSendConfirmationModal({ count, modeLabel, waveNumber, onConfirm }) 
 
   const cancel = createNode('button', { className: 'btn-secondary', text: 'Cancel', attrs: { type: 'button' } });
   cancel.addEventListener('click', closeModal);
-  const confirm = createNode('button', { className: 'btn-primary-muted', text: 'Send Next Wave', attrs: { type: 'button' } });
+  const confirm = createNode('button', { className: 'btn-primary-muted', text: 'Send Wave', attrs: { type: 'button' } });
   confirm.addEventListener('click', () => {
     closeModal();
     onConfirm();
@@ -684,7 +724,7 @@ async function executeInviteSend({ preview, phones, sendButton }) {
   } catch (error) {
     showToast(`Send failed: ${error.message}`, 'error');
     sendButton.disabled = false;
-    sendButton.textContent = 'Send Next Wave';
+    sendButton.textContent = 'Send Wave';
     updatePreviewCount();
   }
 }
@@ -727,80 +767,6 @@ export function clearPreviewSelection() {
   updatePreviewCount();
 }
 
-
-async function executeManualInviteOverride({ eventId, capacity, phone, message, button }) {
-  if (button) {
-    button.disabled = true;
-    button.textContent = 'Sending...';
-  }
-  try {
-    const data = await apiJson(ROUTES.ADMIN_INVITE_SEND, {
-      method: 'POST',
-      body: {
-        eventId,
-        capacity,
-        femalePercent: parseInt($('inv-female-pct')?.value || '60', 10) || 60,
-        autoWave: false,
-        waveNumber: 0,
-        manualSend: true,
-        waveSize: 1,
-        phones: [phone],
-        messageOverride: message,
-        confirmSend: true,
-      },
-    });
-    showToast(`Manual invite queued for ${phone}.`, 'success');
-    const phoneField = $('manual-invite-phone');
-    const messageField = $('manual-invite-message');
-    if (phoneField) phoneField.value = '';
-    if (messageField) messageField.value = '';
-    if (data.jobId) openJobStatusModal(data.jobId, { mode: 'Manual / Resend', count: 1, event: currentEventLabel() });
-  } catch (error) {
-    showToast(`Manual invite failed: ${error.message}`, 'error');
-  } finally {
-    if (button) {
-      button.disabled = false;
-      button.textContent = 'Send Manual Invite';
-    }
-  }
-}
-
-export async function sendManualInviteOverride() {
-  await loadEventIntoInviteForm();
-  const eventId = $('inv-event-id')?.value?.trim() || state.currentEvent?.eventSlug || state.currentEvent?.eventId || '';
-  const capacity = parseInt($('inv-capacity')?.value || state.currentEvent?.capacity || '0', 10) || 0;
-  const phone = ($('manual-invite-phone')?.value || '').trim();
-  const message = ($('manual-invite-message')?.value || '').trim();
-  const button = $('manual-invite-send-btn');
-  if (!eventId || capacity < 1) {
-    showToast('Load a Live event with capacity first', 'error');
-    return;
-  }
-  if (!phone) {
-    showToast('Enter the approved member phone number', 'error');
-    return;
-  }
-  if (!message) {
-    showToast('Write the manual invite copy first', 'error');
-    return;
-  }
-
-  const body = createNode('div', { className: 'send-confirm-body' });
-  appendChildren(
-    body,
-    createNode('p', { className: 'modal-copy send-confirm-copy', text: 'This sends one manual invite using the custom copy below.' }),
-    buildSummaryCard([['Phone', phone], ['Event', currentEventLabel()], ['Wave', 'Manual / Resend']]),
-    createNode('p', { className: 'send-confirm-safe', text: message }),
-  );
-  const cancel = createNode('button', { className: 'btn-secondary', text: 'Cancel', attrs: { type: 'button' } });
-  cancel.addEventListener('click', closeModal);
-  const confirm = createNode('button', { className: 'btn-primary-muted', text: 'Send Manual Invite', attrs: { type: 'button' } });
-  confirm.addEventListener('click', () => {
-    closeModal();
-    executeManualInviteOverride({ eventId, capacity, phone, message, button });
-  });
-  openModal({ kicker: 'Manual / Resend', title: 'Send one invite?', body, actions: [cancel, confirm] });
-}
 
 async function executeConfirmedUpdate({ eventId, message, button }) {
   if (button) {
@@ -852,7 +818,7 @@ export function prefillVenueReveal() {
 }
 
 export async function sendConfirmedUpdate() {
-  const eventId = $('inv-event-id')?.value?.trim() || state.currentEvent?.eventSlug || state.currentEvent?.eventId || '';
+  const eventId = state.currentEvent?.eventSlug || state.currentEvent?.eventId || $('inv-event-id')?.value?.trim() || '';
   const message = ($('confirmed-update-message')?.value || '').trim();
   const button = $('confirmed-update-send-btn');
   if (!eventId) {
@@ -884,57 +850,20 @@ export async function sendConfirmedUpdate() {
   openModal({ kicker: 'Confirmed Guest Update', title: 'Send one-time text?', body, actions: [cancel, confirm] });
 }
 
-async function executeManualReminder({ timing, button }) {
-  if (button) {
-    button.disabled = true;
-    button.textContent = 'Sending...';
-  }
-  try {
-    const data = await apiJson(ROUTES.ADMIN_INVITE_REMINDER, {
-      method: 'POST',
-      body: { timing },
-    });
-    const sent = Number(data.sent || 0);
-    if (data.continuationQueued) {
-      showToast(`Reminder started for ${sent}; ${Number(data.remainingRecipients || 0)} more queued.`, 'success');
-    } else {
-      showToast(`Reminder finished: ${sent} sent, ${Number(data.skippedAlreadySent || 0)} already sent, ${Number(data.skippedOptOut || 0)} opted out, ${Number(data.failed || 0)} failed.`, 'success');
-    }
-  } catch (error) {
-    showToast(`Reminder failed: ${error.message}`, 'error');
-  } finally {
-    if (button) {
-      button.disabled = false;
-      button.textContent = 'Send Saved Reminder';
-    }
-  }
-}
 
-export function sendManualReminder() {
-  const timing = $('manual-reminder-timing')?.value === 'day_of' ? 'day_of' : 'day_before';
-  const button = $('manual-reminder-send-btn');
-  if (!state.currentEvent) {
-    showToast('Load an event before sending a reminder', 'error');
-    return;
-  }
-  const timingLabel = timing === 'day_of' ? 'day-of' : 'day-before';
-  const body = createNode('div', { className: 'send-confirm-body' });
-  appendChildren(
-    body,
-    createNode('p', { className: 'modal-copy send-confirm-copy', text: `This sends the saved ${timingLabel} reminder now to confirmed guests who have not already received it.` }),
-    buildSummaryCard([
-      ['Audience', 'Eligible confirmed guests only'],
-      ['Event', currentEventLabel()],
-      ['Reminder', timingLabel],
-    ]),
-    createNode('p', { className: 'send-confirm-warning', text: 'This sends SMS messages. Check the reminder copy and event before continuing.' }),
-  );
-  const cancel = createNode('button', { className: 'btn-secondary', text: 'Cancel', attrs: { type: 'button' } });
-  cancel.addEventListener('click', closeModal);
-  const confirm = createNode('button', { className: 'btn-primary-muted', text: 'Send Saved Reminder', attrs: { type: 'button' } });
-  confirm.addEventListener('click', () => {
-    closeModal();
-    executeManualReminder({ timing, button });
+
+async function saveWavePlan() {
+  const preview = state.preview.lastPreview;
+  if (!preview) { showToast('Load a wave first', 'error'); return; }
+  const removed = new Set(state.preview.removedPhones || []);
+  getSendEligibleRows().forEach((row) => {
+    if (!state.preview.selectedPhones.has(row.dataset.phone)) removed.add(row.dataset.phone);
   });
-  openModal({ kicker: 'Manual Reminder', title: 'Send reminder now?', body, actions: [cancel, confirm] });
+  try {
+    const result = await apiJson(ROUTES.ADMIN_INVITE_PREVIEW, { method: 'POST', body: {
+      ...preview, action: 'save_plan', removedPhones: [...removed], paused: Boolean($('wave-paused')?.checked),
+    }});
+    state.currentEvent.wavePlans = { ...(state.currentEvent.wavePlans || {}), [String(preview.waveNumber)]: result.plan };
+    showToast('Wave plan saved', 'success');
+  } catch (error) { showToast(error.message, 'error'); }
 }

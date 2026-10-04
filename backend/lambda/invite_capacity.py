@@ -159,7 +159,7 @@ def transition_confirmed_invite(
                     "Update": {
                         "TableName": invites_table.name,
                         "Key": {"eventId": av(event_id), "phone": av(phone)},
-                        "UpdateExpression": "SET #s = :new, #stamp = :now REMOVE plusOneName, plusOneMember, plusOneAttendedAt, plusOneNoShowAt, awaitingPlusOneName, awaitingPlusOneLastName",
+                        "UpdateExpression": "SET #s = :new, #stamp = :now REMOVE plusOneName, plusOneMemberPhone, plusOneIsMember, plusOneMember, plusOneAttendedAt, plusOneNoShowAt, awaitingPlusOneName, awaitingPlusOneLastName",
                         "ConditionExpression": condition,
                         "ExpressionAttributeNames": {"#s": "status", "#stamp": stamp_field},
                         "ExpressionAttributeValues": {k: v for k, v in values.items() if k in {":old", ":new", ":now", ":empty", ":guest"}},
@@ -180,6 +180,13 @@ def transition_confirmed_invite(
                     }
                 },
             ]
+            if invite.get("plusOneMemberPhone"):
+                transact_items.append({"Delete": {
+                    "TableName": invites_table.name,
+                    "Key": {"eventId": av(event_id), "phone": av(invite["plusOneMemberPhone"])},
+                    "ConditionExpression": "attribute_not_exists(phone) OR sponsorPhone = :sponsor",
+                    "ExpressionAttributeValues": {":sponsor": av(phone)},
+                }})
             if target_status == "DECLINED" and members_table is not None:
                 # Classification, invite transition, seat release and tier credit
                 # commit together; retries cannot apply the credit twice.

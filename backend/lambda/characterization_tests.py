@@ -54,6 +54,7 @@ import sms_handler
 import sms_plus_one
 import sms_adapter
 import sms_webhook
+import sms_intent
 
 
 def _body(response: dict) -> dict:
@@ -375,6 +376,14 @@ class TestInviteContract(unittest.TestCase):
 
 
 class TestSmsContract(unittest.TestCase):
+    def setUp(self):
+        event_patch = patch.object(sms_handler, "_get_current_event", return_value={"eventSlug": "audit", "date": "2099-10-17", "startTime": "19:00", "event_timezone": "UTC", "event_status": "LIVE", "allowPlusOnes": True})
+        event_patch.start()
+        self.addCleanup(event_patch.stop)
+        confirmation_patch = patch.object(sms_handler, "_build_confirmation_message", return_value="See you October 17.")
+        confirmation_patch.start()
+        self.addCleanup(confirmation_patch.stop)
+
     def test_natural_yes_is_a_confirm(self):
         self.assertEqual(sms_handler._detect_rsvp_intent("Yes I'm in!", "YES I'M IN!"), "confirm")
         self.assertEqual(sms_handler._detect_rsvp_intent("count me in", "COUNT ME IN"), "confirm")
@@ -404,7 +413,7 @@ class TestSmsContract(unittest.TestCase):
 
     def test_decline_from_confirmed_invite_uses_cancellation_path(self):
         confirmed_invite = {"eventId": "event-1", "phone": "+15025551212", "status": "CONFIRMED"}
-        event = {"eventSlug": "event-1", "event_status": "LIVE", "attendanceFinalized": False}
+        event = {"date": "2099-10-17", "startTime": "19:00", "eventSlug": "event-1", "event_status": "LIVE", "attendanceFinalized": False}
         fake_invites = MagicMock()
         fake_invites.get_item.return_value = {"Item": confirmed_invite}
         with patch.dict(os.environ, {"SMS_ENABLED": "true"}), \
@@ -436,8 +445,8 @@ class TestSmsContract(unittest.TestCase):
         self.assertEqual(sms_handler._detect_rsvp_intent(text, text.upper()), "")
 
     def test_plus_one_question_does_not_look_like_a_name(self):
-        self.assertTrue(sms_handler._is_question_like_text("Where is parking?", "WHERE IS PARKING?"))
-        self.assertFalse(sms_handler._is_question_like_text("Parker Smith", "PARKER SMITH"))
+        self.assertTrue(sms_intent._is_question_like_text("Where is parking?", "WHERE IS PARKING?"))
+        self.assertFalse(sms_intent._is_question_like_text("Parker Smith", "PARKER SMITH"))
 
     def test_legacy_quo_envelope_extraction_is_preserved(self):
         event_type, phone, text = sms_handler._extract_inbound_message({
@@ -607,23 +616,22 @@ class TestImportContract(unittest.TestCase):
         self.assertEqual(item["smsOptInConfirmationSource"], "csv_import_attestation")
         self.assertEqual(item["source"], "csv")
 
-    def test_csv_import_excludes_rows_without_zip_and_reports_count(self):
+    def test_csv_import_accepts_rows_without_zip(self):
         table = MagicMock()
         table.name = "rsvp-members-test"
         ddb = MagicMock()
         ddb.Table.return_value = table
         event = {"body": json.dumps({"members": [{"phone": "5025551212", "name": "Jordan"}]})}
-        with patch.object(admin_member_routes.boto3, "resource", return_value=ddb), \
+        with patch.object(admin_member_routes.boto3, "client", return_value=MagicMock()), patch.object(admin_member_routes.boto3, "resource", return_value=ddb), \
              patch.object(admin_member_routes, "resolve_us_zip") as resolve_zip, \
              patch.object(admin_member_routes, "_batch_get_existing", return_value={}), \
              patch.object(admin_member_routes, "log_action"):
             result = admin_member_routes.import_members(event, {}, "token")
         payload = json.loads(result["body"])
         self.assertEqual(result["statusCode"], 200)
-        self.assertEqual(payload["excludedNoLocation"], 1)
-        self.assertEqual(payload["imported"], 0)
+        self.assertEqual(payload["excludedNoLocation"], 0)
+        self.assertEqual(payload["imported"], 1)
         resolve_zip.assert_not_called()
-        table.meta.client.batch_write_item.assert_not_called()
 
 
 def _legacy_sms_event(text: str, phone: str = "5025551212") -> dict:
@@ -637,6 +645,14 @@ def _legacy_sms_event(text: str, phone: str = "5025551212") -> dict:
 
 
 class TestSmsHandlerFlowContract(unittest.TestCase):
+    def setUp(self):
+        event_patch = patch.object(sms_handler, "_get_current_event", return_value={"eventSlug": "audit", "date": "2099-10-17", "startTime": "19:00", "event_timezone": "UTC", "event_status": "LIVE", "allowPlusOnes": True})
+        event_patch.start()
+        self.addCleanup(event_patch.stop)
+        confirmation_patch = patch.object(sms_handler, "_build_confirmation_message", return_value="See you October 17.")
+        confirmation_patch.start()
+        self.addCleanup(confirmation_patch.stop)
+
     def test_pending_plus_one_last_name_is_saved_instead_of_treated_as_unsolicited_name(self):
         with patch.object(sms_handler, "_verify_webhook_signature", return_value=True), \
              patch.object(sms_handler, "get_host_phones", return_value=[]), \
@@ -656,7 +672,7 @@ class TestSmsHandlerFlowContract(unittest.TestCase):
         self.assertEqual(cancellation_timing(event, cutoff), "TIMELY")
         self.assertEqual(cancellation_timing(event, cutoff + timedelta(seconds=1)), "LATE")
 
-    def test_decline_cancels_even_while_collecting_plus_one_name(self):
+    def test_explicit_cancellation_cancels_even_while_collecting_plus_one_name(self):
         for flag, value in (("awaitingPlusOneName", True), ("awaitingPlusOneLastName", "Taylor")):
             with self.subTest(flag=flag):
                 table = MagicMock()
@@ -666,11 +682,11 @@ class TestSmsHandlerFlowContract(unittest.TestCase):
                      patch.object(sms_handler, "get_member", return_value={"status": "APPROVED", "smsOptIn": True}), \
                      patch.object(sms_handler, "_get_confirmed_invite", return_value={"eventId": "audit", flag: value}), \
                      patch.object(sms_handler, "_get_pending_invite", return_value=None), \
-                     patch.object(sms_handler, "_get_current_event", return_value={"eventSlug": "audit", "event_status": "LIVE"}), \
+                     patch.object(sms_handler, "_get_current_event", return_value={"eventSlug": "audit", "event_status": "LIVE", "date": "2099-10-17", "startTime": "19:00"}), \
                      patch.object(sms_handler, "_invites_table", return_value=table), \
                      patch.object(sms_handler, "_cancel_confirmed_invite", return_value=True) as cancel, \
                      patch.object(sms_handler, "send_sms"):
-                    sms_handler.handler(_legacy_sms_event("NO"), None)
+                    sms_handler.handler(_legacy_sms_event("I can’t come"), None)
                 cancel.assert_called_once_with("audit", "+15025551212")
                 table.update_item.assert_not_called()
 
@@ -850,10 +866,10 @@ class TestAutomaticWaveScheduling(unittest.TestCase):
         self.assertEqual(spec["waveNumber"], 2)
         self.assertEqual(spec["fireAt"], self.now + timedelta(hours=48))
 
-    def test_response_window_shortens_only_to_keep_24_hours_before_event(self):
+    def test_response_window_is_not_compressed_for_close_events(self):
         event = {**self.event, "date": "2026-10-03", "startTime": "12:00"}
         spec = invite_wave_schedule.next_wave_schedule_spec(event, 1, now=self.now)
-        self.assertEqual(spec["responseWindowHours"], 24)
+        self.assertIsNone(spec)
         too_close = {**event, "date": "2026-10-02", "startTime": "23:00"}
         self.assertIsNone(invite_wave_schedule.next_wave_schedule_spec(too_close, 1, now=self.now))
 
@@ -948,6 +964,7 @@ class TestAutomaticWaveScheduling(unittest.TestCase):
              patch.object(invite_handler, "_resolve_active_invitable_event", return_value=self.event), \
              patch.object(invite_handler, "_validate_initial_invite_text"), \
              patch.object(invite_handler, "_assert_formal_wave_available"), \
+             patch.object(invite_handler, "_get_next_wave_number", return_value=2), \
              patch.object(invite_handler, "_write_job", side_effect=conditional_conflict), \
              patch.object(invite_handler.boto3, "client") as aws_client:
             response = invite_handler.handle_send(body, "", "token", job_id_override="AUTO-WAVE-party-w2")
@@ -1269,6 +1286,14 @@ class TestMarketSemanticsContract(unittest.TestCase):
 
 
 class TestSmsHandlerAdditionalFlowContract(unittest.TestCase):
+    def setUp(self):
+        event_patch = patch.object(sms_handler, "_get_current_event", return_value={"eventSlug": "audit", "date": "2099-10-17", "startTime": "19:00", "event_timezone": "UTC", "event_status": "LIVE", "allowPlusOnes": True})
+        event_patch.start()
+        self.addCleanup(event_patch.stop)
+        confirmation_patch = patch.object(sms_handler, "_build_confirmation_message", return_value="See you October 17.")
+        confirmation_patch.start()
+        self.addCleanup(confirmation_patch.stop)
+
     def _approved_member(self):
         return {
             "phone": "+15025551212",
@@ -1317,7 +1342,7 @@ class TestSmsHandlerAdditionalFlowContract(unittest.TestCase):
         member = self._approved_member()
         event = {"eventSlug": "rooftop-sept2026", "event_status": "LIVE", "capacity": 50, "allowPlusOnes": False}
         invite = {"eventId": "rooftop-sept2026", "phone": member["phone"], "status": "INVITED"}
-        with patch.object(sms_handler, "_verify_webhook_signature", return_value=True), \
+        with patch.object(sms_handler, "_invites_table", return_value=MagicMock()), patch.object(sms_handler, "_queue_host_request"), patch.object(sms_handler, "_verify_webhook_signature", return_value=True), \
              patch.object(sms_handler, "get_host_phones", return_value=[]), \
              patch.object(sms_handler, "get_member", return_value=member), \
              patch.object(sms_handler, "_get_confirmed_invite", return_value=None), \
@@ -1460,6 +1485,29 @@ class TestSmsHandlerAdditionalFlowContract(unittest.TestCase):
         set_awaiting.assert_called_once_with("rooftop-sept2026", "+15025551212")
         claude.assert_not_called()
 
+    def test_inline_natural_plus_one_change_saves_name_without_jade_or_extra_prompt(self):
+        member = self._approved_member()
+        invite = {"eventId": "rooftop-sept2026", "phone": member["phone"], "status": "CONFIRMED", "plusOneName": "Raven Gillespie"}
+        with patch.dict(os.environ, {"SMS_ENABLED": "true"}), \
+             patch.object(sms_handler, "_verify_webhook_signature", return_value=True), \
+             patch.object(sms_handler, "get_host_phones", return_value=[]), \
+             patch.object(sms_handler, "get_member", return_value=member), \
+             patch.object(sms_handler, "_get_confirmed_invite", return_value=invite), \
+             patch.object(sms_handler, "_validate_plus_one_candidate", return_value=(True, "", False)) as validate, \
+             patch.object(sms_handler, "_set_plus_one", return_value="SAVED") as save, \
+             patch.object(sms_handler, "_set_awaiting_plus_one") as set_awaiting, \
+             patch.object(sms_handler, "send_sms") as send_sms, \
+             patch.object(sms_handler, "_claude") as claude:
+            response = sms_handler.handler(
+                _legacy_sms_event("I'm changing my plus 1 to Ericka Jackson"), None
+            )
+        self.assertEqual(response["statusCode"], 200)
+        validate.assert_called_once_with("Ericka Jackson", "rooftop-sept2026", "+15025551212")
+        save.assert_called_once_with("rooftop-sept2026", "+15025551212", "Ericka Jackson", is_member=False)
+        set_awaiting.assert_not_called()
+        send_sms.assert_called_once_with("+15025551212", "Ericka Jackson. Got it.")
+        claude.assert_not_called()
+
     def test_unconfirmed_member_cannot_receive_private_parking_details(self):
         member = self._approved_member()
         with patch.dict(os.environ, {"SMS_ENABLED": "true"}), \
@@ -1557,7 +1605,7 @@ class TestSmsHandlerAdditionalFlowContract(unittest.TestCase):
              patch.object(sms_handler, "get_host_phones", return_value=[]), \
              patch.object(sms_handler, "get_member", return_value=member), \
              patch.object(sms_handler, "_get_confirmed_invite", return_value=None), \
-             patch.object(sms_handler, "_is_bare_name_for_catch", return_value=False), \
+             patch.object(sms_intent, "_is_bare_name_for_catch", return_value=False), \
              patch.object(sms_handler, "send_sms") as send_sms, \
              patch.object(sms_handler, "_claude") as claude:
             response = sms_handler.handler(_legacy_sms_event("running late"), None)
@@ -1606,7 +1654,7 @@ class TestSmsHandlerAdditionalFlowContract(unittest.TestCase):
              patch.object(sms_handler, "get_host_phones", return_value=[]), \
              patch.object(sms_handler, "get_member", return_value=member), \
              patch.object(sms_handler, "_get_confirmed_invite", return_value=None), \
-             patch.object(sms_handler, "_is_bare_name_for_catch", return_value=False), \
+             patch.object(sms_intent, "_is_bare_name_for_catch", return_value=False), \
              patch.object(sms_handler, "_get_current_invite_status", return_value="INVITED"), \
              patch.object(sms_handler, "_get_current_event", return_value={}), \
              patch.object(sms_handler, "_claude", return_value="Want me to hold it?") as claude, \
@@ -1699,6 +1747,7 @@ class TestInvitePreviewAndQueueContract(unittest.TestCase):
         lambda_client = MagicMock()
         with patch.object(invite_handler, "_resolve_active_invitable_event", return_value={"eventSlug": "rooftop-sept2026"}), \
              patch.object(invite_handler, "_validate_initial_invite_text"), \
+             patch.object(invite_handler, "_get_next_wave_number", return_value=1), \
              patch.object(invite_handler, "_resolve_locked_send_body", side_effect=fake_resolve), \
              patch.object(invite_handler, "_write_job", side_effect=lambda job_id, body, origin: captured.update({"job_id": job_id, "body": dict(body)})), \
              patch("boto3.client", return_value=lambda_client):
@@ -1758,13 +1807,33 @@ class TestMemberLocationStorageContract(unittest.TestCase):
 
 
 class TestMemberStoreAdditionalContract(unittest.TestCase):
+    def test_approved_signup_does_not_add_pending_ttl(self):
+        table = MagicMock()
+        table.get_item.side_effect = [
+            {"Item": {"phone": "+15025551212", "name": "Jordan", "status": "APPROVED"}},
+            {"Item": {"phone": "+15025551212", "name": "Jordan", "status": "APPROVED"}},
+        ]
+        with patch.object(member_store, "_table", return_value=table):
+            member_store.upsert_member(phone="5025551212", name="Jordan", sms_opt_in=True)
+        call = table.update_item.call_args.kwargs
+        self.assertNotIn("pendingExpiresAtEpoch", call["UpdateExpression"])
+        self.assertNotIn(":pex_epoch", call["ExpressionAttributeValues"])
+
     def test_set_status_approved_removes_pending_expiry(self):
         table = MagicMock()
         with patch.object(member_store, "_table", return_value=table):
             member_store.set_status("5025551212", "APPROVED")
         call = table.update_item.call_args.kwargs
-        self.assertIn("REMOVE pendingExpiresAt", call["UpdateExpression"])
+        self.assertIn("REMOVE pendingExpiresAt, pendingExpiresAtEpoch", call["UpdateExpression"])
         self.assertEqual(call["ExpressionAttributeValues"][":s"], "APPROVED")
+
+    def test_set_status_pending_sets_ttl_deadline(self):
+        table = MagicMock()
+        with patch.object(member_store, "_table", return_value=table):
+            member_store.set_status("5025551212", "PENDING")
+        call = table.update_item.call_args.kwargs
+        self.assertIn("pendingExpiresAtEpoch = :pex_epoch", call["UpdateExpression"])
+        self.assertGreater(call["ExpressionAttributeValues"][":pex_epoch"], 0)
 
     def test_pending_list_filters_expired_records(self):
         table = MagicMock()
@@ -1777,6 +1846,8 @@ class TestMemberStoreAdditionalContract(unittest.TestCase):
         with patch.object(member_store, "_table", return_value=table):
             members = member_store.list_members_by_status("PENDING")
         self.assertEqual([m["phone"] for m in members], ["+15025550002"])
+        self.assertEqual(table.update_item.call_count, 2)
+        self.assertEqual(table.update_item.call_args.kwargs["ExpressionAttributeValues"][":pending"], "PENDING")
 
     def test_welcome_claim_returns_false_when_active_claim_exists(self):
         from botocore.exceptions import ClientError
@@ -2299,6 +2370,7 @@ class TestReminderSchedulerContract(unittest.TestCase):
             "event_status": "LIVE",
             "date": "2026-10-17",
             "event_timezone": "America/New_York",
+            "venueReleaseMode": "confirmation",
             "reminderTiming": "both",
             "day_before_send_time": "18:00",
             "day_of_send_time": "11:00",
@@ -2314,7 +2386,7 @@ class TestReminderSchedulerContract(unittest.TestCase):
         event = {
             "eventId": "louisville-oct", "eventSlug": "louisville-oct",
             "event_status": "LIVE", "date": "2099-10-17",
-            "event_timezone": "America/New_York", "reminderTiming": "both",
+            "event_timezone": "America/New_York", "venueReleaseMode": "confirmation", "reminderTiming": "both",
             "day_before_send_time": "18:00", "day_of_send_time": "11:00",
         }
         client = MagicMock()

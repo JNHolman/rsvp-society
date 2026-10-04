@@ -21,6 +21,7 @@ if [ ! -d "$LAMBDA_DIR" ]; then
 fi
 
 find "$LAMBDA_DIR" -maxdepth 1 -name "*.py" \
+  ! -name "*_tests.py" \
   ! -name "integration_tests.py" \
   ! -name "characterization_tests.py" \
   ! -name "known_defect_contract_tests.py" \
@@ -40,4 +41,4 @@ rm -f "$OUTPUT"
 rm -rf "$STAGING"
 
 echo "  Done: $OUTPUT ($(du -sh "$OUTPUT" | cut -f1))"
-echo "  Next: review the Terraform plan and use the manual GitHub deploy workflow; see VALIDATION.md for staged CloudFront/WAF rollout"
+echo "  Next: review the Terraform plan and use the manual GitHub deploy workflow"

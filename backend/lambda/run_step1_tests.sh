@@ -61,7 +61,7 @@ import importlib.util
 raise SystemExit(0 if importlib.util.find_spec('moto') else 1)
 PY
 then
-  python -m unittest integration_tests -v
+  python -m unittest integration_tests revision_tests -v
 else
   echo 'SKIP: moto is not installed in this environment; existing integration_tests.py was not executed.'
 fi

@@ -533,4 +533,11 @@ def execute_send(body: dict, origin: str, token: str, job_id: str, *, deps: dict
             logger.exception("auto_wave_failed stage=schedule event=%s wave=%d", event_id, wave_number)
             completion.update({"autoWaveStatus": "FAILED", "autoWaveError": str(exc)[:300]})
 
+    if wave_number in (1, 2, 3) and cumulative["smsSent"] > 0:
+        from followups import schedule
+        try:
+            completion["responseFollowupScheduled"] = schedule(current_event, 'wave', wave_number, after_hours=72)
+        except Exception as exc:
+            logger.exception("response follow-up could not be scheduled")
+            completion["responseFollowupError"] = str(exc)[:200]
     _update_job(job_id, completion)

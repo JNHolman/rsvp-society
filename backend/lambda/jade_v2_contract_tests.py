@@ -15,6 +15,7 @@ if str(HERE) not in sys.path:
     sys.path.insert(0, str(HERE))
 
 import sms_handler as sms
+import sms_intent as intent
 import invite_handler as inv
 
 failures = []
@@ -24,11 +25,11 @@ def check(name, cond):
 # ── Phase 1: name-intent — casual/correction/question replies are NOT names ──
 for not_a_name in ["ok ok", "yeah sure", "your wrong", "wait what", "idk lol",
                    "stop it", "thanks girl", "who is this", "lol ok"]:
-    check(f"not captured as name: {not_a_name!r}", not sms._looks_like_person_name(not_a_name))
+    check(f"not captured as name: {not_a_name!r}", not intent._looks_like_person_name(not_a_name))
 
 # Real names still pass.
 for real in ["Mike Johnson", "Raven Gillespie", "Jordan Banks Jr"]:
-    check(f"real name accepted: {real!r}", sms._looks_like_person_name(real))
+    check(f"real name accepted: {real!r}", intent._looks_like_person_name(real))
 
 # Correction accusations are detected (not filed as names).
 for corr in ["you're hallucinating", "your hallucinating", "that's wrong", "you made that up"]:
@@ -58,7 +59,7 @@ def _ctx(status, ev_extra):
 # but section pricing IS visible (teaser-tier upsell).
 ctx_invited = _ctx("INVITED", {"description": "Back room. Side door code 4421."})
 for token in ["Secret Lounge", "123 Hidden Way", "Side door", "Out back",
-              "t.example.com", "description:", "venue_name:", "address_text:"]:
+              "t.example.com", "venue_name:", "address_text:"]:
     check(f"INVITED context strips {token!r}", token not in ctx_invited)
 check("INVITED context KEEPS section pricing (teaser)", "VIP" in ctx_invited)
 
@@ -104,20 +105,19 @@ for t in ["I'm in", "yes", "sure", "count me in"]:
     check(f"plain confirm is NOT a status question: {t!r}", not _sms._is_status_question(t.upper().strip()))
 # Prompt must NOT instruct Claude to perform state transitions.
 _p = _sms.JADE_SYSTEM_PROMPT
-check("prompt explicitly bans the faked-confirm wording", 'Never say "You\'re in."' in _p)
-check("prompt has the state-transition guardrail", "State transitions are NOT yours to perform" in _p)
-check("prompt nudges instead of faking", "Is that a yes?" in _p)
+check("prompt makes saved status authoritative", "The saved status is authoritative" in _p)
+check("prompt leaves updates to application", "The application processes those changes" in _p)
 
 # ── Bug A: bare name outside awaiting-context must deflect, never greet ──
 import sms_handler as _smsA
 def _bare_catch(t):
     n=t.upper().strip()
-    return _smsA._is_bare_name_for_catch(t,n) and _smsA._detect_rsvp_intent(t,n)=="" and not _smsA._is_status_question(n)
+    return intent._is_bare_name_for_catch(t,n) and _smsA._detect_rsvp_intent(t,n)=="" and not _smsA._is_status_question(n)
 for t in ["Raven","Ericka Jackson","Raven Gillespie","Mike Smith"]:
     check(f"bare name deflects: {t!r}", _bare_catch(t))
 for t in ["wanna hang","Wanna hang?","are you free","Are you single","yes","no","is there parking?","where is it","I am confirmed"]:
     check(f"NOT deflected (rope/q/rsvp): {t!r}", not _bare_catch(t))
-check("prompt bans greeting a bare name", "never a person greeting you" in _smsA.JADE_SYSTEM_PROMPT.lower() or "lone name" in _smsA.JADE_SYSTEM_PROMPT.lower())
+check("prompt prevents unsaved claims", "Never claim that a name" in _smsA.JADE_SYSTEM_PROMPT)
 
 if failures:
     raise SystemExit("Jade v2 contract tests FAILED:\n- " + "\n- ".join(failures))

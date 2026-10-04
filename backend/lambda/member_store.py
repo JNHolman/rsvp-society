@@ -147,9 +147,57 @@ def _pending_expiry_iso(now: str | None = None) -> str:
     return (base + timedelta(days=_pending_retention_days())).isoformat(timespec="seconds")
 
 
+def _pending_expiry_epoch(now: str | None = None) -> int:
+    expiry = datetime.fromisoformat(_pending_expiry_iso(now).replace("Z", "+00:00"))
+    return int(expiry.timestamp())
+
+
+def _ensure_pending_expiry_ttl(item: Dict[str, Any], table=None) -> None:
+    """Backfill DynamoDB TTL for legacy pending rows without changing their deadline."""
+    if (item.get("status") or "").upper() != "PENDING" or item.get("pendingExpiresAtEpoch") is not None:
+        return
+    expiry = (item.get("pendingExpiresAt") or "").strip()
+    if expiry:
+        try:
+            expiry_dt = datetime.fromisoformat(expiry.replace("Z", "+00:00"))
+        except ValueError:
+            return
+    else:
+        submitted = (item.get("submittedAt") or item.get("createdAt") or "").strip()
+        if not submitted:
+            return
+        try:
+            submitted_dt = datetime.fromisoformat(submitted.replace("Z", "+00:00"))
+        except ValueError:
+            return
+        expiry_dt = submitted_dt + timedelta(days=_pending_retention_days())
+    if expiry_dt.tzinfo is None:
+        expiry_dt = expiry_dt.replace(tzinfo=timezone.utc)
+    expiry_epoch = int(expiry_dt.timestamp())
+    try:
+        (table or _table()).update_item(
+            Key={"phone": item["phone"]},
+            UpdateExpression="SET pendingExpiresAtEpoch = :epoch",
+            ConditionExpression="#status = :pending AND attribute_not_exists(pendingExpiresAtEpoch)",
+            ExpressionAttributeNames={"#status": "status"},
+            ExpressionAttributeValues={":epoch": expiry_epoch, ":pending": "PENDING"},
+        )
+        item["pendingExpiresAtEpoch"] = expiry_epoch
+    except Exception as exc:
+        code = (getattr(exc, "response", {}).get("Error") or {}).get("Code")
+        if code != "ConditionalCheckFailedException":
+            logger.warning("pending TTL backfill failed for phone suffix ...%s", str(item.get("phone", ""))[-4:])
+
+
 def _pending_is_expired(item: Dict[str, Any]) -> bool:
     if (item.get("status") or "").upper() != "PENDING":
         return False
+    ttl_epoch = item.get("pendingExpiresAtEpoch")
+    if ttl_epoch is not None:
+        try:
+            return datetime.now(timezone.utc).timestamp() > float(ttl_epoch)
+        except (TypeError, ValueError):
+            pass
     expiry = (item.get("pendingExpiresAt") or "").strip()
     if not expiry:
         submitted = (item.get("submittedAt") or item.get("createdAt") or "").strip()
@@ -157,11 +205,15 @@ def _pending_is_expired(item: Dict[str, Any]) -> bool:
             return False
         try:
             submitted_dt = datetime.fromisoformat(submitted.replace("Z", "+00:00"))
+            if submitted_dt.tzinfo is None:
+                submitted_dt = submitted_dt.replace(tzinfo=timezone.utc)
             return datetime.now(timezone.utc) > submitted_dt + timedelta(days=_pending_retention_days())
         except Exception:
             return False
     try:
         expiry_dt = datetime.fromisoformat(expiry.replace("Z", "+00:00"))
+        if expiry_dt.tzinfo is None:
+            expiry_dt = expiry_dt.replace(tzinfo=timezone.utc)
         return datetime.now(timezone.utc) > expiry_dt
     except Exception:
         return False
@@ -234,7 +286,6 @@ def upsert_member(
         ":ca":      now,
         ":pending": "PENDING",
         ":soi":     False if opted_out else (existing.get("smsOptIn", sms_opt_in) if protect_identity else sms_opt_in),
-        ":pex":     _pending_expiry_iso(now),
     }
 
     set_parts = [
@@ -253,18 +304,27 @@ def upsert_member(
 
     remove_parts = []
     if should_reset_pending:
+        expr_vals[":pex"] = _pending_expiry_iso(now)
+        expr_vals[":pex_epoch"] = _pending_expiry_epoch(now)
         set_parts.extend([
             "#s = :pending",
             "pendingExpiresAt = :pex",
+            "pendingExpiresAtEpoch = :pex_epoch",
         ])
         # A deleted member reapplying is a fresh approval cycle. Clear tombstone
         # and welcome markers so host approval can send the member welcome once.
         remove_parts.extend(["deletedAt", "welcomeSentAt", "welcomeSendingAt", "lastWelcomeError"])
     else:
-        set_parts.extend([
-            "#s = if_not_exists(#s, :pending)",
-            "pendingExpiresAt = if_not_exists(pendingExpiresAt, :pex)",
-        ])
+        set_parts.append("#s = if_not_exists(#s, :pending)")
+        if existing_status == "PENDING":
+            expr_vals[":pex"] = _pending_expiry_iso(now)
+            expr_vals[":pex_epoch"] = _pending_expiry_epoch(now)
+            set_parts.extend([
+                "pendingExpiresAt = if_not_exists(pendingExpiresAt, :pex)",
+                "pendingExpiresAtEpoch = if_not_exists(pendingExpiresAtEpoch, :pex_epoch)",
+            ])
+        else:
+            remove_parts.extend(["pendingExpiresAt", "pendingExpiresAtEpoch"])
 
     # A reapplication records fresh requested consent but cannot clear STOP.
     # Host approval promotes this request atomically; a later STOP removes it.
@@ -347,10 +407,11 @@ def set_status(phone: str, status: str, *, expected_status: str | None = None) -
         condition += " AND #s = :expected"
         values[":expected"] = expected_status
     if st == "PENDING":
-        expression = "SET #s = :s, lastSeenAt = :ls, pendingExpiresAt = :pex"
+        expression = "SET #s = :s, lastSeenAt = :ls, pendingExpiresAt = :pex, pendingExpiresAtEpoch = :pex_epoch"
         values[":pex"] = _pending_expiry_iso(now)
+        values[":pex_epoch"] = _pending_expiry_epoch(now)
     else:
-        expression = "SET #s = :s, lastSeenAt = :ls REMOVE pendingExpiresAt"
+        expression = "SET #s = :s, lastSeenAt = :ls REMOVE pendingExpiresAt, pendingExpiresAtEpoch"
     if st == "APPROVED":
         current = _table().get_item(Key={"phone": phone_e164}, ConsistentRead=True).get("Item") or {}
         if current.get("status") == "PENDING" and current.get("pendingSmsConsentAt"):
@@ -358,7 +419,7 @@ def set_status(phone: str, status: str, *, expected_status: str | None = None) -
             condition += " AND #s = :pendingReview AND pendingSmsConsentAt = :request"
             expression = ("SET #s = :s, lastSeenAt = :ls, smsOptIn = :yes, smsOptInAt = :request, "
                           "smsOptInConfirmedAt = :ls, smsOptInConfirmationSource = :consentSource "
-                          "REMOVE pendingExpiresAt, optOut, optOutAt, pendingSmsConsentAt")
+                          "REMOVE pendingExpiresAt, pendingExpiresAtEpoch, optOut, optOutAt, pendingSmsConsentAt")
     elif st == "DENIED":
         expression += ", pendingSmsConsentAt"
     _table().update_item(
@@ -385,6 +446,8 @@ def list_members_by_status(status: str = "PENDING", limit: int = 200) -> List[Di
 
     while True:
         resp = t.query(**kwargs)
+        for item in resp.get("Items", []):
+            _ensure_pending_expiry_ttl(item, t)
         items.extend(resp.get("Items", []))
         last = resp.get("LastEvaluatedKey")
         if not last:
@@ -425,6 +488,8 @@ def count_members_by_status(status: str = "PENDING") -> int:
     while True:
         page = _table().query(**kwargs)
         if st == "PENDING":
+            for item in page.get("Items", []):
+                _ensure_pending_expiry_ttl(item)
             total += sum(1 for item in page.get("Items", []) if not _pending_is_expired(item))
         else:
             total += int(page.get("Count") or 0)
@@ -455,7 +520,10 @@ def list_members_by_status_page(status: str = "PENDING", *, limit: int = 50, nex
     if cursor:
         kwargs["ExclusiveStartKey"] = cursor
 
-    response = _table().query(**kwargs)
+    table = _table()
+    response = table.query(**kwargs)
+    for item in response.get("Items", []):
+        _ensure_pending_expiry_ttl(item, table)
     items = [normalize_member_record(item) for item in response.get("Items", [])]
     items = [item for item in items if not _pending_is_expired(item)]
     items.sort(key=lambda x: (

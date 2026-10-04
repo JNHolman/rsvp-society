@@ -5,6 +5,8 @@ import logging
 import os
 import time
 import uuid
+from event_policy import event_start, venue_mode, venue_available
+
 import boto3
 from datetime import datetime, timezone, timedelta
 from zoneinfo import ZoneInfo
@@ -103,12 +105,19 @@ def _build_reminder(member_name: str, event: dict) -> str:
         template = (event.get("day_before_template") or event.get("reminder_template") or "").strip()
 
     if template:
-        return template.replace("{name}", name).strip()
+        message = template.replace("{name}", name).strip()
+        # A saved template must not prevent the promised venue release.
+        if venue_available(event, confirmed=True):
+            details = [str(event.get(k) or "").strip() for k in ("venue", "address")]
+            missing = [value for value in details if value and value.casefold() not in message.casefold()]
+            if missing:
+                message += " " + ", ".join(missing) + "."
+        return message
 
     # Fallback: build from event fields
     event_label = (event.get("event_label") or event.get("eventSlug") or "").strip()
     start_time  = (event.get("startTime") or "").strip()
-    timing_word = "Tonight" if is_day_of else "Tomorrow"
+    timing_word = "Today" if is_day_of else ("In two days" if venue_mode(event) == "48_hours" else "Tomorrow")
 
     parts = [f"{name}." if name else ""]
     parts.append(f"{timing_word}.")
@@ -117,6 +126,10 @@ def _build_reminder(member_name: str, event: dict) -> str:
     if start_time:
         parts.append(f"Doors at {start_time}.")
 
+    if venue_available(event, confirmed=True):
+        location = ", ".join(str(event.get(k) or "").strip() for k in ("venue", "address") if event.get(k))
+        if location:
+            parts.append(location + ".")
     return " ".join(p for p in parts if p)
 
 
@@ -665,6 +678,9 @@ def handler(event, context):
     2. API Gateway POST /admin/invite/reminder (manual blast)
     """
     try:
+        if event.get("source") == "rsvp.followup" and not event.get("httpMethod") and not event.get("requestContext"):
+            from followups import handle
+            return handle(event, send_sms=send_sms)
         if event.get("httpMethod") or event.get("requestContext"):
             headers = event.get("headers") or {}
             origin  = headers.get("origin") or headers.get("Origin") or ""
@@ -858,6 +874,8 @@ def handler(event, context):
             expected_tz = str(event.get("expectedTimezone") or "").strip()
             target_hour, target_minute = _scheduled_target_time(current_event, is_day_of)
             current_time = f"{target_hour:02d}:{target_minute:02d}"
+            if not is_day_of and venue_mode(current_event) == "48_hours":
+                current_time = (event_start(current_event).astimezone(timezone.utc) - timedelta(hours=48)).astimezone(ZoneInfo(_event_timezone_name(current_event))).strftime("%H:%M")
             current_date = normalize_event_date(event_date_str)
             current_tz = _event_timezone_name(current_event)
             if (
@@ -866,6 +884,8 @@ def handler(event, context):
                 or (expected_date and expected_date != current_date)
                 or (expected_time and expected_time != current_time)
                 or (expected_tz and expected_tz != current_tz)
+                or (event.get("expectedVenueReleaseMode") and event["expectedVenueReleaseMode"] != venue_mode(current_event))
+                or (event.get("expectedStartTime") and event["expectedStartTime"] != current_event.get("startTime"))
             ):
                 logger.info("reminder_handler: stale scheduler invocation for %s — skipping", expected_slug or "<missing>")
                 return {"ok": True, "skipped": True, "reason": "stale schedule"}
@@ -887,6 +907,11 @@ def handler(event, context):
         local_today = local_now.date()
         target_hour, target_minute = _scheduled_target_time(current_event, is_day_of)
         expected_fire_date = event_date if is_day_of else event_date - timedelta(days=1)
+
+        if not is_day_of and venue_mode(current_event) == "48_hours":
+            release = (event_start(current_event).astimezone(timezone.utc) - timedelta(hours=48)).astimezone(zone)
+            expected_fire_date = release.date()
+            target_hour, target_minute = release.hour, release.minute
 
         if local_today != expected_fire_date:
             logger.info(
