@@ -172,8 +172,7 @@ function bindShellEvents() {
   $('event-preview-btn')?.addEventListener('click', previewJadeMessages);
   $('event-draft-jade-btn')?.addEventListener('click', draftWithJade);
   $('event-next-btn')?.addEventListener('click', () => goToSection('invite'));
-  $('event-lock-btn')?.addEventListener('click', () => saveEvent({ setActive: false }));
-  $('ev-venue-mode')?.addEventListener('change', syncReminderTimingUi);
+$('ev-venue-mode')?.addEventListener('change', syncReminderTimingUi);
   $('analytics-event-select')?.addEventListener('change', (event) => loadEventAnalytics(event.target.value));
   $('analytics-refresh-btn')?.addEventListener('click', () => loadAnalyticsTab());
   $('import-modal')?.addEventListener('click', (event) => {
