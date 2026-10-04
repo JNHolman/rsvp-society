@@ -44,7 +44,7 @@ resource "aws_api_gateway_integration" "admin_events_post" {
   uri                     = aws_lambda_function.admin_handler.invoke_arn
 }
 
-# DELETE /admin/events — archives only; no hard delete
+# DELETE /admin/events — guarded archive/hard-delete handling lives in the admin Lambda
 resource "aws_api_gateway_method" "admin_events_delete" {
   rest_api_id   = aws_api_gateway_rest_api.api.id
   resource_id   = aws_api_gateway_resource.admin_events.id

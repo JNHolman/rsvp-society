@@ -177,44 +177,6 @@ def get_confirmed(event: dict, headers: dict, token: str) -> dict:
         except Exception:
             logger.exception("get_confirmed: batch_get_item failed batch i=%d", i)
 
-    # Resolve +1 membership with at most one paginated members-table scan per
-    # request. The old implementation called search_members() once per +1, which
-    # could rescan the entire ~2,500-member table dozens of times on check-in load.
-    plus_one_names = {
-        (inv.get("plusOneName") or "").strip().lower()
-        for inv in confirmed_invites
-        if (inv.get("plusOneName") or "").strip()
-    }
-    member_name_keys: set[str] = set()
-    if plus_one_names:
-        scan_kwargs = {
-            "ProjectionExpression": "#n, lastName, #s, pendingExpiresAt",
-            "ExpressionAttributeNames": {"#n": "name", "#s": "status"},
-        }
-        while True:
-            try:
-                scan_page = members_t.scan(**scan_kwargs)
-            except Exception:
-                logger.exception("get_confirmed: single-pass +1 member lookup failed")
-                break
-            for raw in scan_page.get("Items", []):
-                status = (raw.get("status") or "").upper()
-                expires = (raw.get("pendingExpiresAt") or "").strip()
-                if status == "PENDING" and expires:
-                    try:
-                        if datetime.fromisoformat(expires.replace("Z", "+00:00")) <= datetime.now(timezone.utc):
-                            continue
-                    except Exception:
-                        pass
-                first = (raw.get("name") or "").strip().lower()
-                last = (raw.get("lastName") or "").strip().lower()
-                full = f"{first} {last}".strip()
-                member_name_keys.update(k for k in (first, last, full) if k)
-            last_key = scan_page.get("LastEvaluatedKey")
-            if not last_key:
-                break
-            scan_kwargs["ExclusiveStartKey"] = last_key
-
     members_out = []
     for invite in confirmed_invites:
         phone = invite.get("phone", "")
@@ -226,10 +188,10 @@ def get_confirmed(event: dict, headers: dict, token: str) -> dict:
         first_name = (m.get("name")     or invite.get("name")     or "").strip()
         last_name  = (m.get("lastName") or invite.get("lastName") or "").strip()
         full_name  = " ".join(part for part in (first_name, last_name) if part).strip()
-        # Live check against the single request-scoped member-name index above.
+        # Guest identity is resolved when the +1 is accepted. Check-in uses
+        # that persisted decision rather than guessing membership from a name.
         plus_one_name = invite.get("plusOneName", "")
-        plus_one_clean = plus_one_name.strip().lower()
-        plus_one_is_member = bool(plus_one_clean and plus_one_clean in member_name_keys)
+        plus_one_is_member = coerce_bool(invite.get("plusOneIsMember", False))
 
         members_out.append({
             "phone":           phone,
@@ -769,8 +731,12 @@ def record_member_attendance(event: dict, headers: dict, token: str) -> dict:
         end = datetime.combine(start.date(), datetime.strptime(event_row.get("endTime") or "23:59", "%H:%M").time(), tzinfo=zone)
         if end <= start:
             end += timedelta(days=1)
-        if now.date() != start.date() and not (start <= now <= end):
-            return resp(headers, 409, {"ok": False, "error": "Check-in is available during the event only"})
+        checkin_open = start - timedelta(hours=3)
+        if not (checkin_open <= now <= end):
+            return resp(headers, 409, {
+                "ok": False,
+                "error": "Check-in opens 3 hours before the event and closes at the scheduled event end",
+            })
     except (ValueError, TypeError):
         return resp(headers, 409, {"ok": False, "error": "Save the event date and time before check-in"})
     guest_type = (data.get("guestType") or data.get("type") or "member").strip().lower()
