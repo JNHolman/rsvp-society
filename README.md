@@ -49,17 +49,6 @@ The code includes authenticated administrative routes, webhook signature verific
 
 These controls are part of the implementation, not a certification. Production validation, credential rotation, operator access controls and ongoing dependency review remain operational responsibilities. Never commit credentials, Terraform state, member exports or private audit evidence.
 
-## Working with the project
-
-- `frontend/`: public experience and admin dashboard.
-- `backend/lambda/`: Python services and regression tests.
-- `backend/terraform/`: infrastructure definitions.
-- `JADE.md`: concise voice and behavior guide.
-
-For local checks, install `backend/lambda/requirements-dev.txt`, then run `bash backend/lambda/run_step1_tests.sh`. Tests use mocks and an emulated AWS environment; they do not establish live SMS delivery or production readiness.
-
-Build deployment bundles with `bash backend/lambda/export_clean.sh`. Infrastructure deployment is an explicit GitHub Actions workflow action. Review the plan and environment configuration before deploying; static frontend deployment is separate.
-
 ## About the project
 
 RSVP Society is a portfolio and production project grounded in real event operations. Its engineering focus is reliable coordination between human decisions, asynchronous messages and a changing guest list. Product and architecture questions are welcome through GitHub Issues; keep guest information and private operational details out of public discussions.
