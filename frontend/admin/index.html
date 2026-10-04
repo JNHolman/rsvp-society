@@ -33,10 +33,11 @@
 <div class="nav-left">
 <span class="nav-wordmark">[RSVP]</span>
 <div class="nav-divider"></div>
-<span class="nav-title">Member Console</span>
+<span class="nav-title">Operations Console</span>
 </div>
 <div class="nav-right">
-<button class="tab-btn active" id="tab-members">Members</button>
+<button class="tab-btn active" id="tab-overview">Overview</button>
+<button class="tab-btn" id="tab-members">Members</button>
 <button class="tab-btn" id="tab-event">Event</button>
 <button class="tab-btn" id="tab-invite">Invite</button>
 <button class="tab-btn" id="tab-analytics">Analytics</button>
@@ -45,7 +46,39 @@
 </div>
 </nav>
 <main>
-<div id="members-section">
+<div class="section-panel" id="overview-section">
+  <div class="overview-hero">
+    <div>
+      <div class="overview-kicker">Operations Dashboard</div>
+      <h1 class="overview-title">Tonight at a glance</h1>
+      <p class="overview-copy">Current membership and event operations in one place.</p>
+    </div>
+    <div class="overview-actions">
+      <button class="overview-btn" id="overview-event-btn" type="button">Manage Event</button>
+      <button class="overview-btn" id="overview-invite-btn" type="button">Invitations</button>
+      <a class="overview-btn overview-btn-primary" href="./checkin.html">Open Check-In</a>
+    </div>
+  </div>
+  <div class="overview-grid">
+    <button class="overview-card" id="overview-pending-card" type="button">
+      <span class="overview-label">Pending Members</span><strong class="overview-value" id="overview-pending">—</strong><span class="overview-hint">Review requests</span>
+    </button>
+    <button class="overview-card" id="overview-approved-card" type="button">
+      <span class="overview-label">Approved Members</span><strong class="overview-value" id="overview-approved">—</strong><span class="overview-hint">Open member directory</span>
+    </button>
+    <button class="overview-card overview-card-wide" id="overview-event-card" type="button">
+      <span class="overview-label">Active Event</span><strong class="overview-event-name" id="overview-event-name">Loading…</strong>
+      <span class="overview-event-meta" id="overview-event-meta">Checking current event</span>
+    </button>
+    <button class="overview-card" id="overview-invite-card" type="button">
+      <span class="overview-label">Invitations</span><strong class="overview-card-title">Audience & Waves</strong><span class="overview-hint">Review eligibility and sending</span>
+    </button>
+    <button class="overview-card" id="overview-analytics-card" type="button">
+      <span class="overview-label">Reporting</span><strong class="overview-card-title">Event Analytics</strong><span class="overview-hint">Attendance and outcomes</span>
+    </button>
+  </div>
+</div>
+<div id="members-section" hidden>
 <!-- Stats -->
 <div class="stats-row" id="stats-row">
 <div class="stat-card">

@@ -39,6 +39,16 @@
     </div>
   </nav>
 
+  <div class="door-shell">
+  <div class="door-heading">
+    <div>
+      <div class="door-kicker">Live Door Operations</div>
+      <h1 class="door-title" id="door-event-title">Check-In</h1>
+      <div class="door-meta" id="door-event-meta">Loading event…</div>
+    </div>
+    <div class="door-status"><strong id="door-status-in">0</strong><span>checked in</span></div>
+  </div>
+
   <div id="event-banner">
     <div class="banner-grid">
       <div class="banner-item">
@@ -88,11 +98,15 @@
     </div>
   </div>
 
-  <div class="alpha-bar" id="alpha-bar"></div>
+  <details class="browse-guests">
+    <summary>Browse guest list A–Z</summary>
+    <div class="alpha-bar" id="alpha-bar"></div>
+  </details>
 
   <div id="guest-list">
     <div class="state-msg">Loading guests...</div>
   </div>
+</div>
 </div>
 
 <div class="toast" id="toast"></div>
