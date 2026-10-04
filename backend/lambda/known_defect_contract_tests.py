@@ -280,6 +280,133 @@ class TestKnownDefectContracts(unittest.TestCase):
         self.assertNotIn("optOut", call["UpdateExpression"])
 
 
+class TestFinalAuditRegressionContracts(unittest.TestCase):
+    def _attendance_event(self, now_value, *, start="21:00", end="02:00"):
+        event_row = {
+            "eventId": "deep-end",
+            "eventSlug": "deep-end",
+            "date": "2026-10-04",
+            "startTime": start,
+            "endTime": end,
+            "event_timezone": "America/New_York",
+            "event_status": "LIVE",
+        }
+        event = {"body": json.dumps({
+            "eventId": "deep-end",
+            "phone": "+15025551212",
+            "attended": True,
+        })}
+        event_table = MagicMock()
+        event_table.get_item.return_value = {"Item": event_row}
+        ddb = MagicMock()
+        ddb.Table.return_value = event_table
+        fake_datetime = MagicMock(wraps=admin_member_routes.datetime)
+        fake_datetime.now.return_value = now_value
+        fake_datetime.combine.side_effect = admin_member_routes.datetime.combine
+        fake_datetime.strptime.side_effect = admin_member_routes.datetime.strptime
+        return event, ddb, fake_datetime
+
+    def test_checkin_window_boundaries_and_overnight_end(self):
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+
+        zone = ZoneInfo("America/New_York")
+        cases = [
+            (datetime(2026, 10, 4, 17, 59, 59, tzinfo=zone), 409),
+            (datetime(2026, 10, 4, 18, 0, 0, tzinfo=zone), 200),
+            (datetime(2026, 10, 4, 20, 0, 0, tzinfo=zone), 200),
+            (datetime(2026, 10, 4, 23, 30, 0, tzinfo=zone), 200),
+            (datetime(2026, 10, 5, 1, 30, 0, tzinfo=zone), 200),
+            (datetime(2026, 10, 5, 2, 0, 0, tzinfo=zone), 200),
+            (datetime(2026, 10, 5, 2, 0, 1, tzinfo=zone), 409),
+        ]
+        for now_value, expected_status in cases:
+            with self.subTest(now=now_value.isoformat()):
+                event, ddb, fake_datetime = self._attendance_event(now_value)
+                with patch.object(admin_member_routes.boto3, "resource", return_value=ddb), \
+                     patch.object(admin_member_routes, "datetime", fake_datetime), \
+                     patch.object(admin_member_routes, "record_attendance", return_value={"ok": True, "result": "ATTENDANCE_OK", "reason": ""}), \
+                     patch.object(admin_member_routes, "log_action"):
+                    response = admin_member_routes.record_member_attendance(event, {}, "token")
+                self.assertEqual(response["statusCode"], expected_status)
+
+    def test_checkin_uses_persisted_plus_one_membership_without_member_scan(self):
+        invite_table = MagicMock()
+        invite_table.query.return_value = {"Items": [{
+            "eventId": "deep-end",
+            "phone": "+15025551212",
+            "status": "CONFIRMED",
+            "name": "Jordan",
+            "lastName": "Smith",
+            "plusOneName": "Taylor Jones",
+            "plusOneIsMember": True,
+        }]}
+        member_table = MagicMock()
+        member_table.name = "rsvp-members-test"
+        member_table.meta.client.batch_get_item.return_value = {
+            "Responses": {"rsvp-members-test": [{
+                "phone": "+15025551212", "name": "Jordan", "lastName": "Smith"
+            }]}
+        }
+        ddb = MagicMock()
+        ddb.Table.side_effect = [invite_table, member_table]
+        event = {"queryStringParameters": {"eventId": "deep-end"}}
+
+        with patch.object(admin_member_routes.boto3, "resource", return_value=ddb):
+            response = admin_member_routes.get_confirmed(event, {}, "token")
+
+        self.assertEqual(response["statusCode"], 200)
+        payload = json.loads(response["body"])
+        self.assertTrue(payload["members"][0]["plusOneIsMember"])
+        member_table.scan.assert_not_called()
+
+    def test_public_signup_rejects_oversized_plain_body_before_processing(self):
+        event = {
+            "httpMethod": "POST",
+            "headers": {},
+            "body": "x" * (access_request.MAX_ACCESS_REQUEST_BYTES + 1),
+        }
+        with patch.object(access_request, "upsert_member") as upsert:
+            response = access_request.handler(event, None)
+        self.assertEqual(response["statusCode"], 413)
+        upsert.assert_not_called()
+
+    def test_base64_payload_size_is_measured_after_decoding(self):
+        import base64
+
+        # Base64 expansion itself must not trigger the application body limit.
+        # This decoded JSON is valid and below the limit, while its encoded form
+        # is larger than MAX_ACCESS_REQUEST_BYTES.
+        valid = json.dumps({"firstName": "A", "lastName": "B", "phone": "1", "smsOptIn": True, "zipCode": "0", "pad": "x" * 12200}).encode("utf-8")
+        self.assertLessEqual(len(valid), access_request.MAX_ACCESS_REQUEST_BYTES)
+        self.assertGreater(len(base64.b64encode(valid)), access_request.MAX_ACCESS_REQUEST_BYTES)
+        event = {
+            "httpMethod": "POST",
+            "headers": {},
+            "isBase64Encoded": True,
+            "body": base64.b64encode(valid).decode("ascii"),
+        }
+        with patch.object(access_request, "normalize_phone", side_effect=ValueError("bad phone")):
+            response = access_request.handler(event, None)
+        self.assertEqual(response["statusCode"], 400)
+        self.assertNotEqual(json.loads(response["body"]).get("error"), "request body too large")
+
+    def test_public_signup_rejects_oversized_decoded_base64_body(self):
+        import base64
+
+        oversized = b"x" * (access_request.MAX_ACCESS_REQUEST_BYTES + 1)
+        event = {
+            "httpMethod": "POST",
+            "headers": {},
+            "isBase64Encoded": True,
+            "body": base64.b64encode(oversized).decode("ascii"),
+        }
+        with patch.object(access_request, "upsert_member") as upsert:
+            response = access_request.handler(event, None)
+        self.assertEqual(response["statusCode"], 413)
+        upsert.assert_not_called()
+
+
 class TestAdditionalKnownDefectContracts(unittest.TestCase):
     def _signup_event(self, extra=None):
         body = {

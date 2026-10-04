@@ -54,15 +54,18 @@ def handler(event, context):
         raw_body = event.get("body") or ""
         if not isinstance(raw_body, str):
             return _resp(400, {"ok": False, "error": "invalid request body"}, origin)
-        if len(raw_body.encode("utf-8")) > MAX_ACCESS_REQUEST_BYTES:
-            return _resp(413, {"ok": False, "error": "request body too large"}, origin)
         if event.get("isBase64Encoded"):
             try:
-                raw_body = base64.b64decode(raw_body, validate=True).decode("utf-8")
+                decoded_body = base64.b64decode(raw_body, validate=True)
+                if len(decoded_body) > MAX_ACCESS_REQUEST_BYTES:
+                    return _resp(413, {"ok": False, "error": "request body too large"}, origin)
+                raw_body = decoded_body.decode("utf-8")
+            except UnicodeDecodeError:
+                return _resp(400, {"ok": False, "error": "invalid request encoding"}, origin)
             except Exception:
                 return _resp(400, {"ok": False, "error": "invalid request encoding"}, origin)
-            if len(raw_body.encode("utf-8")) > MAX_ACCESS_REQUEST_BYTES:
-                return _resp(413, {"ok": False, "error": "request body too large"}, origin)
+        elif len(raw_body.encode("utf-8")) > MAX_ACCESS_REQUEST_BYTES:
+            return _resp(413, {"ok": False, "error": "request body too large"}, origin)
 
         try:
             data = json.loads(raw_body) if raw_body else {}
