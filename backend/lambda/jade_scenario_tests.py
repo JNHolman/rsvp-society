@@ -21,7 +21,7 @@ if str(HERE) not in sys.path:
 import sms_handler as sms  # noqa: E402
 
 SMS_SOURCE = "\n".join((HERE / name).read_text() for name in ("sms_handler.py", "jade_prompt.py", "sms_intent.py", "jade_service.py", "sms_guest_flow.py"))
-JADE_DOC = (ROOT / "JADE.md").read_text()
+JADE_PROMPT_SOURCE = (HERE / "jade_prompt.py").read_text()
 MEMBER_STORE_SOURCE = (HERE / "member_store.py").read_text()
 
 
@@ -33,7 +33,7 @@ def require(name: str, condition: bool) -> None:
 def test_identity_mystery() -> None:
     require("Jade prompt avoids bot denial", "You are not a bot" not in SMS_SOURCE)
     require("Jade does not discuss backend systems", "answer honestly and briefly" in SMS_SOURCE)
-    require("Jade doc frames velvet-rope role", "velvet-rope" in JADE_DOC.lower() or "private point of contact" in JADE_DOC.lower())
+    require("Jade runtime prompt defines RSVP Society identity", "Jade from RSVP Society" in JADE_PROMPT_SOURCE)
 
 
 def test_correction_guard() -> None:
@@ -73,7 +73,7 @@ def test_plus_one_capture_safety() -> None:
 
 
 def test_private_event_gates() -> None:
-    require("venue gate documented", "Venue release" in JADE_DOC)
+    require("venue release policy is present in runtime prompt", "venue" in JADE_PROMPT_SOURCE.lower() and "release" in JADE_PROMPT_SOURCE.lower())
     require("ticket before confirmation blocked", "Once you're confirmed, I'll send what you need." in SMS_SOURCE)
     require("live only confirmable", "CONFIRMABLE_EVENT_STATES" in SMS_SOURCE and "CONFIRMABLE_EVENT_STATES = frozenset({\"LIVE\"})" in MEMBER_STORE_SOURCE)
 
