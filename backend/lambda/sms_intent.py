@@ -26,7 +26,7 @@ _DECLINE_PHRASES = (
     "NO", "NOPE", "NAH", "CANT", "CAN'T", "PASS", "DECLINE", "CANT MAKE IT",
     "CAN'T MAKE IT", "NOT COMING", "NOT GOING", "WONT MAKE IT", "WON'T MAKE IT",
     "IM OUT", "I'M OUT", "CANT GO", "CAN'T GO", "CANT DO IT", "CAN'T DO IT",
-    "SOMETHING CAME UP", "MAYBE NEXT TIME",
+    "SOMETHING CAME UP", "MAYBE NEXT TIME", "I CANT COME", "I CAN'T COME", "I CANT MAKE IT", "I CAN'T MAKE IT",
     "CANCEL MY RSVP", "CANCEL MY RESERVATION", "PLEASE CANCEL MY RSVP",
 )
 
@@ -50,7 +50,7 @@ def _detect_rsvp_intent(text: str, normalized: str) -> str:
     so it never swallows a logistics question or a name."""
     if _is_rsvp_question(text, normalized):
         return ""
-    n = re.sub(r"[^A-Z' ]", " ", normalized)
+    n = re.sub(r"[^A-Z' ]", " ", normalized.replace("’", "'"))
     n = re.sub(r"\s+", " ", n).strip()
     if not n:
         return ""
@@ -147,6 +147,35 @@ PLUS_ONE_UPDATE_INTENTS = {
     "BRING SOMEONE ELSE", "DIFFERENT GUEST", "DIFFERENT PLUS ONE",
     "ACTUALLY MY GUEST IS", "MY GUEST IS NOW", "MY GUEST CHANGED",
 }
+
+
+_PLUS_ONE_ASSIGNMENT_PATTERNS = (
+    re.compile(
+        r"^(?:(?:(?:i['’]?m|i am)\s+(?:changing|updating|switching)|"
+        r"(?:please\s+)?(?:change|update|switch|replace)|"
+        r"(?:can|could)\s+i\s+(?:change|update|switch|replace)|"
+        r"actually)\s+)?(?:my\s+)?(?:plus\s*(?:one|1)|guest|"
+        r"who\s+(?:i['’]?m|i am)\s+bringing)\s+"
+        r"(?:is|to|as|with|changed(?:\s+to)?)(?:\s+now)?\s+(.+)$",
+        re.IGNORECASE,
+    ),
+)
+
+
+def _extract_plus_one_assignment(text: str) -> str | None:
+    """Return a guest name from a direct plus-one change, if one is present.
+
+    Keep this deterministic so a confirmed member can change a guest in the
+    same text instead of being sent through Jade's general conversation path.
+    A bare change request intentionally returns None and uses the name prompt.
+    """
+    raw = (text or "").strip()
+    for pattern in _PLUS_ONE_ASSIGNMENT_PATTERNS:
+        match = pattern.match(raw)
+        if match:
+            name = match.group(1).strip().strip(".,!?;:")
+            return name or None
+    return None
 
 OPT_OUT_KEYWORDS = {"STOP", "STOPALL", "STOP ALL", "UNSUBSCRIBE", "CANCEL", "END", "QUIT"}
 
@@ -278,5 +307,8 @@ def _looks_like_person_name(text: str) -> bool:
         return False
     parts = [p for p in re.split(r"\s+", raw) if p]
     if len(parts) < 2 or len(parts) > 3:
+        return False
+    excluded = _NAME_CATCH_STOPWORDS | {"TERRIBLE", "BAD", "DAY", "LAWN", "WORK", "THANK", "THANKS", "YOU", "GREAT", "TIME", "CONFIRMED", "ALREADY", "NO", "YES", "CANCEL", "MY"}
+    if any(part.upper().strip(".,!?") in excluded for part in parts):
         return False
     return all(_looks_like_name_token(part) for part in parts)

@@ -154,7 +154,7 @@ class ReconcileContract(unittest.TestCase):
         workflow = (HERE.parents[1] / ".github" / "workflows" / "reconcile-production.yml").read_text()
         self.assertIn("workflow_dispatch:", workflow)
         self.assertIn("python backend/tools/production_reconcile.py", workflow)
-        self.assertIn("actions/upload-artifact@v7", workflow)
+        self.assertRegex(workflow, r"uses: actions/upload-artifact@[0-9a-f]{40} # v7")
         self.assertIn("default: false", workflow)
         self.assertNotIn("terraform apply", workflow)
 

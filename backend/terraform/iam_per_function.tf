@@ -14,10 +14,14 @@
 
 locals {
   log_actions = [
-    "logs:CreateLogGroup",
     "logs:CreateLogStream",
     "logs:PutLogEvents",
   ]
+  access_request_log_stream_arn   = "arn:aws:logs:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:log-group:/aws/lambda/rsvp-access-request:log-stream:*"
+  admin_handler_log_stream_arn    = "arn:aws:logs:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:log-group:/aws/lambda/rsvp-admin-handler:log-stream:*"
+  sms_handler_log_stream_arn      = "arn:aws:logs:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:log-group:/aws/lambda/rsvp-sms-handler:log-stream:*"
+  invite_handler_log_stream_arn   = "arn:aws:logs:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:log-group:/aws/lambda/rsvp-invite-handler:log-stream:*"
+  reminder_handler_log_stream_arn = "arn:aws:logs:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:log-group:/aws/lambda/rsvp-reminder-handler:log-stream:*"
   members_arn       = aws_dynamodb_table.members.arn
   members_index     = "${aws_dynamodb_table.members.arn}/index/*"
   events_arn        = aws_dynamodb_table.events.arn
@@ -58,7 +62,7 @@ resource "aws_iam_role_policy" "lambda_access_request" {
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
-      { Effect = "Allow", Action = local.log_actions, Resource = "*" },
+      { Effect = "Allow", Action = local.log_actions, Resource = local.access_request_log_stream_arn },
       {
         Effect   = "Allow"
         Action   = ["dynamodb:PutItem"]
@@ -66,7 +70,7 @@ resource "aws_iam_role_policy" "lambda_access_request" {
       },
       {
         Effect   = "Allow"
-        Action   = ["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:UpdateItem", "dynamodb:Scan"]
+        Action   = ["dynamodb:GetItem", "dynamodb:UpdateItem"]
         Resource = [local.members_arn]
       },
       {
@@ -100,26 +104,32 @@ resource "aws_iam_role_policy" "lambda_admin_handler" {
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
-      { Effect = "Allow", Action = local.log_actions, Resource = "*" },
+      { Effect = "Allow", Action = local.log_actions, Resource = local.admin_handler_log_stream_arn },
       {
         Effect = "Allow"
         Action = [
           "dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:UpdateItem",
           "dynamodb:DeleteItem", "dynamodb:Query", "dynamodb:Scan",
-          "dynamodb:BatchGetItem", "dynamodb:BatchWriteItem",
-          "dynamodb:TransactWriteItems", "dynamodb:ConditionCheckItem",
         ]
         Resource = [
           local.members_arn,
           local.members_index,
           local.events_arn,
-          local.event_history_arn,
           local.invites_arn,
           local.invites_index,
           local.checkins_arn,
-          local.audit_log_arn,
           local.pending_approvals_arn,
         ]
+      },
+      {
+        Effect   = "Allow"
+        Action   = ["dynamodb:BatchGetItem"]
+        Resource = [local.members_arn]
+      },
+      {
+        Effect   = "Allow"
+        Action   = ["dynamodb:TransactWriteItems", "dynamodb:ConditionCheckItem"]
+        Resource = [local.members_arn, local.events_arn, local.invites_arn, local.checkins_arn]
       },
       {
         Effect = "Allow"
@@ -142,6 +152,9 @@ resource "aws_iam_role_policy" "lambda_admin_handler" {
         Effect   = "Allow"
         Action   = ["iam:PassRole"]
         Resource = aws_iam_role.reminder_scheduler_invoker.arn
+        Condition = {
+          StringEquals = { "iam:PassedToService" = "scheduler.amazonaws.com" }
+        }
       },
     ]
   })
@@ -165,7 +178,11 @@ resource "aws_iam_role_policy" "lambda_sms_handler" {
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
-      { Effect = "Allow", Action = local.log_actions, Resource = "*" },
+      { Effect = "Allow", Action = ["scheduler:CreateSchedule"], Resource = "arn:aws:scheduler:${local.region}:${local.account}:schedule/default/rsvp-followup-*" },
+      { Effect = "Allow", Action = ["iam:PassRole"], Resource = aws_iam_role.reminder_scheduler_invoker.arn,
+        Condition = { StringEquals = { "iam:PassedToService" = "scheduler.amazonaws.com" } } },
+
+      { Effect = "Allow", Action = local.log_actions, Resource = local.sms_handler_log_stream_arn },
       {
         Effect   = "Allow"
         Action   = ["dynamodb:GetItem", "dynamodb:UpdateItem", "dynamodb:Scan", "dynamodb:Query"]
@@ -173,7 +190,7 @@ resource "aws_iam_role_policy" "lambda_sms_handler" {
       },
       {
         Effect   = "Allow"
-        Action   = ["dynamodb:GetItem", "dynamodb:UpdateItem", "dynamodb:Query"]
+        Action   = ["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:DeleteItem", "dynamodb:UpdateItem", "dynamodb:Query"]
         Resource = [local.invites_arn, local.invites_index]
       },
       {
@@ -183,7 +200,7 @@ resource "aws_iam_role_policy" "lambda_sms_handler" {
       },
       {
         Effect   = "Allow"
-        Action   = ["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:DeleteItem", "dynamodb:Query"]
+        Action   = ["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:DeleteItem", "dynamodb:UpdateItem", "dynamodb:Query"]
         Resource = [local.pending_approvals_arn]
       },
       {
@@ -225,7 +242,11 @@ resource "aws_iam_role_policy" "lambda_invite_handler" {
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
-      { Effect = "Allow", Action = local.log_actions, Resource = "*" },
+      { Effect = "Allow", Action = ["scheduler:CreateSchedule"], Resource = "arn:aws:scheduler:${local.region}:${local.account}:schedule/default/rsvp-followup-*" },
+      { Effect = "Allow", Action = ["iam:PassRole"], Resource = aws_iam_role.reminder_scheduler_invoker.arn,
+        Condition = { StringEquals = { "iam:PassedToService" = "scheduler.amazonaws.com" } } },
+
+      { Effect = "Allow", Action = local.log_actions, Resource = local.invite_handler_log_stream_arn },
       {
         Effect   = "Allow"
         Action   = ["dynamodb:ConditionCheckItem"]
@@ -307,7 +328,11 @@ resource "aws_iam_role_policy" "lambda_reminder_handler" {
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
-      { Effect = "Allow", Action = local.log_actions, Resource = "*" },
+      { Effect = "Allow", Action = ["scheduler:CreateSchedule"], Resource = "arn:aws:scheduler:${local.region}:${local.account}:schedule/default/rsvp-followup-*" },
+      { Effect = "Allow", Action = ["iam:PassRole"], Resource = aws_iam_role.reminder_scheduler_invoker.arn,
+        Condition = { StringEquals = { "iam:PassedToService" = "scheduler.amazonaws.com" } } },
+
+      { Effect = "Allow", Action = local.log_actions, Resource = local.reminder_handler_log_stream_arn },
       {
         # BatchGetItem for batch member lookup; GetItem for individual fallback
         Effect   = "Allow"
@@ -317,7 +342,7 @@ resource "aws_iam_role_policy" "lambda_reminder_handler" {
       {
         # Query to get confirmed invites; UpdateItem to claim/stamp reminder sentinels
         Effect   = "Allow"
-        Action   = ["dynamodb:Query", "dynamodb:UpdateItem", "dynamodb:BatchGetItem"]
+        Action   = ["dynamodb:GetItem", "dynamodb:Query", "dynamodb:UpdateItem", "dynamodb:BatchGetItem"]
         Resource = [local.invites_arn, local.invites_index]
       },
       {
@@ -365,6 +390,21 @@ resource "aws_iam_role_policy" "sms_access_reply_limit" {
       Action = ["dynamodb:PutItem", "dynamodb:GetItem", "dynamodb:UpdateItem"]
       Resource = local.invite_jobs_arn
       Condition = { "ForAllValues:StringLike" = { "dynamodb:LeadingKeys" = ["ACCESS_REPLY#*", "INBOUND#*", "CANCEL_FAILURE_REPLY#*"] } }
+    }]
+  })
+}
+
+# The admin handler only writes event-history snapshots; it does not need
+# member-history read/delete permissions on this append-only table.
+resource "aws_iam_role_policy" "admin_handler_event_history" {
+  name = "admin-handler-event-history-write"
+  role = aws_iam_role.lambda_admin_handler.id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect   = "Allow"
+      Action   = ["dynamodb:PutItem"]
+      Resource = local.event_history_arn
     }]
   })
 }

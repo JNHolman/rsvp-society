@@ -513,9 +513,29 @@ export async function openMemberDetail(phone) {
     detailRow('Status', member.status || state.currentStatus),
     detailControlRow('Gender', createGenderSelect(normalizedPhone, member.gender || '')),
     detailControlRow('Tier', createTierSelect(normalizedPhone, String(Number(member.tierOverride ?? member.tier ?? 0) || 0))),
-    detailRow('Market', getMarket(member)),
     detailRow('Joined', requestedDateText(member)),
   );
+  const profileInputs = {};
+  [['market', 'Market'], ['zipCode', 'ZIP code (optional)'], ['city', 'City'], ['state', 'State'], ['email', 'Email'], ['instagram', 'Instagram']].forEach(([key, label]) => {
+    const input = createNode('input', { attrs: { type: key === 'email' ? 'email' : 'text', 'aria-label': label, maxlength: '254' } });
+    input.value = member[key] || '';
+    profileInputs[key] = input;
+    profile.appendChild(detailControlRow(label, input));
+  });
+  const saveProfile = createNode('button', { text: 'Save Profile', attrs: { type: 'button' } });
+  saveProfile.onclick = async () => {
+    saveProfile.disabled = true;
+    try {
+      const fields = Object.fromEntries(Object.entries(profileInputs).map(([key, input]) => [key, input.value.trim()]));
+      const result = await apiJson(ROUTES.ADMIN_MEMBER_PROFILE, { method: 'POST', body: { phone: normalizedPhone, ...fields } });
+      Object.assign(member, result.member || fields);
+      state.memberList = state.memberList.map((row) => row.phone === normalizedPhone ? { ...row, ...member } : row);
+      filterMembers();
+      showToast('Profile saved', 'success');
+    } catch (error) { showToast(error.message, 'error'); }
+    finally { saveProfile.disabled = false; }
+  };
+  profile.appendChild(saveProfile);
   body.appendChild(profile);
 
   const historyDetails = createNode('details', { className: 'member-modal-details' });

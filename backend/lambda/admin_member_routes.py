@@ -22,6 +22,7 @@ from member_store import (
     record_attendance, normalize_phone,
     search_members_page, get_member, mark_welcome_sent, claim_welcome_send, clear_welcome_send_claim,
     normalize_member_record, write_welcome_error,
+    _pending_expiry_iso, _pending_expiry_epoch,
     CONFIRMED_FAMILY_STATUSES,
 )
 from audit_log import (
@@ -431,7 +432,8 @@ def delete_member(event: dict, headers: dict, token: str) -> dict:
         UpdateExpression=(
             "SET #status = :deleted, deletedAt = :now "
             "REMOVE #name, lastName, email, instagram, tags, smsOptIn, "
-            "zipCode, city, #state, latitude, longitude, locationSource"
+            "zipCode, city, #state, latitude, longitude, locationSource, "
+            "pendingExpiresAt, pendingExpiresAtEpoch"
         ),
         ExpressionAttributeNames={"#status": "status", "#name": "name", "#state": "state"},
         ExpressionAttributeValues={":deleted": "DELETED", ":now": now},
@@ -754,6 +756,23 @@ def record_member_attendance(event: dict, headers: dict, token: str) -> dict:
         return resp(headers, 409, {"ok": False, "error": "attendance finalized or event closing", "result": "ATTENDANCE_FINALIZED"})
 
     attended = coerce_bool(data.get("attended", False))
+    if not attended:
+        return resp(headers, 400, {"ok": False, "error": "Attendance is recorded at check-in. Close Event settles no-shows."})
+    from event_policy import event_start
+    from zoneinfo import ZoneInfo
+    try:
+        zone = ZoneInfo(event_row.get("event_timezone") or "America/New_York")
+        from datetime import timedelta
+        start = event_start(event_row)
+        now = datetime.now(zone)
+        # Include the after-midnight portion of an overnight event.
+        end = datetime.combine(start.date(), datetime.strptime(event_row.get("endTime") or "23:59", "%H:%M").time(), tzinfo=zone)
+        if end <= start:
+            end += timedelta(days=1)
+        if now.date() != start.date() and not (start <= now <= end):
+            return resp(headers, 409, {"ok": False, "error": "Check-in is available during the event only"})
+    except (ValueError, TypeError):
+        return resp(headers, 409, {"ok": False, "error": "Save the event date and time before check-in"})
     guest_type = (data.get("guestType") or data.get("type") or "member").strip().lower()
     if guest_type in ("plus_one", "plus-one", "plusone"):
         sponsor_phone = (data.get("sponsorPhone") or phone or "").strip()
@@ -879,7 +898,7 @@ def import_members(event: dict, headers: dict, token: str) -> dict:
         raw_zip = str(row.get("zipCode") or row.get("zip") or row.get("postalCode") or "").strip()
         zip_digits = re.sub(r"\D", "", raw_zip)
         zip_code = zip_digits[:5] if re.fullmatch(r"\d{5}(?:-?\d{4})?", raw_zip) else ""
-        if not zip_code:
+        if raw_zip and not zip_code:
             skipped += 1
             excluded_no_location += 1
             continue
@@ -890,7 +909,7 @@ def import_members(event: dict, headers: dict, token: str) -> dict:
 
     # Resolve each distinct ZIP once per import, with bounded concurrency and a
     # ceiling that keeps an admin request inside its Lambda timeout.
-    unique_zips = sorted({row[2]["zipCode"] for row in valid_rows})
+    unique_zips = sorted({row[2]["zipCode"] for row in valid_rows if row[2]["zipCode"]})
     if len(unique_zips) > MAX_IMPORT_UNIQUE_ZIPS:
         return resp(headers, 400, {
             "ok": False,
@@ -923,6 +942,10 @@ def import_members(event: dict, headers: dict, token: str) -> dict:
     located_rows = []
     for idx, phone_e164, row in valid_rows:
         location = resolved_locations.get(row["zipCode"])
+        if not row["zipCode"]:
+            row.update({"city": str(row.get("market") or "").strip(), "state": "", "latitude": None, "longitude": None, "locationSource": "manual"})
+            located_rows.append((idx, phone_e164, row))
+            continue
         if not location:
             skipped += 1
             excluded_no_location += 1
@@ -1014,7 +1037,8 @@ def import_members(event: dict, headers: dict, token: str) -> dict:
                     "state": row["state"],
                     "latitude": row["latitude"],
                     "longitude": row["longitude"],
-                    "locationSource": "zip",
+                    "locationSource": row.get("locationSource") or "zip",
+                    "market": str(row.get("market") or row.get("city") or "").strip(),
                 }
                 if sms_opt_in:
                     item["smsOptInAt"] = now
@@ -1022,6 +1046,9 @@ def import_members(event: dict, headers: dict, token: str) -> dict:
                     item["smsOptInConfirmationSource"] = "csv_import_attestation"
                 if last_name:
                     item["lastName"] = last_name[:120]
+                if import_status == "PENDING":
+                    item["pendingExpiresAt"] = _pending_expiry_iso(now)
+                    item["pendingExpiresAtEpoch"] = _pending_expiry_epoch(now)
                 if email:
                     item["email"] = email[:200]
                 if tags:
@@ -1038,11 +1065,14 @@ def import_members(event: dict, headers: dict, token: str) -> dict:
                 "submittedAt": now,
                 "smsOptIn": sms_opt_in,
             }
+            if row.get("market") and not existing.get("market"):
+                fields["market"] = str(row["market"]).strip()
+                fields["marketSource"] = "manual"
             location_fields = ("zipCode", "city", "state", "latitude", "longitude", "locationSource")
             if not existing.get("zipCode") or existing.get("zipCode") == row["zipCode"]:
                 for field in location_fields:
                     if existing.get(field) in (None, ""):
-                        fields[field] = "zip" if field == "locationSource" else row[field]
+                        fields[field] = (row.get("locationSource") or "zip") if field == "locationSource" else row[field]
             if import_status == "APPROVED" and not coerce_bool(existing.get("optOut")):
                 fields["status"] = "APPROVED"
             if not consent_confirmed:
@@ -1092,7 +1122,10 @@ def import_members(event: dict, headers: dict, token: str) -> dict:
                     conditions.append(f"attribute_not_exists({nk})")
             members_t.update_item(
                 Key={"phone": phone_e164},
-                UpdateExpression="SET " + ", ".join(assignments),
+                UpdateExpression=("SET " + ", ".join(assignments)
+                                  + (" REMOVE pendingExpiresAt, pendingExpiresAtEpoch"
+                                     if fields.get("status") == "APPROVED"
+                                     else "")),
                 ExpressionAttributeNames=names,
                 ExpressionAttributeValues=values,
                 ConditionExpression=" AND ".join(conditions),
@@ -1159,3 +1192,45 @@ def search_members_route(event: dict, headers: dict, token: str) -> dict:
     if page.get("nextPageToken"):
         payload["nextPageToken"] = page.get("nextPageToken")
     return resp(headers, 200, payload)
+
+
+def update_member_profile(event: dict, headers: dict, token: str) -> dict:
+    """Editable profile data only: membership identity and attendance stay separate."""
+    data = get_body(event)
+    try:
+        phone = normalize_phone(str(data.get("phone") or ""))
+        allowed = {"phone", "email", "instagram", "market", "zipCode", "city", "state"}
+        if set(data) - allowed:
+            raise ValueError("Unsupported profile field")
+        current = get_member(phone)
+        if not current or current.get("deletedAt"):
+            return resp(headers, 404, {"ok": False, "error": "Member not found"})
+        updates = {key: str(value or "").strip() for key, value in data.items() if key != "phone"}
+        if any(len(value) > 254 for value in updates.values()):
+            raise ValueError("Profile field is too long")
+        if updates.get("email") and not re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]+", updates["email"]):
+            raise ValueError("Enter a valid email address")
+        if "zipCode" in updates and updates["zipCode"] != str(current.get("zipCode") or ""):
+            if updates["zipCode"]:
+                location = resolve_us_zip(updates["zipCode"])
+                updates.update({key: location.get(key) for key in ("zipCode", "city", "state", "latitude", "longitude")})
+                updates["locationSource"] = "zip"
+            else:
+                updates.update(latitude=None, longitude=None, locationSource="manual")
+        if "market" in data:
+            updates["market"] = str(data["market"] or "").strip()
+            updates["marketSource"] = "manual"
+        if not updates:
+            return resp(headers, 200, {"ok": True, "member": current})
+        updates["updatedAt"] = _now()
+        names = {f"#f{i}": key for i, key in enumerate(updates)}
+        values = {f":v{i}": Decimal(str(value)) if isinstance(value, float) else value for i, value in enumerate(updates.values())}
+        table = boto3.resource("dynamodb").Table(os.getenv("MEMBERS_TABLE_NAME", "rsvp-members"))
+        result = table.update_item(Key={"phone": phone},
+            UpdateExpression="SET " + ", ".join(f"#f{i} = :v{i}" for i in range(len(updates))),
+            ExpressionAttributeNames=names, ExpressionAttributeValues=values,
+            ConditionExpression="attribute_exists(phone) AND attribute_not_exists(deletedAt)", ReturnValues="ALL_NEW")
+        log_action(token=token, action="MEMBER_PROFILE_UPDATED", target_phone=phone, metadata={"fields": list(updates)})
+        return resp(headers, 200, {"ok": True, "member": result["Attributes"]})
+    except (ValueError, InvalidZipError) as exc:
+        return resp(headers, 400, {"ok": False, "error": str(exc)})

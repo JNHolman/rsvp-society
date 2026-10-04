@@ -26,7 +26,7 @@ from admin_shared import (
 )
 from audit_log import log_action, ACTION_EVENT_UPDATED, ACTION_EVENT_STATUS_CHANGED
 from member_store import CONFIRMED_FAMILY_STATUSES, attendance_is_settled, finalize_event_attendance
-from reminder_schedule import sync_event_reminder_schedules, cancel_event_reminder_schedules
+from reminder_schedule import sync_event_reminder_schedules, cancel_event_reminder_schedules, desired_schedule_specs
 from location_resolver import ZipLookupUnavailable, resolve_us_zip
 
 logger = logging.getLogger()
@@ -261,6 +261,7 @@ def _build_event_item(data: dict, *, existing: dict | None = None) -> dict:
         "event_timezone": event_timezone,
         "address": (data.get("address") or "").strip(),
         "revealVenue": coerce_bool(data.get("revealVenue", False)),
+        "venueReleaseMode": data.get("venueReleaseMode") if data.get("venueReleaseMode") in {"invite", "confirmation", "48_hours"} else ("confirmation" if coerce_bool(data.get("revealVenue", False)) else "48_hours"),
         "vibe_tag": (data.get("vibe_tag") or "").strip(),
         "event_label": (data.get("event_label") or "").strip(),
         "startTime": start_time,
@@ -550,7 +551,19 @@ def get_public_event(headers: dict) -> dict:
 
 def get_admin_event(event: dict, headers: dict, token: str) -> dict:
     ev = get_current_event()
-    return resp(headers, 200, {"ok": True, "event": ev or {}})
+    schedule = []
+    if ev:
+        try:
+            specs = desired_schedule_specs(ev)
+        except (ValueError, TypeError, KeyError):
+            logger.warning("Event timing needs correction before scheduling")
+            specs = []
+        for spec in specs:
+            day_of = spec["timing"] == "day_of"
+            schedule.append({"label": "Day-of reminder" if day_of else "Venue / event reminder",
+                "when": spec["scheduleExpression"][3:-1].replace("T", " "), "timezone": spec["timezone"],
+                "message": ev.get("day_of_template" if day_of else "day_before_template", "")})
+    return resp(headers, 200, {"ok": True, "event": ev or {}, "communicationSchedule": schedule})
 
 
 def save_admin_event(event: dict, headers: dict, token: str) -> dict:
@@ -716,6 +729,9 @@ def draft_admin_event_message(event: dict, headers: dict, token: str) -> dict:
     # Prefer the live form values the operator passed (unsaved edits), else the stored event.
     ev = _get_event_by_slug(event_slug) or {}
     draft_input = {
+        "venueReleaseMode": body.get("venueReleaseMode") or ev.get("venueReleaseMode"),
+        "revealVenue": body.get("revealVenue", ev.get("revealVenue")),
+        "description": body.get("description", ev.get("description", "")),
         "event_label": body.get("event_label") or body.get("label") or ev.get("event_label") or ev.get("label"),
         "date":        body.get("date") or ev.get("date"),
         "startTime":   body.get("startTime") or body.get("time") or ev.get("startTime"),
@@ -888,7 +904,7 @@ def get_analytics(event: dict, headers: dict, token: str) -> dict:
     # Correct status accounting:
     # ATTENDED and NO_SHOW were previously CONFIRMED — they still count as confirmed.
     # Counting them separately prevents show_rate from exceeding 100% or going negative.
-    EXCLUDE   = frozenset({"DELETED", "FAILED"})
+    EXCLUDE   = frozenset({"DELETED", "FAILED", "GUEST"})
     CONFIRMED_FAMILY = CONFIRMED_FAMILY_STATUSES  # centralized in member_store
 
     totals = {

@@ -5,6 +5,7 @@ const ROUTES = Object.freeze({
   ADMIN_MEMBER_STATUS: '/admin/members/status',
   ADMIN_MEMBER_GENDER: '/admin/members/gender',
   ADMIN_MEMBER_TIER: '/admin/members/tier',
+  ADMIN_MEMBER_PROFILE: '/admin/members/profile',
   ADMIN_MEMBER_ATTENDANCE: '/admin/members/attendance',
   ADMIN_MEMBER_IMPORT: '/admin/members/import',
   ADMIN_MEMBER_CONFIRMED: '/admin/members/confirmed',

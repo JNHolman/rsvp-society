@@ -234,12 +234,10 @@ export function parseCSV(file) {
 
       const rawZip = String(cells[zipIndex] || '').trim();
       const zipMatch = rawZip.match(/^(\d{5})(?:-?\d{4})?$/);
-      if (!zipMatch) {
-        noLocation += 1;
-        return;
-      }
-
-      const row = { phone, zipCode: zipMatch[1] };
+      if (rawZip && !zipMatch) { noLocation += 1; return; }
+      const row = { phone, zipCode: zipMatch ? zipMatch[1] : '' };
+      const marketIndex = getColumnIndex(headers, ['market']);
+      if (marketIndex !== -1) row.market = String(cells[marketIndex] || '').trim();
       if (nameIndex !== -1 && cells[nameIndex]) row.name = cells[nameIndex].trim();
       if (lastNameIndex !== -1 && cells[lastNameIndex]) row.lastName = cells[lastNameIndex].trim();
       if (emailIndex !== -1 && cells[emailIndex]) row.email = cells[emailIndex].trim();
@@ -260,7 +258,7 @@ export function parseCSV(file) {
 
     state.importSkipped = skipped;
     state.importLocationSkipped = noLocation;
-    state.importUniqueZipCount = new Set(state.importRows.map((row) => row.zipCode)).size;
+    state.importUniqueZipCount = new Set(state.importRows.map((row) => row.zipCode).filter(Boolean)).size;
     renderImportPreview();
     setImportConfirmEnabled(
       state.importRows.length > 0,

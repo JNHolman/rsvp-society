@@ -35,10 +35,17 @@ def ensure_plus_one_reservation_map(event_id: str, *, deps: dict) -> None:
     )
 
 
-def set_plus_one(event_id: str, phone: str, plus_one_name: str, is_member: bool, *, deps: dict) -> str:
+def set_plus_one(event_id: str, phone: str, plus_one_name: str, is_member: bool, *, deps: dict, expected_name=None, capacity_override=None) -> str:
     invites_t = deps["invites_table"]()
-    current = invites_t.get_item(Key={"eventId": event_id, "phone": phone}).get("Item") or {}
+    current = invites_t.get_item(Key={"eventId": event_id, "phone": phone}, ConsistentRead=True).get("Item") or {}
+    guest = lookup_plus_one_status(plus_one_name, event_id, deps=deps) if is_member else {}
+    guest_phone = str(guest.get("phone") or "")
+    old_guest_phone = str(current.get("plusOneMemberPhone") or "")
+    if guest.get("ambiguous") or (is_member and not guest_phone) or guest_phone == phone:
+        return "TAKEN"
     old_name = (current.get("plusOneName") or "").strip()
+    if expected_name is not None and old_name != expected_name:
+        return "STALE"
     key_fn = deps.get("plus_one_reservation_key")
     old_key = key_fn(old_name) if old_name else ""
     new_key = key_fn(plus_one_name)
@@ -52,7 +59,7 @@ def set_plus_one(event_id: str, phone: str, plus_one_name: str, is_member: bool,
         ExpressionAttributeNames={"#capacity": "capacity"},
     ).get("Item") or {}
     capacity = int(event_item.get("capacity") or 0)
-    target_headcount = target_confirmed_headcount(capacity, event_item)
+    target_headcount = int(capacity_override) if capacity_override is not None else target_confirmed_headcount(capacity, event_item)
 
     # Older deletions may have tombstoned the invite row without clearing its
     # event-level reservation. Reclaim only when the owner row is missing or no
@@ -101,6 +108,7 @@ def set_plus_one(event_id: str, phone: str, plus_one_name: str, is_member: bool,
 
     now_values = {
         ":n": av(plus_one_name),
+        ":gp": av(guest_phone),
         ":m": av(bool(is_member)),
         ":f": av(False),
         ":e": av(""),
@@ -126,13 +134,27 @@ def set_plus_one(event_id: str, phone: str, plus_one_name: str, is_member: bool,
             "Update": {
                 "TableName": os.getenv("INVITES_TABLE_NAME", "rsvp-event-invites"),
                 "Key": {"eventId": av(event_id), "phone": av(phone)},
-                "UpdateExpression": "SET plusOneName = :n, plusOneIsMember = :m, awaitingPlusOneName = :f, awaitingPlusOneLastName = :e",
+                "UpdateExpression": "SET plusOneName = :n, plusOneMemberPhone = :gp, plusOneIsMember = :m, awaitingPlusOneName = :f, awaitingPlusOneLastName = :e",
                 "ConditionExpression": invite_condition,
                 "ExpressionAttributeNames": {"#s": "status"},
                 "ExpressionAttributeValues": now_values,
             }
         },
     ]
+    if guest_phone:
+        transact_items.append({"Put": {
+            "TableName": invites_t.name,
+            "Item": {k: av(v) for k, v in {"eventId": event_id, "phone": guest_phone, "status": "GUEST", "sponsorPhone": phone}.items()},
+            "ConditionExpression": "attribute_not_exists(phone) OR (#s = :guest AND sponsorPhone = :sponsor)",
+            "ExpressionAttributeNames": {"#s": "status"},
+            "ExpressionAttributeValues": {":guest": av("GUEST"), ":sponsor": av(phone)},
+        }})
+    if old_guest_phone and old_guest_phone != guest_phone:
+        transact_items.append({"Delete": {
+            "TableName": invites_t.name, "Key": {"eventId": av(event_id), "phone": av(old_guest_phone)},
+            "ConditionExpression": "attribute_not_exists(phone) OR sponsorPhone = :sponsor",
+            "ExpressionAttributeValues": {":sponsor": av(phone)},
+        }})
     if stale_owner:
         owner_name = (stale_owner_invite.get("plusOneName") or "").strip()
         owner_condition = "attribute_not_exists(phone)"
@@ -231,29 +253,20 @@ def get_current_invite_status(phone: str, *, deps: dict) -> str:
 
 
 def lookup_plus_one_status(name: str, event_id: str, *, deps: dict) -> dict:
-    try:
-        name_clean = name.strip().lower()
-        if not name_clean:
-            return {"is_member": False, "is_confirmed": False, "phone": None}
-        results = deps["search_members"](name_clean, limit=5)
-        for row in results:
-            first = (row.get("name") or "").strip().lower()
-            last = (row.get("lastName") or "").strip().lower()
-            full = f"{first} {last}".strip()
-            if name_clean in (first, last, full):
-                phone = row.get("phone")
-                is_confirmed = False
-                if phone and event_id:
-                    try:
-                        inv = deps["invites_table"]().get_item(Key={"eventId": event_id, "phone": phone}).get("Item")
-                        is_confirmed = inv is not None and inv.get("status") == "CONFIRMED"
-                    except Exception:
-                        pass
-                return {"is_member": True, "is_confirmed": is_confirmed, "phone": phone}
-        return {"is_member": False, "is_confirmed": False, "phone": None}
-    except Exception:
-        deps["logger"].exception("_lookup_plus_one_status failed name_length=%d", len(name or ""))
-        return {"is_member": False, "is_confirmed": False, "phone": None}
+    target = norm_name_for_match(name)
+    rows = deps["search_members"](name.strip(), limit=100)
+    matches = [row for row in rows if norm_name_for_match(" ".join(str(row.get(k) or "") for k in ("name", "lastName"))) == target]
+    if len(matches) > 1:
+        return {"is_member": True, "ambiguous": True}
+    if not matches:
+        return {"is_member": False, "is_confirmed": False, "is_invited": False, "phone": None}
+    member = matches[0]
+    phone = member.get("phone")
+    inv = deps["invites_table"]().get_item(Key={"eventId": event_id, "phone": phone}, ConsistentRead=True).get("Item") or {}
+    status = (inv.get("status") or "").upper()
+    return {"is_member": True, "is_confirmed": status in {"CONFIRMED", "ATTENDED", "NO_SHOW"},
+            "is_invited": bool(inv) and status not in {"FAILED", "DELETED"}, "phone": phone,
+            "eligible": member.get("status") == "APPROVED", "sponsorPhone": inv.get("sponsorPhone")}
 
 
 def lookup_existing_plus_one_assignment(name: str, event_id: str, current_phone: str = "", *, deps: dict) -> dict:
@@ -281,12 +294,13 @@ def lookup_existing_plus_one_assignment(name: str, event_id: str, current_phone:
             kwargs["ExclusiveStartKey"] = last
     except Exception:
         deps["logger"].exception("_lookup_existing_plus_one_assignment failed event=%s name_length=%d", event_id, len(name or ""))
+        raise
     return {"exists": False}
 
 
 def plus_one_unavailable_reply(name: str = "") -> str:
     first = (name or "").strip().split()[0] if name else "They"
-    return f"{first} is already confirmed with another RSVP. Send me a different name if you're bringing someone else."
+    return f"I already have {first} on the list. Want me to add someone else?"
 
 
 def validate_plus_one_candidate(name: str, event_id: str, current_phone: str, *, deps: dict) -> tuple[bool, str, bool]:
@@ -294,12 +308,52 @@ def validate_plus_one_candidate(name: str, event_id: str, current_phone: str, *,
     assigned_fn = deps.get("lookup_existing_plus_one_assignment")
     unavailable_fn = deps.get("plus_one_unavailable_reply")
     status = status_fn(name, event_id) if status_fn else lookup_plus_one_status(name, event_id, deps=deps)
-    if status.get("is_confirmed"):
-        return False, "They're already in. Send me another name if you're bringing someone else.", True
-    if status.get("is_member"):
-        return False, "They have their own invite. Send me another name if you're bringing someone else.", True
+    if status.get("ambiguous"):
+        return False, "I have more than one person with that name. Let me check on that.", True
+    if status.get("phone") == current_phone:
+        return False, "I already have you on the list. Want me to add someone else?", True
+    if status.get("is_confirmed") or (status.get("is_invited") and status.get("sponsorPhone") != current_phone):
+        return False, "I already have them on the list. Want me to add someone else?", True
+    if status.get("is_member") and not status.get("eligible", True):
+        return False, "Let me check on that.", True
     assigned = assigned_fn(name, event_id, current_phone) if assigned_fn else lookup_existing_plus_one_assignment(name, event_id, current_phone, deps=deps)
     if assigned.get("exists"):
         reply = unavailable_fn(assigned.get("name") or name) if unavailable_fn else plus_one_unavailable_reply(assigned.get("name") or name)
         return False, reply, False
-    return True, "", False
+    return True, "", bool(status.get("is_member"))
+
+
+def remove_plus_one(event_id: str, phone: str, *, deps: dict) -> str:
+    invites = deps["invites_table"]()
+    row = invites.get_item(Key={"eventId": event_id, "phone": phone}, ConsistentRead=True).get("Item") or {}
+    if row.get("status") != "CONFIRMED":
+        return "NOOP"
+    name = str(row.get("plusOneName") or "")
+    if not name:
+        invites.update_item(Key={"eventId": event_id, "phone": phone},
+            UpdateExpression="REMOVE awaitingPlusOneName, awaitingPlusOneLastName",
+            ConditionExpression="#s = :confirmed AND (attribute_not_exists(plusOneName) OR plusOneName = :empty)",
+            ExpressionAttributeNames={"#s": "status"}, ExpressionAttributeValues={":confirmed": "CONFIRMED", ":empty": ""})
+        return "SAVED"
+    deps["ensure_event_headcount_counter"](event_id)
+    av = TypeSerializer().serialize
+    key = plus_one_reservation_key(name, deps=deps)
+    items = [{"Update": {
+        "TableName": invites.name, "Key": {"eventId": av(event_id), "phone": av(phone)},
+        "UpdateExpression": "REMOVE plusOneName, plusOneIsMember, plusOneMemberPhone, awaitingPlusOneName, awaitingPlusOneLastName",
+        "ConditionExpression": "#s = :confirmed AND plusOneName = :name",
+        "ExpressionAttributeNames": {"#s": "status"},
+        "ExpressionAttributeValues": {":confirmed": av("CONFIRMED"), ":name": av(name)},
+    }}, {"Update": {
+        "TableName": deps["events_table"]().name, "Key": {"eventId": av(event_id)},
+        "UpdateExpression": "SET confirmedHeadcount = confirmedHeadcount - :one REMOVE #r.#key ADD confirmedHeadcountRevision :one",
+        "ConditionExpression": "event_status = :live AND confirmedHeadcount >= :one AND (#r.#key = :phone OR attribute_not_exists(#r.#key))",
+        "ExpressionAttributeNames": {"#r": "plusOneReservations", "#key": key},
+        "ExpressionAttributeValues": {":live": av("LIVE"), ":one": av(1), ":phone": av(phone)},
+    }}]
+    guest_phone = row.get("plusOneMemberPhone")
+    if guest_phone:
+        items.append({"Delete": {"TableName": invites.name, "Key": {"eventId": av(event_id), "phone": av(guest_phone)},
+            "ConditionExpression": "sponsorPhone = :phone", "ExpressionAttributeValues": {":phone": av(phone)}}})
+    boto3.client("dynamodb").transact_write_items(TransactItems=items)
+    return "SAVED"

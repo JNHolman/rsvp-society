@@ -30,7 +30,7 @@ def _event_start_utc(event: dict) -> datetime:
 
 
 def next_wave_schedule_spec(event: dict, completed_wave: int, *, now: datetime | None = None) -> dict | None:
-    """Wait 48h, shortening to 24h only when needed to retain 24h before start."""
+    """Wave 2 follows after 48h; Wave 3 after 72h. Never compress the gap."""
     if completed_wave not in (1, 2):
         return None
     slug = resolve_event_slug(event)
@@ -40,9 +40,8 @@ def next_wave_schedule_spec(event: dict, completed_wave: int, *, now: datetime |
     current = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
     event_start = _event_start_utc(event)
     latest_safe_send = event_start - timedelta(hours=MIN_EVENT_LEAD_HOURS)
-    earliest_send = current + timedelta(hours=RESPONSE_WINDOW_HOURS - MIN_EVENT_LEAD_HOURS)
-    fire_at = min(current + timedelta(hours=RESPONSE_WINDOW_HOURS), latest_safe_send)
-    if fire_at < earliest_send:
+    fire_at = current + timedelta(hours=48 if completed_wave == 1 else 72)
+    if fire_at > latest_safe_send:
         return None
 
     target_wave = completed_wave + 1

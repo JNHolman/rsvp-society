@@ -367,7 +367,8 @@ class TestPrivacyGateTiers(unittest.TestCase):
             # Teaser allowed: date/time visible.
             self.assertTrue(("June" in ctx) or ("4" in ctx), f"invited should see teaser date/time:\n{ctx}")
             # But venue/address/description still hidden until confirmed.
-            for leak in ("Myraid Pool", "100 Charlestown", "Las Mamas"):
+            self.assertIn("Las Mamas", ctx)
+            for leak in ("Myraid Pool", "100 Charlestown"):
                 self.assertNotIn(leak, ctx, f"invited-unconfirmed leaked {leak!r}")
 
     def test_confirmed_gets_full(self):
@@ -717,6 +718,7 @@ class TestDuplicateAttendance(unittest.TestCase):
             members_t.put_item(Item={"phone": phone, "name": "Double Tap", "status": "APPROVED"})
             invites_t.put_item(Item={"eventId": "swim-test", "phone": phone, "status": "CONFIRMED"})
 
+            _seed_active_event("swim-test", date=datetime.now(timezone.utc).strftime("%Y-%m-%d"), startTime="00:00", event_timezone="UTC")
             body = {"phone": phone, "attended": True, "eventId": "swim-test"}
 
             from admin_handler import handler
@@ -751,7 +753,7 @@ class TestDuplicateAttendance(unittest.TestCase):
             self.assertEqual(resp["statusCode"], 400)
             body = json.loads(resp["body"])
             self.assertFalse(body.get("ok"))
-            self.assertIn(body.get("result"), {"INVITE_NOT_FOUND", "NOT_CONFIRMED"})
+            self.assertIn("Attendance is recorded at check-in", body.get("error", ""))
 
 
 
@@ -949,6 +951,7 @@ class TestReminderSchedulePrecision(unittest.TestCase):
 
             _seed_active_event(
                 "precision-night",
+                venueReleaseMode="confirmation",
                 date="2026-05-15",
                 event_timezone="America/New_York",
                 reminderTiming="day_before",
@@ -2267,7 +2270,7 @@ class TestRequestedAuditFixes(unittest.TestCase):
 
     def test_invalid_legacy_timezone_preserves_confirmed_event_context(self):
         import sms_handler
-        _seed_active_event("bad-zone", event_timezone="Not/AZone", description="The party ends at 3 AM.", address="123 Event Street")
+        _seed_active_event("bad-zone", venueReleaseMode="confirmation", event_timezone="Not/AZone", description="The party ends at 3 AM.", address="123 Event Street")
         boto3.resource("dynamodb").Table("rsvp-event-invites-test").put_item(Item={"eventId": "bad-zone", "phone": self.phone, "status": "CONFIRMED"})
         context = sms_handler._build_event_context(member={"phone": self.phone})
         self.assertIn("event_status: unknown", context)
@@ -2340,7 +2343,7 @@ class TestRequestedAuditFixes(unittest.TestCase):
         self.members.put_item(Item={"phone": self.phone, "status": "APPROVED", "smsOptIn": True})
         events = ddb.Table("rsvp-events-test")
         events.put_item(Item={"eventId": "current", "activeEventSlug": "drift"})
-        events.put_item(Item={"eventId": "drift", "eventSlug": "drift", "event_status": "LIVE", "confirmedHeadcount": 0})
+        events.put_item(Item={"eventId": "drift", "eventSlug": "drift", "date": "2099-10-17", "startTime": "19:00", "event_status": "LIVE", "confirmedHeadcount": 0})
         invites = ddb.Table("rsvp-event-invites-test")
         original = {"eventId": "drift", "phone": self.phone, "status": "CONFIRMED"}
         invites.put_item(Item=original)
@@ -2473,7 +2476,7 @@ class TestRequestedAuditFixes(unittest.TestCase):
         import sms_handler
         with patch.object(sms_handler, "_DDB") as ddb:
             ddb.Table.return_value.put_item.side_effect = RuntimeError("throttled")
-            self.assertEqual(sms_handler._claim_inbound_message("message-1"), "")
+            self.assertEqual(sms_handler._claim_inbound_message("message-1"), "BUSY")
 
     def test_inbound_processing_lease_recovers_after_interruption(self):
         import sms_handler

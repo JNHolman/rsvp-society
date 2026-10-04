@@ -113,8 +113,8 @@ export function renderWaveCommandCenter(summary = {}, fallback = {}) {
   appendChildren(
     header,
     createNode('div', { className: 'wave-command-kicker', text: data.estimated ? 'Wave Command · Estimated' : 'Wave Command · Preview Locked' }),
-    createNode('div', { className: 'wave-command-title', text: data.formalWavesComplete ? 'Manual / Resend Only' : `Next Wave ${data.nextWaveNumber}` }),
-    createNode('div', { className: 'wave-command-copy', text: data.formalWavesComplete ? 'Wave 1–3 already exist. Do not create Wave 4; use Manual/Resend for corrections or late one-off invites.' : (data.estimated ? 'Run Preview Next Wave to lock the exact audience and wave number.' : 'This preview has a server-side lock. Send can only use this wave and this audience or a selected subset.') }),
+    createNode('div', { className: 'wave-command-title', text: data.formalWavesComplete ? 'All waves sent' : `Wave ${data.nextWaveNumber}` }),
+    createNode('div', { className: 'wave-command-copy', text: data.formalWavesComplete ? 'Review the sent audiences using the wave tabs.' : (data.estimated ? 'The audience updates from the saved event and current responses.' : 'Review the audience below. Exclude anyone before sending.') }),
   );
   const grid = createNode('div', { className: 'wave-command-grid' });
   [
@@ -123,8 +123,8 @@ export function renderWaveCommandCenter(summary = {}, fallback = {}) {
     waveMetric(data.remainingEligible, 'Not Yet Invited'),
     waveMetric(data.confirmed, 'Confirmed', 'is-gold'),
     waveMetric(data.attended, 'Attended', 'is-green'),
-    waveMetric(data.plusOneRisk, '+1 Risk', data.plusOneRisk ? 'is-warning' : ''),
-    waveMetric(data.safeCapacityRemaining, 'Safe Capacity Left', data.safeCapacityRemaining <= 0 ? 'is-danger' : 'is-green'),
+    waveMetric(data.plusOneRisk, 'Guests' , data.plusOneRisk ? 'is-warning' : ''),
+    waveMetric(data.safeCapacityRemaining, 'Capacity Remaining', data.safeCapacityRemaining <= 0 ? 'is-danger' : 'is-green'),
     waveMetric(data.recommendedNextWaveSize || data.eligibleInPreview, 'Recommended Send', 'is-gold'),
   ].forEach((node) => grid.appendChild(node));
   host.appendChild(header);
@@ -178,7 +178,7 @@ export async function loadInitialWaveCommandCenter(eventId, capacity, event = {}
     const data = await apiJson(`${ROUTES.ADMIN_EVENT_ANALYTICS}?eventId=${encodeURIComponent(eventId)}`);
     const totals = data.analytics?.totals || {};
     const byWave = data.analytics?.by_wave || {};
-    const waveNumbers = Object.keys(byWave).map((v) => Number(v)).filter((v) => Number.isFinite(v) && v > 0);
+    const waveNumbers = Object.keys(byWave).filter((key) => Number(byWave[key]?.invited || 0) > 0).map((v) => Number(v)).filter((v) => Number.isFinite(v) && v > 0);
     const maxWave = waveNumbers.length ? Math.max(...waveNumbers) : 0;
     renderWaveCommandCenter({}, {
       ...fallback,
@@ -201,7 +201,7 @@ export async function loadInitialWaveCommandCenter(eventId, capacity, event = {}
 
 export function currentEventLabel() {
   const ev = state.currentEvent || {};
-  return ev.label || ev.title || ev.eventName || ev.eventSlug || ev.eventId || $('inv-event-id')?.value?.trim() || 'Current Event';
+  return ev.event_label || ev.label || ev.title || ev.eventName || ev.eventSlug || ev.eventId || $('inv-event-id')?.value?.trim() || 'Current Event';
 }
 
 export function buildSummaryCard(rows = []) {

@@ -1,7 +1,6 @@
 import { apiJson, fetchAllPages } from './api.js';
 import { ROUTES } from './constants.js';
-import { loadAttendance } from './attendance.js';
-import { getKnownEvent, getKnownEvents, rememberEvent, state } from './state.js';
+import { getKnownEvent, rememberEvent, state } from './state.js';
 import { $, appendChildren, createNode, reportError, showToast } from './ui.js';
 
 const EVENT_LIST_ENDPOINTS = [ROUTES.ADMIN_EVENTS];
@@ -158,13 +157,13 @@ async function fetchEventListFromApi() {
     try {
       const { items } = await fetchAllPages(endpoint, normalizeEventList);
       const events = items.filter((event) => event?.slug || event?.eventSlug || event?.eventId);
-      if (events.length) return events;
+      return events;
     } catch (error) {
       lastError = error;
     }
   }
   if (lastError) {
-    addAnalyticsWarning(`Full event history endpoint was unavailable; all-time event counts may rely on cached known events. ${lastError?.message || ''}`.trim());
+    addAnalyticsWarning(`Full event history endpoint was unavailable; event history cannot be refreshed. ${lastError?.message || ''}`.trim());
   }
   return [];
 }
@@ -186,7 +185,7 @@ async function getTrackedEvents() {
 
   const apiEvents = await fetchEventListFromApi();
   apiEvents.forEach(add);
-  getKnownEvents().forEach(add);
+  // Only server-backed events belong in history; browser metadata is not an archive.
 
   return tracked;
 }
@@ -526,28 +525,7 @@ function renderEventAnalyticsView({
     .filter((wave) => byWave[wave])
     .map((wave) => createWaveRow(wave, byWave[wave] || {}));
   wavePanel.appendChild(createTable(['Wave', 'Invited', 'Confirmed', 'Confirm Rate', 'Checked In', 'Show Rate', 'No-Show', 'Ghost Rate'], waveRows, 'No wave data'));
-  // By Wave (8 cols) and Attendance Check (interactive mark buttons) each need the
-  // full width — sharing a half-width 2-col grid cell overflowed the panel.
   root.appendChild(wavePanel);
-
-  const attendancePanel = createAnalyticsPanel('Attendance Check');
-  const subHeader = createNode('div', { className: 'att-sub-header' });
-  appendChildren(subHeader,
-    createNode('input', {
-      attrs: {
-        type: 'text',
-        id: 'att-event-id',
-        value: eventId,
-        placeholder: 'event slug',
-      },
-    }),
-    createNode('button', { className: 'filter-btn attendance-load-btn', text: 'Load Attendance', attrs: { type: 'button' } }),
-  );
-  const attendanceContainer = createNode('div', { attrs: { id: 'attendance-container' } });
-  attendanceContainer.appendChild(createNode('div', { className: 'analytics-empty analytics-empty-compact', text: 'Load confirmed list' }));
-  appendChildren(attendancePanel, subHeader, attendanceContainer);
-
-  root.appendChild(attendancePanel);
 
   body.replaceChildren(root);
 }
@@ -559,7 +537,6 @@ export async function loadAnalyticsTab() {
   // Fetch tracked events once and share the result — avoids two parallel
   // /admin/event requests on every tab open (FE-L2). Refresh also reloads the
   // currently selected event instead of only refreshing the selector cards.
-  const selectedBeforeRefresh = $('analytics-event-select')?.value || '';
   let sharedEvents = null;
   try {
     sharedEvents = await getTrackedEvents();
@@ -572,10 +549,8 @@ export async function loadAnalyticsTab() {
     loadAllTimeStats(sharedEvents),
   ]);
 
-  const selectedAfterRefresh = $('analytics-event-select')?.value || selectedBeforeRefresh;
-  if (selectedAfterRefresh) {
-    await loadEventAnalytics(selectedAfterRefresh);
-  }
+  const selectedAfterRefresh = $('analytics-event-select')?.value || '';
+  await loadEventAnalytics(selectedAfterRefresh);
   if (refreshStamp) refreshStamp.textContent = `Last refreshed ${new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`;
   if (refreshButton) { refreshButton.disabled = false; refreshButton.textContent = 'Refresh'; }
 }
@@ -696,8 +671,7 @@ export async function loadEventAnalytics(eventId) {
       attendedFunnelPct,
     });
 
-    // Attendance is loaded on demand via the "Load Attendance" button —
-    // not auto-fired here to keep the button meaningful and avoid extra API calls
+    // Attendance is read-only here; the door page records arrivals.
   } catch (error) {
     const message = reportError('Event analytics failed', error, {
       fallback: 'Unable to load event analytics.',

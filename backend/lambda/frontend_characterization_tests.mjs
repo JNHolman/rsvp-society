@@ -81,6 +81,7 @@ test('runPreview sends the operator filters and preserves the backend preview lo
   let request;
   const state = { preview: {} };
   const runPreview = loadFunction(inviteSource, 'runPreview', {
+    selectedWave: 0, previewRequest: 0, document: { querySelectorAll: () => [] },
     $: (id) => elements[id] || null,
     apiJson: async (route, options) => {
       request = { route, options };
@@ -203,7 +204,7 @@ test('currentPreviewSendTarget sends only checked rows when any are selected', (
   assert.deepEqual(Array.from(target.phones), ['+15025550001']);
 });
 
-test('currentPreviewSendTarget falls back to all filtered eligible rows when none are checked', () => {
+test('currentPreviewSendTarget sends nobody when every checkbox is cleared', () => {
   const eligible = [
     { dataset: { phone: '+15025550001' } },
     { dataset: { phone: '+15025550002' } },
@@ -216,8 +217,8 @@ test('currentPreviewSendTarget falls back to all filtered eligible rows when non
     getSendEligibleRows: () => eligible,
   });
   const target = fn();
-  assert.equal(target.mode, 'eligible');
-  assert.deepEqual(Array.from(target.phones), ['+15025550001', '+15025550002']);
+  assert.equal(target.mode, 'selected');
+  assert.deepEqual(Array.from(target.phones), []);
 });
 
 test('Invite UI does not infer residence/market from phone area code', () => {
@@ -283,7 +284,7 @@ test('CSV import sends explicit consent confirmation instead of silently opting 
   assert.equal(request.options.body.members[0].smsOptIn, undefined);
 });
 
-test('CSV preview counts rows excluded for missing ZIP location', () => {
+test('CSV preview accepts members without ZIP location', () => {
   const state = {};
   let previewRendered = false;
   let confirmEnabled;
@@ -301,10 +302,10 @@ test('CSV preview counts rows excluded for missing ZIP location', () => {
     setImportConfirmEnabled: (enabled) => { confirmEnabled = enabled; },
   });
   parseCSV({});
-  assert.equal(state.importRows.length, 0);
-  assert.equal(state.importLocationSkipped, 1);
+  assert.equal(state.importRows.length, 1);
+  assert.equal(state.importLocationSkipped, 0);
   assert.equal(previewRendered, true);
-  assert.equal(confirmEnabled, false);
+  assert.equal(confirmEnabled, true);
 });
 
 
@@ -323,42 +324,7 @@ test('Replacing a valid CSV with an empty file clears the previous import', () =
   assert.equal(enabled, false);
 });
 
-test('Manual invite override is exposed and sends through the existing manual backend path', async () => {
-  assert.match(adminIndexSource, /id=["']manual-invite-phone["']/);
-  assert.match(adminIndexSource, /id=["']manual-invite-message["']/);
-  assert.match(adminIndexSource, /id=["']manual-invite-send-btn["']/);
-  assert.match(adminAppSource, /manual-invite-send-btn/);
-
-  let request;
-  const elements = {
-    'inv-female-pct': { value: '60' },
-    'manual-invite-phone': { value: '+15025551212' },
-    'manual-invite-message': { value: 'Jordan, RSVP Society. Reply yes if you are in.' },
-  };
-  const fn = loadFunction(inviteSource, 'executeManualInviteOverride', {
-    $: (id) => elements[id] || null,
-    apiJson: async (route, options) => { request = { route, options }; return { ok: true, jobId: 'manual-1' }; },
-    ROUTES: { ADMIN_INVITE_SEND: '/admin/invite/send' },
-    showToast: () => {},
-    openJobStatusModal: () => {},
-    currentEventLabel: () => 'RSVP Society',
-  });
-  await fn({
-    eventId: 'rooftop-sept2026', capacity: 100, phone: '+15025551212',
-    message: 'Jordan, RSVP Society. Reply yes if you are in.',
-    button: { disabled: false, textContent: '' },
-  });
-  const body = request.options.body;
-  assert.equal(request.route, '/admin/invite/send');
-  assert.equal(body.waveNumber, 0);
-  assert.equal(body.manualSend, true);
-  assert.equal(body.autoWave, false);
-  assert.equal(body.messageOverride, 'Jordan, RSVP Society. Reply yes if you are in.');
-  assert.deepEqual(Array.from(body.phones), ['+15025551212']);
-  assert.equal(body.confirmSend, true);
-});
-
-
+test('One-off invite composer is removed', () => { assert.doesNotMatch(adminIndexSource, /id=["']manual-invite-send-btn["']/); });
 test('Event editor captures ZIP and per-event promotion radius', () => {
   assert.match(adminIndexSource, /id=["']ev-zip["']/);
   assert.match(adminIndexSource, /id=["']ev-promotion-radius["']/);
@@ -368,31 +334,7 @@ test('Event editor captures ZIP and per-event promotion radius', () => {
   assert.match(eventSource, /Promotion Radius must be greater than 0 before going Live/);
 });
 
-test('Manual reminder UI confirms, then calls the bounded reminder endpoint', async () => {
-  assert.match(adminIndexSource, /id=["']manual-reminder-timing["']/);
-  assert.match(adminIndexSource, /id=["']manual-reminder-send-btn["']/);
-  assert.match(adminAppSource, /manual-reminder-send-btn[\s\S]*sendManualReminder/);
-  assert.match(inviteSource, /confirm\.addEventListener\('click',[\s\S]*executeManualReminder\(\{ timing, button \}\)/);
-
-  let request;
-  let message;
-  const fn = loadFunction(inviteSource, 'executeManualReminder', {
-    apiJson: async (route, options) => {
-      request = { route, options };
-      return { sent: 250, continuationQueued: true, remainingRecipients: 18 };
-    },
-    ROUTES: { ADMIN_INVITE_REMINDER: '/admin/invite/reminder' },
-    showToast: (value) => { message = value; },
-  });
-  const button = { disabled: false, textContent: 'Send Saved Reminder' };
-  await fn({ timing: 'day_of', button });
-  assert.equal(request.route, '/admin/invite/reminder');
-  assert.equal(request.options.body.timing, 'day_of');
-  assert.equal(button.disabled, false);
-  assert.equal(button.textContent, 'Send Saved Reminder');
-  assert.match(message, /250; 18 more queued/);
-});
-
+test('Duplicate manual reminder composer is removed', () => { assert.doesNotMatch(adminIndexSource, /id=["']manual-reminder-timing["']/); });
 test('CSV imports 7500 rows with more than 100 ZIPs in bounded batches and deduplicates phones', async () => {
   const rows = Array.from({ length: 7500 }, (_, i) => ({ phone: `+1502${String(i).padStart(7, '0')}`, zipCode: String(10000 + i) }));
   const state = { importRows: [...rows, { ...rows[0], phone: rows[0].phone.slice(2) }] };

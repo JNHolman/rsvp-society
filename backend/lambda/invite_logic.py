@@ -1,3 +1,4 @@
+from event_policy import venue_mode
 import hashlib
 import math
 import random
@@ -256,13 +257,13 @@ def _validate_initial_invite_text(text: str, event: Dict[str, Any] | None = None
     blocked_terms = []
     if _text_has_url(raw):
         blocked_terms.append("ticket/link")
-    for term in ("parking", "park at", "address", "location is", "pull up to"):
+    for term in (() if venue_mode(event or {}) == "invite" else ("parking", "park at", "address", "location is", "pull up to")):
         if term in lowered:
             blocked_terms.append(term)
     ev = event or {}
     for label, value in (("venue", ev.get("venue")), ("address", ev.get("address")), ("ticketUrl", ev.get("ticketUrl"))):
         value_s = str(value or "").strip()
-        if value_s and value_s.lower() in lowered:
+        if value_s and value_s.lower() in lowered and not (label in {"venue", "address"} and venue_mode(ev) == "invite"):
             blocked_terms.append(label)
     if blocked_terms:
         unique = ", ".join(sorted(set(blocked_terms)))
@@ -322,12 +323,18 @@ def _apply_audience_filters(
         if geo:
             event_lat, event_lon, radius = geo
             if member.get("latitude") is None or member.get("longitude") is None:
-                continue
-            try:
-                if _distance_miles(event_lat, event_lon, member.get("latitude"), member.get("longitude")) > radius:
+                # A manually assigned market is an explicit operator decision,
+                # not an inferred radius or phone-area-code guess.
+                member_market = str(member.get("market") or "").strip().casefold()
+                event_markets = {str((event or {}).get(key) or "").strip().casefold() for key in ("market", "city")}
+                if not member_market or member_market not in event_markets:
                     continue
-            except ValueError:
-                continue
+            else:
+                try:
+                    if _distance_miles(event_lat, event_lon, member.get("latitude"), member.get("longitude")) > radius:
+                        continue
+                except ValueError:
+                    continue
         if query:
             haystack = " ".join(str(member.get(k) or "") for k in ("name", "lastName", "phone", "email", "instagram", "market", "city", "state", "zipCode")).lower()
             if query not in haystack:
@@ -388,7 +395,11 @@ def _build_sms_message(member: Dict[str, Any], event: Dict[str, Any], message_ov
         if event_label:  parts.append(f"{event_label}.")
         if date_display: parts.append(f"{date_display}.")
         if time_display: parts.append(f"{time_display}.")
-        parts.append("Let me know.")
+        if venue_mode(event) == "invite":
+            location = ", ".join(str(event.get(key) or "").strip() for key in ("venue", "address") if event.get(key))
+            if location:
+                parts.append(location + ".")
+        parts.append("You coming?")
 
         return " ".join(parts)
     else:

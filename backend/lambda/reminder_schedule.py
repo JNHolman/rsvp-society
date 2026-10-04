@@ -10,8 +10,10 @@ import hashlib
 import json
 import logging
 import os
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
+
+from event_policy import event_start, venue_mode
 
 import boto3
 from botocore.exceptions import ClientError
@@ -62,6 +64,10 @@ def desired_schedule_specs(event: dict, *, now: datetime | None = None) -> list[
         target_local = datetime.strptime(
             f"{fire_date.isoformat()} {send_time}", "%Y-%m-%d %H:%M"
         ).replace(tzinfo=zone)
+        if not is_day_of and venue_mode(event) == "48_hours":
+            target_local = (event_start(event).astimezone(timezone.utc) - timedelta(hours=48)).astimezone(zone)
+            fire_date = target_local.date()
+            send_time = target_local.strftime("%H:%M")
         if target_local <= local_now:
             continue
         specs.append({
@@ -71,6 +77,8 @@ def desired_schedule_specs(event: dict, *, now: datetime | None = None) -> list[
             "date": event_date.isoformat(),
             "sendTime": send_time,
             "timezone": tz_name,
+            "venueReleaseMode": venue_mode(event),
+            "startTime": str(event.get("startTime") or ""),
             "scheduleExpression": f"at({fire_date.isoformat()}T{send_time}:00)",
         })
     return specs
@@ -130,6 +138,8 @@ def sync_event_reminder_schedules(event: dict, *, active: bool = True) -> dict:
             "expectedDate": spec["date"],
             "expectedSendTime": spec["sendTime"],
             "expectedTimezone": spec["timezone"],
+            "expectedVenueReleaseMode": spec["venueReleaseMode"],
+            "expectedStartTime": spec["startTime"],
         }
         client.create_schedule(
             Name=spec["name"],

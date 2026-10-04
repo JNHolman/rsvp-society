@@ -1,3 +1,4 @@
+from event_policy import venue_available, venue_mode, event_start
 import json
 import os
 import re
@@ -130,45 +131,31 @@ def build_event_context(member: dict = None, *, deps: dict) -> str:
         confirmed = member_status in LOGISTICS_ELIGIBLE_STATUSES
         in_wave   = member_status in JADE_IN_WAVE_STATUSES
 
-        # ── Deterministic privacy gate (THREE tiers) ──────────────────────────
-        # Code removes private fields before Claude ever sees them — never rely on
-        # the prompt alone. Three tiers, strictly enforced:
-        #
-        #   Tier 0 — NOT in the active invite wave (uninvited, declined, no-show,
-        #            or a +1 with no invite of their own): NOTHING about the event.
-        #            No venue, no address, no date, no time, no label, no vibe, no
-        #            dress code, no description. A plus-one is not a member — they get
-        #            their own invite (different wave) or sign up at the door. The rope.
-        #   Tier 1 — INVITED but unconfirmed: teaser only — label, date/time, vibe,
-        #            dress code. No venue/address/description/sections/parking/ticket.
-        #   Tier 2 — CONFIRMED / ATTENDED: full logistics.
-        #
-        # revealVenue never overrides the confirmation gate.
-        # ──────────────────────────────────────────────────────────────────────
-
-        # Private logistics — hidden from everyone below Tier 2 (confirmed).
-        private_prefixes = (
-            "address_text", "venue_name", "description", "jade_notes",
-            "parking_info", "ticket_url",
-        )
-        # Event teaser fields — visible to invited members (Tier 1) but NOT to
-        # non-members (Tier 0). This is what stops the "Doors at 4:00 PM" leak to
-        # an uninvited / plus-one / declined number. section_info lives here (not
-        # private) because section pricing helps an invited member decide to come —
-        # it's an upsell, not a confidential detail like the address.
-        teaser_prefixes = (
-            "date_text", "time_text", "end_time", "event_label", "vibe_tag", "dresscode",
-            "section_info",
-        )
-
+        available = in_wave and venue_available(ev, confirmed=confirmed)
+        lines.append(f"venue_available: {'true' if available else 'false'}")
+        lines.append(f"venue_release_policy: {venue_mode(ev)}")
+        try:
+            if in_wave:
+                lines.append(f"current_local_time: {datetime.now(event_start(ev).tzinfo).strftime('%Y-%m-%d %H:%M')}")
+        except (ValueError, TypeError, KeyError):
+            pass
+        private = ("address_text", "venue_name", "description", "jade_notes", "parking_info")
+        teaser = ("date_text", "time_text", "end_time", "event_label", "vibe_tag", "dresscode", "section_info", "ticket_url")
         if not in_wave:
-            # Tier 0: strip private AND teaser — they learn nothing about the event.
-            strip = private_prefixes + teaser_prefixes
-            lines = [l for l in lines if not any(l.startswith(p) for p in strip)]
-        elif not confirmed:
-            # Tier 1: invited, unconfirmed — strip private only, keep the teaser.
-            lines = [l for l in lines if not any(l.startswith(p) for p in private_prefixes)]
-        # Tier 2: confirmed/attended — keep full logistics.
+            lines = [line for line in lines if not any(line.startswith(key + ":") for key in private + teaser)]
+        elif not available:
+            lines = [line for line in lines if not any(line.startswith(key + ":") for key in private)]
+            # Separate general event notes from venue/location copy while withheld.
+            description = str(ev.get("description") or "")
+            for value in (ev.get("venue"), ev.get("address")):
+                if value:
+                    description = re.sub(re.escape(str(value)), "[location withheld]", description, flags=re.I)
+            description = "\n".join(line for line in description.splitlines() if not re.search(r"\b(where|location|residence|address|venue|door|gate|code|entrance|parking)\b", line, re.I))
+            if description.strip():
+                lines.append("description: " + description)
+
+        if not confirmed:
+            lines = [line for line in lines if not line.startswith("ticket_url:")]
 
         return "[EVENT CONTEXT]\n" + "\n".join(lines) + "\n[END EVENT CONTEXT]"
     except Exception:
@@ -198,7 +185,7 @@ def claude(message: str, mode: str = "general", member: dict = None, *, deps: di
         user_content = (
             f"{event_context}\n\n"
             f"[CONTEXT: Member replied with a soft/uncertain response: '{message}'. "
-            "They have not confirmed. Nudge once, in your voice, leaving the door open — "
+            "Use the saved invite status. If already confirmed, do not ask them to confirm again. Otherwise nudge once — "
             "do not pressure, do not over-explain. One short line.]"
         )
     else:
@@ -279,8 +266,10 @@ def draft_template_messages(event: dict, *, deps: dict) -> dict:
              f"Vibe: {vibe or '(none)'}",
              f"Dress code: {dress or '(none)'}",
              f"Plus ones allowed: {'yes' if allow_plus else 'no'}",
-             f"Venue (REMINDERS ONLY, never in invite): {venue or '(none)'}",
-             f"Address (REMINDERS ONLY, never in invite): {address or '(none)'}"]
+             f"Venue: {venue or '(none)'}",
+             f"Venue release mode: {venue_mode(event)}",
+             f"Description (structured facts take precedence): {_g('description')}",
+             f"Address: {address or '(none)'}"]
 
     instruction = (
         "[DRAFTING TASK - you are writing three outbound templates in your voice, to be "
@@ -289,9 +278,9 @@ def draft_template_messages(event: dict, *, deps: dict) -> dict:
         "Event facts:\n" + "\n".join(facts) + "\n\n"
         "Write THREE messages. Rules:\n"
         "1. INVITE - short, intriguing, your voice. Include label, date, start time, vibe, "
-        "dress code if set, and plus-one welcome only if plus ones are allowed. NEVER include "
-        "the venue or address - location is never revealed before confirmation.\n"
-        "2. DAY-BEFORE reminder - brief, references that it is tomorrow, doors/start time. Venue ok here.\n"
+        "dress code if set, and a natural yes/no closing question. No plus-one mention. "
+        "Include venue/address ONLY if Venue release mode is invite.\n"
+        "2. DAY-BEFORE reminder - if release mode is 48_hours, say in two days; otherwise tomorrow. Include start time, venue and address.\n"
         "3. DAY-OF reminder - brief, references that it is tonight/today, doors/start time, venue + address ok.\n"
         "Only state facts present above. If a fact is (none), omit it - never invent.\n"
         "Return ONLY valid JSON, no markdown, no preamble:\n"
@@ -333,8 +322,8 @@ def draft_template_messages(event: dict, *, deps: dict) -> dict:
         "dayOf":     str(parsed.get("dayOf", "")).strip(),
     }
     # Hard guard: scrub venue/address from the invite even if the model slipped.
-    if venue and venue.lower() in result["invite"].lower():
+    if venue_mode(event) != "invite" and venue and venue.lower() in result["invite"].lower():
         result["invite"] = ""  # force re-draft rather than ship a leak
-    if address and address.lower() in result["invite"].lower():
+    if venue_mode(event) != "invite" and address and address.lower() in result["invite"].lower():
         result["invite"] = ""
     return result
