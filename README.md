@@ -17,13 +17,21 @@ RSVP Society brings that work into one system. Members request access and are ap
 
 ## How RSVP Society works
 
-**Membership request → host approval → audience selection → invitation wave → Jade/SMS → RSVP and +1 → reminders → check-in → attendance history**
+1. **Build the community.** People request membership and provide basic information such as their location. The host reviews each request before approving access.
 
-A member begins with an access request rather than an event-specific registration. Once approved, that member becomes part of the reusable audience hosts can filter by geography, gender, tier and other event criteria.
+2. **Create the event.** The host defines the event, capacity, guest rules, important details and when private information such as the venue should be released.
 
-For each event, the host defines capacity, timing, audience rules and communication. Invitation waves can then progress in stages instead of contacting the entire audience at once. Eligibility is checked again when messages are sent so a saved audience does not override newer RSVP, guest or consent state.
+3. **Invite the right audience.** RSVP Society organizes invitations into waves so priority members have the first opportunity to respond before invitations expand to additional members.
 
-Responses arrive through SMS. Confirmations, declines, +1 changes and cancellations update the same operational state used by later waves, reminders and check-in. Attendance closes the loop by recording who actually arrived rather than treating an RSVP as attendance.
+4. **Manage the conversation.** Jade handles invitations, RSVPs, +1 information, cancellations, reminders and common event questions through text while the application enforces the actual event rules.
+
+5. **Keep the guest list current.** Confirmations, cancellations and guest changes update expected attendance so the host has a reliable view of the event as it changes.
+
+6. **Run the door.** Check-in distinguishes members from their non-member guests and records who actually attended rather than treating an RSVP as attendance.
+
+7. **Grow the community.** Non-member guests can be identified as potential future members and directed to RSVP Society after experiencing an event.
+
+8. **Improve future events.** Attendance history helps the host understand who consistently participates and make better decisions about future invitations.
 
 ## Meet Jade
 
