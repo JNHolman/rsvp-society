@@ -4,4 +4,4 @@
 # these are not bundled into the deployment package (the build excludes this
 # file). This compatible range is for local/CI installs; it is not an exact lock
 # and does not guarantee parity with the Lambda-managed SDK version.
-boto3~=1.40
+boto3~=1.43
