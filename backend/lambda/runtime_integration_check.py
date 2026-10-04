@@ -25,10 +25,13 @@ assert 'smsOptIn' in index_text
 
 checkin_text = (ROOT / 'frontend' / 'admin' / 'checkin.js').read_text()
 assert 'checkedIn' in checkin_text
-assert 'checkedIn' in checkin_text
+assert 'checkedInPlusOnes = new Set();' in checkin_text
 assert 'guest-name' in checkin_text
 assert 'displayName' in checkin_text
 assert 'lastName' in checkin_text
+assert "(m.phone || '').includes(q)" in checkin_text
+assert "className: 'guest-meta', text: m.phone" not in checkin_text
+assert 'function escHtml' not in checkin_text
 
 admin_index_text = (ROOT / 'frontend' / 'admin' / 'index.html').read_text()
 assert 'ev-remind-day-before-time' in admin_index_text
@@ -40,6 +43,16 @@ assert '"name"' in invite_text
 member_routes_text = (ROOT / 'backend' / 'lambda' / 'admin_member_routes.py').read_text()
 assert 'status == "APPROVED" and prev_status != "APPROVED"' in member_routes_text
 assert 'coerce_bool(data.get("attended", False))' in member_routes_text
+assert 'checkin_open = start - timedelta(hours=3)' in member_routes_text
+assert 'coerce_bool(invite.get("plusOneIsMember", False))' in member_routes_text
+assert 'member_name_keys' not in member_routes_text
+
+admin_app_text = (ROOT / 'frontend' / 'admin' / 'admin-app.js').read_text()
+assert "'event-lock-btn'" not in admin_app_text
+
+access_text = (ROOT / 'backend' / 'lambda' / 'access_request.py').read_text()
+assert 'MAX_ACCESS_REQUEST_BYTES = 16 * 1024' in access_text
+assert 'base64.b64decode(raw_body, validate=True)' in access_text
 
 admin_text = (ROOT / 'backend' / 'lambda' / 'admin_handler.py').read_text()
 assert 'ROUTES =' in admin_text
