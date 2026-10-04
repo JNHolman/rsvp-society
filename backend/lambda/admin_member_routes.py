@@ -1047,8 +1047,8 @@ def import_members(event: dict, headers: dict, token: str) -> dict:
                 if last_name:
                     item["lastName"] = last_name[:120]
                 if import_status == "PENDING":
-                    item["pendingExpiresAt"] = member_store._pending_expiry_iso(now)
-                    item["pendingExpiresAtEpoch"] = member_store._pending_expiry_epoch(now)
+                    item["pendingExpiresAt"] = _pending_expiry_iso(now)
+                    item["pendingExpiresAtEpoch"] = _pending_expiry_epoch(now)
                 if email:
                     item["email"] = email[:200]
                 if tags:
