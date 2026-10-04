@@ -122,6 +122,7 @@ function doLogout() {
   sessionStorage.removeItem('rsvp_checkin_token_exp');
   allMembers = [];
   checkedIn = new Set();
+  checkedInPlusOnes = new Set();
   if ($('app')) {
     $('app').style.display = 'none';
     $('app').hidden = true;
@@ -258,7 +259,6 @@ function renderRow(m) {
   info.appendChild(node('div', { className: 'guest-name', text: displayName(m) }));
   const plus = renderPlusOne(m);
   if (plus) info.appendChild(plus);
-  info.appendChild(node('div', { className: 'guest-meta', text: m.phone || '' }));
   const btn = node('button', {
     className: `checkin-btn ${alreadyIn ? 'done' : ''}`.trim(),
     id: `btn-${safe}`,
@@ -342,15 +342,6 @@ async function checkInPlusOne(sponsorPhone, name) {
     if (btn) { btn.disabled = false; btn.textContent = 'Check +1'; }
     showToast(`+1 failed — ${errorMessage(err)}`, 'error');
   }
-}
-
-function escHtml(str) {
-  return String(str || '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
 }
 
 window.addEventListener('DOMContentLoaded', () => {
