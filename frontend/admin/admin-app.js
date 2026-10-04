@@ -45,7 +45,7 @@ async function doLogin() {
     state.adminToken = token;
     const initialPendingPayload = await apiJson(`${ROUTES.ADMIN_MEMBERS}?status=PENDING&limit=${state.pageSize || 50}&includeTotal=1`);
 
-    state.activeTab = 'members';
+    state.activeTab = 'overview';
     state.currentStatus = 'PENDING';
     sessionStorage.setItem('rsvp_admin_token', token);
     sessionStorage.setItem('rsvp_token_exp', String(Date.now() + (8 * 60 * 60 * 1000)));
@@ -56,6 +56,7 @@ async function doLogin() {
 
     await loadMembers('PENDING', { initialPayload: initialPendingPayload });
     await loadStats({ skipStatuses: ['PENDING'] });
+    await refreshOverview();
   } catch (error) {
     state.adminToken = previousToken;
     if (error?.status === 401 || error?.status === 403) {
@@ -80,6 +81,32 @@ function doLogout() {
   $('login-error').textContent = '';
 }
 
+function formatOverviewEvent(event = {}) {
+  const name = event.label || event.eventLabel || event.name || event.eventSlug || event.eventId || 'No active event';
+  const details = [event.date, event.startTime, event.venue].filter(Boolean).join(' · ');
+  return { name, details: details || 'Create or publish an event to begin operations.' };
+}
+
+async function refreshOverview() {
+  const pending = document.getElementById('overview-pending');
+  const approved = document.getElementById('overview-approved');
+  if (pending) pending.textContent = Number.isFinite(state.memberTotals?.PENDING) ? String(state.memberTotals.PENDING) : '—';
+  if (approved) approved.textContent = Number.isFinite(state.memberTotals?.APPROVED) ? String(state.memberTotals.APPROVED) : '—';
+  try {
+    await loadCurrentEvent();
+    const formatted = formatOverviewEvent(state.currentEvent || {});
+    const name = document.getElementById('overview-event-name');
+    const meta = document.getElementById('overview-event-meta');
+    if (name) name.textContent = formatted.name;
+    if (meta) meta.textContent = formatted.details;
+  } catch {
+    const name = document.getElementById('overview-event-name');
+    const meta = document.getElementById('overview-event-meta');
+    if (name) name.textContent = 'Event unavailable';
+    if (meta) meta.textContent = 'Open Event to retry.';
+  }
+}
+
 function setTab(tab) {
   state.activeTab = tab;
   document.querySelectorAll('.tab-btn').forEach((button) => button.classList.remove('active'));
@@ -89,11 +116,13 @@ function setTab(tab) {
 
 async function showSection(section) {
   state.activeTab = section;
+  setHidden('overview-section', section !== 'overview');
   setHidden('members-section', section !== 'members');
   setHidden('invite-section', section !== 'invite');
   setHidden('event-section', section !== 'event');
   setHidden('analytics-section', section !== 'analytics');
 
+  if (section === 'overview') await refreshOverview();
   if (section === 'event') await loadCurrentEvent();
   if (section === 'invite') await loadEventIntoInviteForm();
   if (section === 'analytics') await loadAnalyticsTab();
@@ -108,7 +137,15 @@ async function goToSection(section) {
 function bindShellEvents() {
   $('login-btn')?.addEventListener('click', doLogin);
   $('logout-btn')?.addEventListener('click', doLogout);
+  $('tab-overview')?.addEventListener('click', () => goToSection('overview'));
   $('tab-members')?.addEventListener('click', () => goToSection('members'));
+  $('overview-event-btn')?.addEventListener('click', () => goToSection('event'));
+  $('overview-invite-btn')?.addEventListener('click', () => goToSection('invite'));
+  $('overview-pending-card')?.addEventListener('click', async () => { await goToSection('members'); await loadMembers('PENDING'); });
+  $('overview-approved-card')?.addEventListener('click', async () => { await goToSection('members'); await loadMembers('APPROVED'); });
+  $('overview-event-card')?.addEventListener('click', () => goToSection('event'));
+  $('overview-invite-card')?.addEventListener('click', () => goToSection('invite'));
+  $('overview-analytics-card')?.addEventListener('click', () => goToSection('analytics'));
   $('tab-event')?.addEventListener('click', () => goToSection('event'));
   $('tab-invite')?.addEventListener('click', () => goToSection('invite'));
   $('tab-analytics')?.addEventListener('click', () => goToSection('analytics'));
