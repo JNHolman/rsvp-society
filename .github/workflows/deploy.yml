@@ -50,6 +50,9 @@ jobs:
           pip-audit
           pip-audit -r requirements.txt
 
+      - name: Build canonical Lambda bundle
+        run: bash backend/lambda/build_lambda.sh
+
       - name: Validate Terraform configuration
         working-directory: ./backend/terraform
         run: |
