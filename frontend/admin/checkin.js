@@ -137,10 +137,12 @@ async function loadEvent() {
     if (data.ok && data.event && data.event.date) {
       const ev = data.event;
       currentEventId = ev.eventSlug || ev.eventId || 'current';
-      $('banner-name').textContent = currentEventId || '—';
+      $('banner-name').textContent = ev.label || ev.eventLabel || currentEventId || '—';
       $('banner-date').textContent = ev.date || '—';
       $('banner-venue').textContent = ev.venue || '—';
       $('banner-time').textContent = ev.startTime || '—';
+      if ($('door-event-title')) $('door-event-title').textContent = ev.label || ev.eventLabel || ev.name || currentEventId || 'Check-In';
+      if ($('door-event-meta')) $('door-event-meta').textContent = [ev.date, ev.startTime, ev.venue].filter(Boolean).join(' · ') || 'Live guest check-in';
       $('event-banner').style.display = 'block';
     }
   } catch (e) {
@@ -169,6 +171,7 @@ function updateCounter() {
   const total = allMembers.length + plusOneTotal;
   const inCount = checkedIn.size + checkedInPlusOnes.size;
   $('counter-in').textContent = inCount;
+  if ($('door-status-in')) $('door-status-in').textContent = inCount;
   $('counter-total').textContent = total;
   const pct = total > 0 ? Math.round((inCount / total) * 100) : 0;
   $('counter-pct').textContent = total > 0 ? `${pct}%` : '';
@@ -226,7 +229,7 @@ function renderPlusOne(m) {
     className: `plus-one-row ${alreadyIn ? 'checked-in-plus-one' : ''}`.trim(),
     id: `plusone-row-${safe}`,
   });
-  const name = node('span', { className: 'plus-one-name', text: `+1: ${m.plusOneName}` });
+  const name = node('span', { className: `plus-one-name ${m.plusOneIsMember ? '' : 'non-member'}`.trim(), text: `+1: ${m.plusOneName}` });
   if (m.plusOneIsMember) {
     // no marker needed
   } else {
